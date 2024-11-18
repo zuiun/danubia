@@ -1,10 +1,11 @@
 use std::{collections::HashMap, fmt};
-use crate::engine::common::{Delta, ID, Information, Modifier, Point};
+use crate::engine::common::{ID, Information, Location, Modifier, Movement};
 
 #[derive (Debug)]
 pub struct Terrain {
     information: Information,
-    modifiers: Vec<Modifier>
+    modifiers: Vec<Modifier>,
+    cost: u8
 }
 
 #[derive (Debug)]
@@ -18,17 +19,21 @@ pub struct Tile {
 pub struct Map {
     map: Vec<Vec<Tile>>,
     terrains: HashMap<ID, Terrain>,
-    character_locations: HashMap<Point, Option<ID>>,
-    controller_locations: HashMap<Point, Option<ID>>,
+    character_locations: HashMap<Location, Option<ID>>,
+    controller_locations: HashMap<Location, Option<ID>>,
 }
 
 impl Terrain {
-    pub fn new (information: Information, modifiers: Vec<Modifier> ) -> Self {
-        Self { information, modifiers }
+    pub fn new (information: Information, modifiers: Vec<Modifier>, cost: u8 ) -> Self {
+        Self { information, modifiers, cost }
     }
 
     pub fn get_modifiers (&self) -> &Vec<Modifier> {
         &self.modifiers
+    }
+
+    pub fn get_cost (&self) -> u8 {
+        self.cost
     }
 }
 
@@ -59,12 +64,12 @@ impl Map {
         assert! (map.len () > 0);
         assert! (map[0].len () > 0);
 
-        let mut character_locations: HashMap<Point, Option<ID>> = HashMap::new ();
-        let mut controller_locations: HashMap<Point, Option<ID>> = HashMap::new ();
+        let mut character_locations: HashMap<Location, Option<ID>> = HashMap::new ();
+        let mut controller_locations: HashMap<Location, Option<ID>> = HashMap::new ();
 
         for i in 0 .. map.len () {
             for j in 0 .. map[i].len () {
-                let location: Point = (i, j);
+                let location: Location = (i, j);
 
                 character_locations.insert (location, None);
                 controller_locations.insert (location, None);
@@ -74,11 +79,11 @@ impl Map {
         Self { map, terrains, character_locations, controller_locations }
     }
 
-    pub fn is_in_bounds (&self, location: Point) -> bool {
+    pub fn is_in_bounds (&self, location: Location) -> bool {
         location.0 < self.map.len () && location.1 < self.map[0].len ()
     }
 
-    pub fn is_occupied (&self, location: Point) -> bool {
+    pub fn is_occupied (&self, location: Location) -> bool {
         assert! (self.is_in_bounds (location));
 
         match self.character_locations.get (&location) {
@@ -86,26 +91,26 @@ impl Map {
                 Some (_) => true,
                 None => false
             }
-            None => false // This should never happen, but if it does, then there is clearly not a character there
+            None => panic! ("Location {:#?} not found", location)
         }
     }
 
-    fn is_impassable (&self, location: Point) -> bool {
+    fn is_impassable (&self, location: Location) -> bool {
         assert! (self.is_in_bounds (location));
 
         self.map[location.0][location.1].is_impassable ()
     }
 
-    fn is_placeable (&self, location: Point) -> bool {
+    fn is_placeable (&self, location: Location) -> bool {
         assert! (self.is_in_bounds (location));
 
         !self.is_occupied (location) && !self.is_impassable (location)
     }
 
-    pub fn is_movable (&self, location: Point, movement: Delta) -> bool {
+    pub fn is_movable (&self, location: Location, movement: Movement) -> bool {
         assert! (self.is_in_bounds (location));
 
-        let mut destination: Point = location;
+        let mut destination: Location = location;
 
         match location.0.checked_add_signed (movement.0) {
             Some (r) => destination.0 = r,
@@ -117,16 +122,41 @@ impl Map {
             None => return false
         }
 
-        self.is_in_bounds (destination)
+        if !self.is_placeable (destination) {
+            return false;
+        }
+
+        // TODO: Check heights
+        true
     }
 
-    pub fn place_character (&mut self, location: Point, character_id: ID) -> bool {
+    pub fn place_character (&mut self, location: Location, character_id: ID) -> bool {
+        assert! (self.is_in_bounds (location));
+
         if self.is_placeable (location) {
             self.character_locations.insert (location, Some (character_id));
 
             true
         } else {
             false
+        }
+    }
+
+    pub fn get_character (&self, location: Location) -> Option<ID> {
+        assert! (self.is_in_bounds (location));
+
+        match self.character_locations.get (&location) {
+            Some (c) => *c,
+            None => panic! ("Location {:#?} not found", location)
+        }
+    }
+
+    pub fn get_controller (&self, location: Location) -> Option<ID> {
+        assert! (self.is_in_bounds (location));
+
+        match self.controller_locations.get (&location) {
+            Some (c) => *c,
+            None => panic! ("Location {:#?} not found", location)
         }
     }
 }
@@ -172,9 +202,9 @@ mod tests {
     use super::*;
 
     fn generate_terrains () -> HashMap<ID, Terrain> {
-        let grass: Terrain = Terrain::new (Information::new (String::from ("Grass"), vec![String::from ("grass")], 0), Vec::new ());
-        let dirt: Terrain = Terrain::new (Information::new (String::from ("Dirt"), vec![String::from ("dirt")], 0), Vec::new ());
-        let stone: Terrain = Terrain::new (Information::new (String::from ("Stone"), vec![String::from ("stone")], 0), Vec::new ());
+        let grass: Terrain = Terrain::new (Information::new (String::from ("Grass"), vec![String::from ("grass")], 0), Vec::new (), 0);
+        let dirt: Terrain = Terrain::new (Information::new (String::from ("Dirt"), vec![String::from ("dirt")], 0), Vec::new (), 1);
+        let stone: Terrain = Terrain::new (Information::new (String::from ("Stone"), vec![String::from ("stone")], 0), Vec::new (), 2);
         let mut terrains: HashMap<ID, Terrain> = HashMap::new ();
 
         terrains.insert (0, grass);
@@ -187,9 +217,7 @@ mod tests {
     fn generate_map (terrains: HashMap<ID, Terrain>) -> Map {
         Map::new (vec![
             vec![Tile::new (0, 0, false), Tile::new (0, 1, false), Tile::new (0, 0, true)],
-            vec![Tile::new (1, 0, false), Tile::new (1, 0, false), Tile::new (1, 0, false)],
-            vec![Tile::new (2, 0, false), Tile::new (1, 0, false), Tile::new (2, 0, false)],
-            vec![Tile::new (0, 1, false), Tile::new (0, 2, false), Tile::new (0, 3, false)]
+            vec![Tile::new (1, 2, false), Tile::new (1, 1, false), Tile::new (2, 0, false)]
         ], terrains)
     }
 
@@ -197,7 +225,12 @@ mod tests {
     fn terrains_build () {
         let terrains: HashMap<ID, Terrain> = generate_terrains ();
 
-        todo! ("Write tests");
+        assert_eq! (terrains.get (&0).unwrap ().get_modifiers ().len (), 0);
+        assert_eq! (terrains.get (&0).unwrap ().get_cost (), 0);
+        assert_eq! (terrains.get (&1).unwrap ().get_modifiers ().len (), 0);
+        assert_eq! (terrains.get (&1).unwrap ().get_cost (), 1);
+        assert_eq! (terrains.get (&2).unwrap ().get_modifiers ().len (), 0);
+        assert_eq! (terrains.get (&2).unwrap ().get_cost (), 2);
     }
 
     #[test]
@@ -205,58 +238,26 @@ mod tests {
         let terrains: HashMap<ID, Terrain> = generate_terrains ();
         let map: Map = generate_map (terrains);
 
-        todo! ("Write tests");
+        assert_eq! (map.map[0][0].get_terrain_id (), 0);
+        assert_eq! (map.map[0][0].get_height (), 0);
+        assert_eq! (map.map[0][0].is_impassable (), false);
+        assert_eq! (map.map[0][0].get_terrain_id (), 0);
+        assert_eq! (map.map[0][1].get_height (), 1);
+        assert_eq! (map.map[0][1].is_impassable (), false);
+        assert_eq! (map.map[0][2].get_terrain_id (), 0);
+        assert_eq! (map.map[0][2].get_height (), 0);
+        assert_eq! (map.map[0][2].is_impassable (), true);
+
+        assert_eq! (map.map[1][0].get_terrain_id (), 1);
+        assert_eq! (map.map[1][0].get_height (), 2);
+        assert_eq! (map.map[1][0].is_impassable (), false);
+        assert_eq! (map.map[1][0].get_terrain_id (), 1);
+        assert_eq! (map.map[1][1].get_height (), 1);
+        assert_eq! (map.map[1][1].is_impassable (), false);
+        assert_eq! (map.map[1][2].get_terrain_id (), 2);
+        assert_eq! (map.map[1][2].get_height (), 0);
+        assert_eq! (map.map[1][2].is_impassable (), false);
     }
-
-    // #[test]
-    // fn map_cursor () {
-    //     let terrains: UniqueManager<Terrain> = build_terrains ();
-    //     let mut map: Map = build_map (terrains);
-
-    //     assert_eq! (map.get_cursor (), (0, 0));
-    //     assert_eq! (map.move_cursor (Direction::Down), Some ((1, 0)));
-    //     assert_eq! (map.move_cursor (Direction::Down), Some ((2, 0)));
-    //     assert_eq! (map.move_cursor (Direction::Down), Some ((3, 0)));
-    //     assert_eq! (map.get_cursor (), (3, 0));
-    //     assert_eq! (map.move_cursor (Direction::Down), None);
-    //     assert_eq! (map.to_string (),
-    //             " g0  g0  g0 \n \
-    //             d0  d0  d0 \n \
-    //             s0  d0  s0 \n\
-    //             >g1  g2  g3 \n");
-    //     assert_eq! (map.get_cursor (), (3, 0));
-    //     assert_eq! (map.move_cursor (Direction::Up), Some ((2, 0)));
-    //     assert_eq! (map.move_cursor (Direction::Up), Some ((1, 0)));
-    //     assert_eq! (map.move_cursor (Direction::Up), Some ((0, 0)));
-    //     assert_eq! (map.get_cursor (), (0, 0));
-    //     assert_eq! (map.move_cursor (Direction::Up), None);
-    //     assert_eq! (map.to_string (),
-    //             ">g0  g0  g0 \n \
-    //             d0  d0  d0 \n \
-    //             s0  d0  s0 \n \
-    //             g1  g2  g3 \n");
-    //     assert_eq! (map.get_cursor (), (0, 0));
-    //     assert_eq! (map.move_cursor (Direction::Right), Some ((0, 1)));
-    //     assert_eq! (map.move_cursor (Direction::Right), Some ((0, 2)));
-    //     assert_eq! (map.get_cursor (), (0, 2));
-    //     assert_eq! (map.move_cursor (Direction::Right), None);
-    //     assert_eq! (map.to_string (),
-    //             " g0  g0 >g0 \n \
-    //             d0  d0  d0 \n \
-    //             s0  d0  s0 \n \
-    //             g1  g2  g3 \n");
-    //     assert_eq! (map.get_cursor (), (0, 2));
-    //     assert_eq! (map.move_cursor (Direction::Left), Some ((0, 1)));
-    //     assert_eq! (map.move_cursor (Direction::Left), Some ((0, 0)));
-    //     assert_eq! (map.get_cursor (), (0, 0));
-    //     assert_eq! (map.move_cursor (Direction::Left), None);
-    //     assert_eq! (map.get_cursor (), (0, 0));
-    //     assert_eq! (map.to_string (),
-    //             ">g0  g0  g0 \n \
-    //             d0  d0  d0 \n \
-    //             s0  d0  s0 \n \
-    //             g1  g2  g3 \n");
-    // }
 
     #[test]
     fn map_place_character () {
@@ -266,8 +267,19 @@ mod tests {
         assert_eq! (map.is_in_bounds ((1, 1)), true);
         assert_eq! (map.is_placeable ((1, 1)), true);
         assert_eq! (map.place_character ((1, 1), 0), true);
+        assert_eq! (map.get_character ((1, 1)).unwrap (), 0);
+        
         assert_eq! (map.is_in_bounds ((1, 1)), true);
         assert_eq! (map.is_placeable ((1, 1)), false);
-        assert_eq! (map.place_character ((1, 1), 0), false);
+        assert_eq! (map.place_character ((1, 1), 1), false);
+        assert_eq! (map.get_character ((1, 1)).unwrap (), 0);
+    }
+
+    #[test]
+    fn map_move_character () {
+        let terrains: HashMap<ID, Terrain> = generate_terrains ();
+        let mut map: Map = generate_map (terrains);
+
+        todo! ("Write tests");
     }
 }

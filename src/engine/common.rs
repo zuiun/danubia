@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt};
+use std::{collections::{HashMap, HashSet}, fmt, hash::Hash};
 
 pub const HLT: usize = 0; // Morale – Willingness to fight
 pub const STR: usize = 1; // Strength – Ability to fight
@@ -12,15 +12,16 @@ pub const PRC: usize = 1; // Pierce – Weapon modifier for physical damage, str
 pub const DCY: usize = 2; // Decay – Weapon modifier for magical damage
 
 pub type ID = u8; // Up to 256 unique entities
-pub type Point = (usize, usize);
-pub type Delta = (isize, isize);
-pub type Statistics = [Option<Statistic>; ORG + 1];
+pub type Location = (usize, usize);
+pub type Movement = (isize, isize);
+// pub type Statistics = [Option<Statistic>; ORG + 1];
+pub type Adjustments = [Option<i8>; ORG + 1];
 
 #[derive (Debug)]
 pub enum Area {
     Single,
-    Radial (u8),
-    Path (u8)
+    Radial (u8), // radius
+    Path (u8) // width
 }
 
 #[derive (Debug)]
@@ -61,6 +62,7 @@ pub struct Statistic {
 #[derive (Debug)]
 pub struct Modifier {
     information: Information,
+    adjustments: Adjustments
 }
 
 #[derive (Debug)]
@@ -69,6 +71,14 @@ pub struct Effect {
     modifier: Modifier,
     duration: u8,
     next: Option<Box<Effect>>
+}
+
+#[derive (Debug)]
+pub struct DuplicateMap<T, U> {
+    map_first: HashMap<T, Option<U>>,
+    map_second: HashMap<U, Option<T>>,
+    map_first_collection: HashMap<T, HashSet<U>>,
+    is_collection: bool
 }
 
 impl Information {
@@ -86,8 +96,8 @@ impl Information {
 }
 
 impl Modifier {
-    pub fn new (information: Information) -> Self {
-        Self { information }
+    pub fn new (information: Information, adjustments: Adjustments) -> Self {
+        Self { information, adjustments }
     }
 }
 
