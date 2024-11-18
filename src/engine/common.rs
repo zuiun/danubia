@@ -75,8 +75,8 @@ pub struct Effect {
 
 #[derive (Debug)]
 pub struct DuplicateMap<T, U> {
-    map_first: HashMap<T, Option<U>>,
-    map_second: HashMap<U, Option<T>>,
+    map_first: HashMap<T, U>,
+    map_second: HashMap<U, T>,
     map_first_collection: HashMap<T, HashSet<U>>,
     is_collection: bool
 }
@@ -98,6 +98,115 @@ impl Information {
 impl Modifier {
     pub fn new (information: Information, adjustments: Adjustments) -> Self {
         Self { information, adjustments }
+    }
+}
+
+impl<T, U> DuplicateMap<T, U>
+where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + Eq + Hash {
+    pub fn new (collection: Option<Vec<T>>) -> Self {
+        let map_first: HashMap<T, U> = HashMap::new ();
+        let map_second: HashMap<U, T> = HashMap::new ();
+        let mut map_first_collection: HashMap<T, HashSet<U>> = HashMap::new ();
+        let is_collection: bool = match collection {
+            Some (v) => {
+                v.into_iter ().map (|t| map_first_collection.insert (t, HashSet::new ())).collect::<Vec<_>> ();
+
+                true
+            }
+            None => false
+        };
+
+        Self { map_first, map_second, map_first_collection, is_collection }
+    }
+
+    pub fn insert (&mut self, values: (&T, &U)) -> Option<(U, T)> {
+        assert! (!self.is_collection);
+
+        let first_original: Option<U> = self.map_first.insert (values.0.clone (), values.1.clone ());
+        let second_original: Option<T> = self.map_second.insert (values.1.clone (), values.0.clone ());
+
+        assert_eq! (first_original.is_some (), second_original.is_some ());
+
+        if first_original.is_some () && second_original.is_some () {
+            Some ((first_original.unwrap (), second_original.unwrap ()))
+        } else {
+            None
+        }
+    }
+
+    pub fn insert_collection (&mut self, values: (&T, &U)) -> Option<T> {
+        assert! (self.is_collection);
+
+        let first_collection: &mut HashSet<U> = match self.map_first_collection.get_mut (values.0) {
+            Some (c) => c,
+            None => panic! ("Collection not found for key {:?}", values.0)
+        };
+        let first_collection: bool = first_collection.insert (values.1.clone ());
+        let second_original: Option<T> = self.map_second.insert (values.1.clone (), values.0.clone ());
+
+        assert_eq! (first_collection, second_original.is_some ());
+
+        if first_collection && second_original.is_some () {
+            Some (second_original.unwrap ())
+        } else {
+            None
+        }
+    }
+
+    pub fn get (&self, keys: (Option<&T>, Option<&U>)) -> (Option<&U>, Option<&T>) {
+        assert! (!self.is_collection);
+
+        let first_value: Option<&U> = match keys.0 {
+            Some (k) => self.map_first.get (k),
+            None => None
+        };
+        let second_value: Option<&T> = match keys.1 {
+            Some (k) => self.map_second.get (k),
+            None => None
+        };
+
+        (first_value, second_value)
+    }
+
+    pub fn get_collection (&self, keys: (Option<&T>, Option<&U>)) -> (Option<&HashSet<U>>, Option<&T>) {
+        assert! (self.is_collection);
+
+        let first_value: Option<&HashSet<U>> = match keys.0 {
+            Some (k) => self.map_first_collection.get (k),
+            None => None
+        };
+        let second_value: Option<&T> = match keys.1 {
+            Some (k) => self.map_second.get (k),
+            None => None
+        };
+
+        (first_value, second_value)
+    }
+
+    pub fn remove (&mut self, keys: (&T, &U)) -> bool {
+        assert! (!self.is_collection);
+
+        let first_original: Option<U> = self.map_first.remove (keys.0);
+        let second_original: Option<T> = self.map_second.remove (keys.1);
+
+        assert_eq! (first_original.is_some (), second_original.is_some ());
+
+        first_original.is_some () && second_original.is_some ()
+    }
+
+    pub fn remove_collection (&mut self, keys: (&T, &U)) -> bool {
+        assert! (self.is_collection);
+
+        let first_collection: &mut HashSet<U> = match self.map_first_collection.get_mut (keys.0) {
+            Some (c) => c,
+            None => panic! ("Collection not found for key {:?}", keys.0)
+        };
+        let first_collection: bool = first_collection.remove (keys.1);
+        let second_original: Option<T> = self.map_second.remove (keys.1);
+
+        assert_eq! (first_collection, second_original.is_some ());
+
+        first_collection
     }
 }
 

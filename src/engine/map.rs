@@ -1,5 +1,7 @@
-use std::{collections::HashMap, fmt};
+use std::{collections::{HashMap, HashSet}, fmt};
 use crate::engine::common::{ID, Information, Location, Modifier, Movement};
+
+use super::common::DuplicateMap;
 
 #[derive (Debug)]
 pub struct Terrain {
@@ -19,8 +21,8 @@ pub struct Tile {
 pub struct Map {
     map: Vec<Vec<Tile>>,
     terrains: HashMap<ID, Terrain>,
-    character_locations: HashMap<Location, Option<ID>>,
-    controller_locations: HashMap<Location, Option<ID>>,
+    character_locations: DuplicateMap<ID, Location>,
+    controller_locations: DuplicateMap<ID, Location>,
 }
 
 impl Terrain {
@@ -64,17 +66,9 @@ impl Map {
         assert! (map.len () > 0);
         assert! (map[0].len () > 0);
 
-        let mut character_locations: HashMap<Location, Option<ID>> = HashMap::new ();
-        let mut controller_locations: HashMap<Location, Option<ID>> = HashMap::new ();
-
-        for i in 0 .. map.len () {
-            for j in 0 .. map[i].len () {
-                let location: Location = (i, j);
-
-                character_locations.insert (location, None);
-                controller_locations.insert (location, None);
-            }
-        }
+        let factions: Vec<ID> = Vec::new ();
+        let character_locations: DuplicateMap<ID, Location> = DuplicateMap::new (None);
+        let controller_locations: DuplicateMap<ID, Location> = DuplicateMap::new (Some (factions));
 
         Self { map, terrains, character_locations, controller_locations }
     }
@@ -86,12 +80,9 @@ impl Map {
     pub fn is_occupied (&self, location: Location) -> bool {
         assert! (self.is_in_bounds (location));
 
-        match self.character_locations.get (&location) {
-            Some (p) => match p {
-                Some (_) => true,
-                None => false
-            }
-            None => panic! ("Location {:#?} not found", location)
+        match self.get_character (&location) {
+            Some (_) => true,
+            None => false
         }
     }
 
@@ -134,7 +125,7 @@ impl Map {
         assert! (self.is_in_bounds (location));
 
         if self.is_placeable (location) {
-            self.character_locations.insert (location, Some (character_id));
+            self.character_locations.insert ((&character_id, &location));
 
             true
         } else {
@@ -142,21 +133,39 @@ impl Map {
         }
     }
 
-    pub fn get_character (&self, location: Location) -> Option<ID> {
-        assert! (self.is_in_bounds (location));
+    pub fn get_character (&self, location: &Location) -> Option<&ID> {
+        assert! (self.is_in_bounds (*location));
 
-        match self.character_locations.get (&location) {
-            Some (c) => *c,
-            None => panic! ("Location {:#?} not found", location)
+        match self.character_locations.get ((None, Some (location))) {
+            (None, Some (c)) => Some (c),
+            (None, None) => None,
+            _ => panic! ("Location {:?} not found", *location)
         }
     }
 
-    pub fn get_controller (&self, location: Location) -> Option<ID> {
-        assert! (self.is_in_bounds (location));
+    pub fn get_controller (&self, location: &Location) -> Option<&ID> {
+        assert! (self.is_in_bounds (*location));
 
-        match self.controller_locations.get (&location) {
-            Some (c) => *c,
-            None => panic! ("Location {:#?} not found", location)
+        match self.controller_locations.get_collection ((None, Some (location))) {
+            (Some (_), Some (c)) => Some (c),
+            (None, None) => None,
+            _ => panic! ("Location {:?} not found", *location)
+        }
+    }
+
+    pub fn get_location (&self, character_id: &ID) -> Option<&Location> {
+        match self.character_locations.get ((Some (character_id), None)) {
+            (Some (l), Some (_)) => Some (l),
+            (None, None) => None,
+            _ => panic! ("Character {} not found", *character_id)
+        }
+    }
+
+    pub fn get_locations (&self, character_id: &ID) -> Option<&HashSet<Location>> {
+        match self.controller_locations.get_collection ((Some (character_id), None)) {
+            (Some (l), Some (_)) => Some (l),
+            (None, None) => None,
+            _ => panic! ("Character {} not found", *character_id)
         }
     }
 }
@@ -267,12 +276,12 @@ mod tests {
         assert_eq! (map.is_in_bounds ((1, 1)), true);
         assert_eq! (map.is_placeable ((1, 1)), true);
         assert_eq! (map.place_character ((1, 1), 0), true);
-        assert_eq! (map.get_character ((1, 1)).unwrap (), 0);
+        assert_eq! (*map.get_character (&(1, 1)).unwrap (), 0);
         
         assert_eq! (map.is_in_bounds ((1, 1)), true);
         assert_eq! (map.is_placeable ((1, 1)), false);
         assert_eq! (map.place_character ((1, 1), 1), false);
-        assert_eq! (map.get_character ((1, 1)).unwrap (), 0);
+        assert_eq! (*map.get_character (&(1, 1)).unwrap (), 0);
     }
 
     #[test]
