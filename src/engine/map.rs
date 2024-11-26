@@ -1,7 +1,5 @@
 use std::{collections::{HashMap, HashSet}, fmt};
-use crate::engine::common::{ID, Information, Location, Modifier, Movement};
-
-use super::common::DuplicateMap;
+use crate::engine::common::{DuplicateCollectionMap, DuplicateMap, Information, Location, Modifier, Movement, ID};
 
 #[derive (Debug)]
 pub struct Terrain {
@@ -22,7 +20,7 @@ pub struct Map {
     map: Vec<Vec<Tile>>,
     terrains: HashMap<ID, Terrain>,
     character_locations: DuplicateMap<ID, Location>,
-    controller_locations: DuplicateMap<ID, Location>,
+    controller_locations: DuplicateCollectionMap<ID, Location>,
 }
 
 impl Terrain {
@@ -67,41 +65,41 @@ impl Map {
         assert! (map[0].len () > 0);
 
         let factions: Vec<ID> = Vec::new ();
-        let character_locations: DuplicateMap<ID, Location> = DuplicateMap::new (None);
-        let controller_locations: DuplicateMap<ID, Location> = DuplicateMap::new (Some (factions));
+        let character_locations: DuplicateMap<ID, Location> = DuplicateMap::new ();
+        let controller_locations: DuplicateCollectionMap<ID, Location> = DuplicateCollectionMap::new (factions);
 
         Self { map, terrains, character_locations, controller_locations }
     }
 
-    pub fn is_in_bounds (&self, location: Location) -> bool {
+    pub fn is_in_bounds (&self, location: &Location) -> bool {
         location.0 < self.map.len () && location.1 < self.map[0].len ()
     }
 
-    pub fn is_occupied (&self, location: Location) -> bool {
+    pub fn is_occupied (&self, location: &Location) -> bool {
         assert! (self.is_in_bounds (location));
 
-        match self.get_character (&location) {
+        match self.get_character (location) {
             Some (_) => true,
             None => false
         }
     }
 
-    fn is_impassable (&self, location: Location) -> bool {
+    fn is_impassable (&self, location: &Location) -> bool {
         assert! (self.is_in_bounds (location));
 
         self.map[location.0][location.1].is_impassable ()
     }
 
-    fn is_placeable (&self, location: Location) -> bool {
+    fn is_placeable (&self, location: &Location) -> bool {
         assert! (self.is_in_bounds (location));
 
         !self.is_occupied (location) && !self.is_impassable (location)
     }
 
-    pub fn is_movable (&self, location: Location, movement: Movement) -> bool {
+    pub fn is_movable (&self, location: &Location, movement: &Movement) -> bool {
         assert! (self.is_in_bounds (location));
 
-        let mut destination: Location = location;
+        let mut destination: Location = location.clone ();
 
         match location.0.checked_add_signed (movement.0) {
             Some (r) => destination.0 = r,
@@ -113,7 +111,7 @@ impl Map {
             None => return false
         }
 
-        if !self.is_placeable (destination) {
+        if !self.is_placeable (&destination) {
             return false;
         }
 
@@ -122,10 +120,10 @@ impl Map {
     }
 
     pub fn place_character (&mut self, location: Location, character_id: ID) -> bool {
-        assert! (self.is_in_bounds (location));
+        assert! (self.is_in_bounds (&location));
 
-        if self.is_placeable (location) {
-            self.character_locations.insert ((&character_id, &location));
+        if self.is_placeable (&location) {
+            self.character_locations.insert ((character_id, location));
 
             true
         } else {
@@ -134,39 +132,23 @@ impl Map {
     }
 
     pub fn get_character (&self, location: &Location) -> Option<&ID> {
-        assert! (self.is_in_bounds (*location));
+        assert! (self.is_in_bounds (location));
 
-        match self.character_locations.get ((None, Some (location))) {
-            (None, Some (c)) => Some (c),
-            (None, None) => None,
-            _ => panic! ("Location {:?} not found", *location)
-        }
+        self.character_locations.get_second (location)
     }
 
     pub fn get_controller (&self, location: &Location) -> Option<&ID> {
-        assert! (self.is_in_bounds (*location));
+        assert! (self.is_in_bounds (location));
 
-        match self.controller_locations.get_collection ((None, Some (location))) {
-            (Some (_), Some (c)) => Some (c),
-            (None, None) => None,
-            _ => panic! ("Location {:?} not found", *location)
-        }
+        self.controller_locations.get_second (location)
     }
 
     pub fn get_location (&self, character_id: &ID) -> Option<&Location> {
-        match self.character_locations.get ((Some (character_id), None)) {
-            (Some (l), Some (_)) => Some (l),
-            (None, None) => None,
-            _ => panic! ("Character {} not found", *character_id)
-        }
+        self.character_locations.get_first (character_id)
     }
 
-    pub fn get_locations (&self, character_id: &ID) -> Option<&HashSet<Location>> {
-        match self.controller_locations.get_collection ((Some (character_id), None)) {
-            (Some (l), Some (_)) => Some (l),
-            (None, None) => None,
-            _ => panic! ("Character {} not found", *character_id)
-        }
+    pub fn get_locations (&self, faction_id: &ID) -> Option<&HashSet<Location>> {
+        self.controller_locations.get_first (faction_id)
     }
 }
 
@@ -273,15 +255,13 @@ mod tests {
         let terrains: HashMap<ID, Terrain> = generate_terrains ();
         let mut map: Map = generate_map (terrains);
 
-        assert_eq! (map.is_in_bounds ((1, 1)), true);
-        assert_eq! (map.is_placeable ((1, 1)), true);
+        assert_eq! (map.is_in_bounds (&(1, 1)), true);
+        assert_eq! (map.is_placeable (&(1, 1)), true);
         assert_eq! (map.place_character ((1, 1), 0), true);
-        assert_eq! (*map.get_character (&(1, 1)).unwrap (), 0);
-        
-        assert_eq! (map.is_in_bounds ((1, 1)), true);
-        assert_eq! (map.is_placeable ((1, 1)), false);
+        assert_eq! (map.get_character (&(1, 1)).unwrap (), &0);
+        assert_eq! (map.is_placeable (&(1, 1)), false);
         assert_eq! (map.place_character ((1, 1), 1), false);
-        assert_eq! (*map.get_character (&(1, 1)).unwrap (), 0);
+        assert_eq! (map.get_character (&(1, 1)).unwrap (), &0);
     }
 
     #[test]
