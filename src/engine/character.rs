@@ -19,6 +19,7 @@ pub struct Skill {
 #[derive (Debug)]
 pub struct Character {
     information: Information,
+    faction_id: ID,
     weapon_id: ID
 }
 
@@ -33,8 +34,12 @@ impl Skill {
 }
 
 impl Character {
-    pub fn new (information: Information, weapon_id: ID) -> Self {
-        Self { information, weapon_id }
+    pub fn new (information: Information, faction_id: ID, weapon_id: ID) -> Self {
+        Self { information, faction_id, weapon_id }
+    }
+
+    pub fn get_faction_id (&self) -> ID {
+        self.faction_id
     }
 }
 
@@ -54,12 +59,5 @@ mod tests {
         weapons.insert (2, book);
 
         weapons
-    }
-
-    #[test]
-    fn character_build () {
-        let bob: Character = Character::new (Information::new (String::from ("Bob"), vec![String::from ("bob")], 0), 0);
-
-        todo! ("Write tests");
     }
 }

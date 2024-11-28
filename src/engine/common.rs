@@ -1,15 +1,17 @@
 use std::{collections::{HashMap, HashSet}, fmt, hash::Hash};
 
+// Unit statistics
 pub const HLT: usize = 0; // Morale – Willingness to fight
 pub const STR: usize = 1; // Strength – Ability to fight
 pub const ATK: usize = 2; // Attack – Physical damage
 pub const DEF: usize = 3; // Defence – Physical resistance
 pub const MAG: usize = 4; // Magic – Magical damage and resistance
 pub const MOV: usize = 5; // Manoeuvre – Speed and movement
-pub const ORG: usize = 6; // Cohesion – Unit modifier for formation effects and subordinate units
-pub const SLH: usize = 0; // Slash – Weapon modifier for physical damage, strong against strength
-pub const PRC: usize = 1; // Pierce – Weapon modifier for physical damage, strong against morale
-pub const DCY: usize = 2; // Decay – Weapon modifier for magical damage
+pub const ORG: usize = 6; // Cohesion – Modifier for formation effects and subordinate units
+// Weapon statistics
+pub const SLH: usize = 0; // Slash – Modifier for physical damage, strong against strength
+pub const PRC: usize = 1; // Pierce – Modifier for physical damage, strong against morale
+pub const DCY: usize = 2; // Decay – Modifier for magical damage
 
 pub type ID = u8; // Up to 256 unique entities
 pub type Location = (usize, usize);
@@ -38,11 +40,13 @@ pub enum Value {
 }
 
 #[derive (Debug)]
+#[derive (Clone, Copy)]
 pub enum Direction {
     Up,
     Right,
     Down,
-    Left
+    Left,
+    Length // 4
 }
 
 #[derive (Debug)]
@@ -133,10 +137,8 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     }
 
     pub fn remove_first (&mut self, key_first: &T) -> Option<U> {
-        let original_second: Option<T> = match self.map_first.get (key_first) {
-            Some (k) => self.map_second.remove (k),
-            None => return None
-        };
+        let key_second: &U = self.map_first.get (key_first)?;
+        let original_second: Option<T> = self.map_second.remove (key_second);
         let original_first: Option<U> = self.map_first.remove (key_first);
 
         assert_eq! (original_first.is_some (), original_second.is_some ());
@@ -145,10 +147,8 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     }
 
     pub fn remove_second (&mut self, key_second: &U) -> Option<T> {
-        let original_first: Option<U> = match self.map_second.get (key_second) {
-            Some (k) => self.map_first.remove (k),
-            None => return None
-        };
+        let key_first: &T = self.map_second.get (key_second)?;
+        let original_first: Option<U> = self.map_first.remove (key_first);
         let original_second: Option<T> = self.map_second.remove (key_second);
 
         assert_eq! (original_first.is_some (), original_second.is_some ());
@@ -157,10 +157,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     }
 
     pub fn replace_first (&mut self, value: T, destination: U) -> Option<(U, Option<T>)> {
-        let original_first: U = match self.map_first.remove (&value) {
-            Some (k) => k,
-            None => return None
-        };
+        let original_first: U = self.map_first.remove (&value)?;
         let original_second: Option<T> = match self.map_second.get (&destination) {
             Some (k) => {
                 self.map_first.remove (&k);
@@ -177,10 +174,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     }
 
     pub fn replace_second (&mut self, value: U, destination: T) -> Option<(T, Option<U>)> {
-        let original_second: T = match self.map_second.remove (&value) {
-            Some (k) => k,
-            None => return None
-        };
+        let original_second: T = self.map_second.remove (&value)?;
         let original_first: Option<U> = match self.map_first.get (&destination) {
             Some (k) => {
                 self.map_second.remove (&k);
@@ -221,10 +215,8 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
         if self.map_second.contains_key (&values.1) {
             false
         } else {
-            let collection_first: &mut HashSet<U> = match self.map_first.get_mut (&values.0) {
-                Some (c) => c,
-                None => panic! ("Collection not found for key {:?}", values.0)
-            };
+            let collection_first: &mut HashSet<U> = self.map_first.get_mut (&values.0)
+                    .expect (&format! ("Collection not found for key {:?}", values.0));
             let collection_first: bool = collection_first.insert (values.1.clone ());
             let original_second: Option<T> = self.map_second.insert (values.1, values.0);
     
@@ -243,10 +235,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     }
 
     pub fn get_collection_second (&self, key_second: &U) -> Option<&HashSet<U>> {
-        let key_first: &T = match self.map_second.get (key_second) {
-            Some (k) => k,
-            None => return None
-        };
+        let key_first: &T = self.map_second.get (key_second)?;
 
         self.map_first.get (key_first)
     }
@@ -256,10 +245,8 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
             Some (k) => k,
             None => return false
         };
-        let collection_first: &mut HashSet<U> = match self.map_first.get_mut (key_first) {
-            Some (c) => c,
-            None => panic! ("Collection not found for key {:?}", key_first)
-        };
+        let collection_first: &mut HashSet<U> = self.map_first.get_mut (key_first)
+                .expect (&format! ("Collection not found for key {:?}", key_first));
         let collection_first: bool = collection_first.remove (key);
         let original_second: Option<T> = self.map_second.remove (key);
 
@@ -271,20 +258,12 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     pub fn replace (&mut self, value: U, destination: T) -> Option<T> {
         assert! (self.map_first.contains_key (&destination));
 
-        let key_old: T = match self.map_second.get (&value) {
-            Some (k) => k.clone (),
-            None => return None
-        };
-        let collection_old: &mut HashSet<U> = match self.map_first.get_mut (&key_old) {
-            Some (c) => c,
-            None => return None
-        };
+        let key_old: T = self.map_second.get (&value)?.clone ();
+        let collection_old: &mut HashSet<U> = self.map_first.get_mut (&key_old)?;
 
         if collection_old.remove (&value) {
-            let collection_new: &mut HashSet<U> = match self.map_first.get_mut (&destination) {
-                Some (c) => c,
-                None => panic! ("Collection not found for key {:?}", value)
-            };
+            let collection_new: &mut HashSet<U> = self.map_first.get_mut (&destination)
+                    .expect (&format! ("Collection not found for key {:?}", value));
 
             collection_new.insert (value.clone ());
             self.map_second.insert (value, destination);
@@ -335,10 +314,6 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
 //             None
 //         }
 //     }
-// }
-
-// pub fn get_cursor (&self) -> Cursor {
-//     self.cursor
 // }
 
 impl fmt::Display for Information {
