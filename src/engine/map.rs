@@ -1,5 +1,7 @@
 use std::{collections::{HashMap, HashSet}, fmt, rc::Rc};
-use crate::engine::common::{DuplicateCollectionMap, DuplicateMap, Information, Location, Modifier, Movement, ID};
+use crate::engine::common::{Direction, DuplicateCollectionMap, DuplicateMap, Information, Location, Modifier, ID};
+
+const CLIMBABLE_MAX: u8 = 2;
 
 #[derive (Debug)]
 pub struct Terrain {
@@ -118,7 +120,7 @@ impl TileMapBuilder {
 
         let columns: usize = self.tiles[0].len ();
 
-        if self.tiles.iter ().all (|r| r.len () == columns) { columns } else { panic! ("Map builder is not rectangular") }
+        if self.tiles.iter ().all (|r| r.len () == columns) { columns } else { panic! ("Tile map is not rectangular") }
     }
 }
 
@@ -134,6 +136,8 @@ impl Map {
     }
 
     pub fn is_in_bounds (&self, location: &Location) -> bool {
+        assert! (self.map.len () > 0);
+
         location.0 < self.map.len () && location.1 < self.map[0].len ()
     }
 
@@ -152,37 +156,81 @@ impl Map {
         self.map[location.0][location.1].is_impassable ()
     }
 
+    fn get_height (&self, location: &Location) -> u8 {
+        assert! (self.is_in_bounds (location));
+
+        self.map[location.0][location.1].get_height ()
+    }
+
     fn is_placeable (&self, location: &Location) -> bool {
         assert! (self.is_in_bounds (location));
 
         !self.is_occupied (location) && !self.is_impassable (location)
     }
 
-    pub fn is_movable (&self, location: &Location, movement: &Movement) -> bool {
-        assert! (self.is_in_bounds (location));
+    fn is_climbable (&self, locations: (&Location, &Location)) -> bool {
+        assert! (self.is_in_bounds (locations.0));
+        assert! (self.is_in_bounds (locations.1));
 
-        let mut destination: Location = location.clone ();
+        let mut heights: (u8, u8) = (self.get_height (locations.0), self.get_height (locations.1));
 
-        match location.0.checked_add_signed (movement.0) {
-            Some (r) => destination.0 = r,
-            None => return false
+        if heights.1 > heights.0 {
+            let heights_swap: u8 = heights.0;
+
+            heights.0 = heights.1;
+            heights.1 = heights_swap;
         }
 
-        match location.1.checked_add_signed (movement.1) {
-            Some (c) => destination.1 = c,
-            None => return false
-        }
-
-        if !self.is_placeable (&destination) {
-            return false;
-        }
-
-        // TODO: Check heights
-        true
+        heights.0 - heights.1 < CLIMBABLE_MAX
     }
 
-    pub fn place_character (&mut self, location: Location, character_id: ID) -> bool {
+    // TODO: Would be more efficient to generate an adjacency matrix
+    pub fn is_movable (&self, location: &Location, direction: Direction) -> Option<Location> {
+        assert! (self.is_in_bounds (location));
+
+        if self.is_impassable (location) {
+            None
+        } else {
+            let mut destination: Location = location.clone ();
+
+            match direction {
+                Direction::Up => {
+                    destination.0 = match location.0.checked_sub (1) {
+                        Some (r) => r,
+                        None => return None
+                    };
+                }
+                Direction::Right => {
+                    destination.1 = match location.1.checked_add (1) {
+                        Some (r) => r,
+                        None => return None
+                    };
+                }
+                Direction::Down => {
+                    destination.0 = match location.0.checked_add (1) {
+                        Some (r) => r,
+                        None => return None
+                    };
+                }
+                Direction::Left => {
+                    destination.1 = match location.1.checked_sub (1) {
+                        Some (r) => r,
+                        None => return None
+                    };
+                }
+            }
+
+            if self.is_in_bounds (&destination) && self.is_placeable (&destination) && self.is_climbable ((location, &destination)) {
+                Some (destination)
+            } else {
+                None
+            }
+        }
+    }
+
+    pub fn place_character (&mut self, character_id: ID, location: Location) -> bool {
         assert! (self.is_in_bounds (&location));
+        assert! (!self.character_locations.contains_key_first (&character_id));
 
         if self.is_placeable (&location) {
             self.character_locations.insert ((character_id, location));
@@ -191,6 +239,33 @@ impl Map {
         } else {
             false
         }
+    }
+
+    pub fn move_character (&mut self, character_id: ID, movements: Vec<Direction>) -> bool {
+        let location_old: Location = match self.get_location (&character_id) {
+            Some (l) => l.clone (),
+            None => return false
+        };
+        let mut location_new: Location = location_old.clone ();
+
+        // Temporarily remove character
+        self.character_locations.remove_first (&character_id);
+
+        for direction in movements {
+            location_new = match self.is_movable (&location_new, direction) {
+                Some (d) => d.clone (),
+                None => {
+                    // Return character
+                    self.character_locations.insert ((character_id, location_old));
+
+                    return false
+                }
+            };
+        }
+
+        self.character_locations.insert ((character_id, location_new));
+
+        true
     }
 
     pub fn get_character (&self, location: &Location) -> Option<&ID> {
@@ -234,13 +309,23 @@ impl fmt::Display for Map {
             for j in 0 .. self.map[i].len () {
                 let tile: &Tile = &self.map[i][j];
 
-                display.push_str (&format! ("{}{} ",
+                if self.is_occupied (&(i, j)) {
+                    display.push_str (&format! ("{}o{} ",
+                        match self.get_character (&(i, j)) {
+                            Some (c) => c,
+                            None => panic! ("Missing character on ({}, {})", i, j),
+                        },
+                        tile.height
+                    ));
+                } else {
+                    display.push_str (&format! ("{}_{} ",
                         match self.terrains.get (&tile.terrain_id) {
                             Some (t) => t,
                             None => panic! ("Unknown terrain ID {}", tile.terrain_id),
                         },
                         tile.height
-                ));
+                    ));
+                }
             }
 
             display.push_str ("\n");
@@ -365,22 +450,156 @@ mod tests {
     }
 
     #[test]
+    fn map_is_in_bounds () {
+        let map: Map = generate_map ();
+
+        // Test in-bounds
+        assert_eq! (map.is_in_bounds (&(0, 0)), true);
+        assert_eq! (map.is_in_bounds (&(0, 1)), true);
+        assert_eq! (map.is_in_bounds (&(0, 2)), true);
+        assert_eq! (map.is_in_bounds (&(1, 0)), true);
+        assert_eq! (map.is_in_bounds (&(1, 1)), true);
+        assert_eq! (map.is_in_bounds (&(1, 2)), true);
+        // Test out-of-bounds
+        assert_eq! (map.is_in_bounds (&(0, 3)), false);
+        assert_eq! (map.is_in_bounds (&(1, 3)), false);
+        assert_eq! (map.is_in_bounds (&(2, 0)), false);
+        assert_eq! (map.is_in_bounds (&(2, 1)), false);
+        assert_eq! (map.is_in_bounds (&(2, 2)), false);
+        assert_eq! (map.is_in_bounds (&(2, 3)), false);
+    }
+
+    #[test]
+    fn map_is_occupied () {
+        let mut map: Map = generate_map ();
+
+        // Test empty
+        assert_eq! (map.is_occupied (&(0, 0)), false);
+        // Test occupied
+        map.place_character (0, (0, 0));
+        assert_eq! (map.is_occupied (&(0, 0)), true);
+    }
+
+    #[test]
+    fn map_is_impassable () {
+        let map: Map = generate_map ();
+
+        assert_eq! (map.is_impassable (&(0, 0)), false);
+        assert_eq! (map.is_impassable (&(0, 1)), false);
+        assert_eq! (map.is_impassable (&(0, 2)), false);
+        assert_eq! (map.is_impassable (&(1, 0)), false);
+        assert_eq! (map.is_impassable (&(1, 1)), false);
+        assert_eq! (map.is_impassable (&(1, 2)), true);
+    }
+
+    #[test]
+    fn map_get_height () {
+        let map: Map = generate_map ();
+
+        assert_eq! (map.get_height (&(0, 0)), 0);
+        assert_eq! (map.get_height (&(0, 1)), 1);
+        assert_eq! (map.get_height (&(0, 2)), 0);
+        assert_eq! (map.get_height (&(1, 0)), 2);
+        assert_eq! (map.get_height (&(1, 1)), 1);
+        assert_eq! (map.get_height (&(1, 2)), 0);
+    }
+
+    #[test]
+    fn map_is_placeable () {
+        let mut map: Map = generate_map ();
+
+        // Test passable
+        assert_eq! (map.is_placeable (&(0, 0)), true);
+        assert_eq! (map.is_placeable (&(0, 1)), true);
+        assert_eq! (map.is_placeable (&(0, 2)), true);
+        assert_eq! (map.is_placeable (&(1, 0)), true);
+        assert_eq! (map.is_placeable (&(1, 1)), true);
+        // Test impassable
+        assert_eq! (map.is_placeable (&(1, 2)), false);
+        // Test occupied
+        map.place_character (0, (0, 0));
+        assert_eq! (map.is_placeable (&(0, 0)), false);
+    }
+
+    #[test]
+    fn get_is_climbable () {
+        let map: Map = generate_map ();
+
+        // Test flat climb
+        assert_eq! (map.is_climbable ((&(0, 1), &(1, 1))), true);
+        assert_eq! (map.is_climbable ((&(1, 1), &(0, 1))), true);
+        // Test down climb
+        assert_eq! (map.is_climbable ((&(0, 1), &(0, 0))), true);
+        assert_eq! (map.is_climbable ((&(0, 1), &(0, 2))), true);
+        // Test up climb
+        assert_eq! (map.is_climbable ((&(0, 0), &(0, 1))), true);
+        assert_eq! (map.is_climbable ((&(0, 2), &(0, 1))), true);
+        assert_eq! (map.is_climbable ((&(1, 1), &(1, 0))), true);
+        // Test not climbable
+        assert_eq! (map.is_climbable ((&(0, 0), &(1, 0))), false);
+        assert_eq! (map.is_climbable ((&(1, 0), &(0, 0))), false);
+    }
+
+    #[test]
+    fn map_is_movable () {
+        let map: Map = generate_map ();
+
+        assert_eq! (map.is_movable (&(0, 0), Direction::Up), None);
+        assert_eq! (map.is_movable (&(0, 0), Direction::Right).unwrap (), (0, 1));
+        assert_eq! (map.is_movable (&(0, 0), Direction::Down), None); // Test not climbable
+        assert_eq! (map.is_movable (&(0, 0), Direction::Left), None);
+        assert_eq! (map.is_movable (&(0, 1), Direction::Up), None);
+        assert_eq! (map.is_movable (&(0, 1), Direction::Right).unwrap (), (0, 2));
+        assert_eq! (map.is_movable (&(0, 1), Direction::Down).unwrap (), (1, 1));
+        assert_eq! (map.is_movable (&(0, 1), Direction::Left).unwrap (), (0, 0));
+        assert_eq! (map.is_movable (&(0, 2), Direction::Up), None);
+        assert_eq! (map.is_movable (&(0, 2), Direction::Right), None);
+        assert_eq! (map.is_movable (&(0, 2), Direction::Down), None); // Test impassable
+        assert_eq! (map.is_movable (&(0, 2), Direction::Left).unwrap (), (0, 1));
+
+        assert_eq! (map.is_movable (&(1, 0), Direction::Up), None); // Test not climbable
+        assert_eq! (map.is_movable (&(1, 0), Direction::Right).unwrap (), (1, 1));
+        assert_eq! (map.is_movable (&(1, 0), Direction::Down), None);
+        assert_eq! (map.is_movable (&(1, 0), Direction::Left), None);
+        assert_eq! (map.is_movable (&(1, 1), Direction::Up).unwrap (), (0, 1));
+        assert_eq! (map.is_movable (&(1, 1), Direction::Right), None); // Test impassable
+        assert_eq! (map.is_movable (&(1, 1), Direction::Down), None);
+        assert_eq! (map.is_movable (&(1, 1), Direction::Left).unwrap (), (1, 0));
+        // Test impassable
+        assert_eq! (map.is_movable (&(1, 2), Direction::Up), None);
+        assert_eq! (map.is_movable (&(1, 2), Direction::Right), None);
+        assert_eq! (map.is_movable (&(1, 2), Direction::Down), None);
+        assert_eq! (map.is_movable (&(1, 2), Direction::Left), None);
+    }
+
+    #[test]
     fn map_place_character () {
         let mut map: Map = generate_map ();
 
-        assert_eq! (map.is_in_bounds (&(1, 1)), true);
-        assert_eq! (map.is_placeable (&(1, 1)), true);
-        assert_eq! (map.place_character ((1, 1), 0), true);
-        assert_eq! (map.get_character (&(1, 1)).unwrap (), &0);
-        assert_eq! (map.is_placeable (&(1, 1)), false);
-        assert_eq! (map.place_character ((1, 1), 1), false);
-        assert_eq! (map.get_character (&(1, 1)).unwrap (), &0);
+        // Test empty place
+        assert_eq! (map.place_character (0, (0, 0)), true);
+        // Test impassable place
+        assert_eq! (map.place_character (1, (1, 2)), false);
+        // Test non-empty place
+        assert_eq! (map.place_character (2, (0, 0)), false);
     }
 
     #[test]
     fn map_move_character () {
         let mut map: Map = generate_map ();
 
-        todo! ("Write tests");
+        map.place_character (0, (0, 0));
+        assert_eq! (map.move_character (0, vec![Direction::Up]), false); // Test out-of-bounnds
+        assert_eq! (map.move_character (0, vec![Direction::Down]), false); // Test not climbable
+        assert_eq! (map.move_character (0, vec![Direction::Left]), false); // Test out-of-bounds
+        // Test normal move
+        assert_eq! (map.move_character (0, vec![Direction::Right]), true);
+        assert_eq! (map.get_location (&0).unwrap (), &(0, 1));
+        // Test sequential move
+        assert_eq! (map.move_character (0, vec![Direction::Right, Direction::Left, Direction::Down]), true);
+        assert_eq! (map.get_location (&0).unwrap (), &(1, 1));
+        // Test atomic move
+        assert_eq! (map.move_character (0, vec![Direction::Left, Direction::Right, Direction::Right]), false); // Test impassable
+        assert_eq! (map.get_location (&0).unwrap (), &(1, 1));
     }
 }

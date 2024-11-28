@@ -13,7 +13,6 @@ pub const DCY: usize = 2; // Decay – Weapon modifier for magical damage
 
 pub type ID = u8; // Up to 256 unique entities
 pub type Location = (usize, usize);
-pub type Movement = (isize, isize);
 // pub type Statistics = [Option<Statistic>; ORG + 1];
 pub type Adjustments = [Option<i8>; ORG + 1];
 
@@ -159,7 +158,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
 
     pub fn replace_first (&mut self, value: T, destination: U) -> Option<(U, Option<T>)> {
         let original_first: U = match self.map_first.remove (&value) {
-            Some (k) => k.clone (),
+            Some (k) => k,
             None => return None
         };
         let original_second: Option<T> = match self.map_second.get (&destination) {
@@ -179,7 +178,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
 
     pub fn replace_second (&mut self, value: U, destination: T) -> Option<(T, Option<U>)> {
         let original_second: T = match self.map_second.remove (&value) {
-            Some (k) => k.clone (),
+            Some (k) => k,
             None => return None
         };
         let original_first: Option<U> = match self.map_first.get (&destination) {
@@ -195,6 +194,14 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
         self.insert ((destination, value));
 
         Some ((original_second, original_first))
+    }
+
+    pub fn contains_key_first (&self, key: &T) -> bool {
+        self.map_first.contains_key (key)
+    }
+
+    pub fn contains_key_second (&self, key: &U) -> bool {
+        self.map_second.contains_key (key)
     }
 }
 
@@ -264,16 +271,16 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     pub fn replace (&mut self, value: U, destination: T) -> Option<T> {
         assert! (self.map_first.contains_key (&destination));
 
-        let key_original: T = match self.map_second.get (&value) {
+        let key_old: T = match self.map_second.get (&value) {
             Some (k) => k.clone (),
             None => return None
         };
-        let collection_original: &mut HashSet<U> = match self.map_first.get_mut (&key_original) {
+        let collection_old: &mut HashSet<U> = match self.map_first.get_mut (&key_old) {
             Some (c) => c,
             None => return None
         };
 
-        if collection_original.remove (&value) {
+        if collection_old.remove (&value) {
             let collection_new: &mut HashSet<U> = match self.map_first.get_mut (&destination) {
                 Some (c) => c,
                 None => panic! ("Collection not found for key {:?}", value)
@@ -282,10 +289,18 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
             collection_new.insert (value.clone ());
             self.map_second.insert (value, destination);
 
-            Some (key_original)
+            Some (key_old)
         } else {
             None
         }
+    }
+
+    pub fn contains_key_first (&self, key: &T) -> bool {
+        self.map_first.contains_key (key)
+    }
+
+    pub fn contains_key_second (&self, key: &U) -> bool {
+        self.map_second.contains_key (key)
     }
 }
 
@@ -425,6 +440,21 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_map_contains_key () {
+        let mut map: DuplicateMap<ID, Location> = DuplicateMap::new ();
+
+        // Test empty contains
+        assert_eq! (map.contains_key_first (&0), false);
+        assert_eq! (map.contains_key_second (&(0, 0)), false);
+        // Test non-empty contains
+        map.insert ((0, (0, 0)));
+        assert_eq! (map.contains_key_first (&0), true);
+        assert_eq! (map.contains_key_second (&(0, 0)), true);
+        assert_eq! (map.contains_key_first (&1), false);
+        assert_eq! (map.contains_key_second (&(1, 1)), false);
+    }
+
+    #[test]
     fn duplicate_collection_map_insert () {
         let ids: Vec<ID> = vec![0, 1];
         let mut map: DuplicateCollectionMap<ID, Location> = DuplicateCollectionMap::new (ids);
@@ -505,5 +535,22 @@ mod tests {
         assert_eq! (map.get_collection_second (&(0, 0)).unwrap ().len (), 1);
         assert_eq! (map.get_first (&1).unwrap ().len (), 1);
         assert_eq! (map.get_second (&(1, 1)).unwrap (), &1);
+    }
+
+    #[test]
+    fn duplicate_collection_map_contains_key () {
+        let ids: Vec<ID> = vec![0, 1];
+        let mut map: DuplicateCollectionMap<ID, Location> = DuplicateCollectionMap::new (ids);
+
+        // Test empty contains
+        assert_eq! (map.contains_key_first (&0), true);
+        assert_eq! (map.contains_key_second (&(0, 0)), false);
+        // Test non-empty contains
+        map.insert ((0, (0, 0)));
+        assert_eq! (map.contains_key_first (&0), true);
+        assert_eq! (map.contains_key_second (&(0, 0)), true);
+        assert_eq! (map.contains_key_first (&1), true);
+        assert_eq! (map.contains_key_second (&(1, 1)), false);
+        assert_eq! (map.contains_key_first (&2), false);
     }
 }
