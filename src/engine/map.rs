@@ -1,5 +1,5 @@
 use std::{collections::{HashMap, HashSet}, fmt, rc::Rc};
-use crate::engine::common::{Direction, DuplicateCollectionMap, DuplicateMap, Information, Location, Modifier, ID};
+use crate::engine::common::{Direction, DuplicateCollectionMap, DuplicateMap, Location, Modifier, ID};
 
 const CLIMB_MAX: u8 = 2;
 
@@ -7,23 +7,24 @@ type Adjacencies = [u8; Direction::Length as usize];
 
 #[derive (Debug)]
 pub struct Terrain {
-    information: Information,
     modifiers: Vec<Modifier>,
     cost: u8
 }
 
 #[derive (Debug)]
-pub struct Tile {
+struct Tile {
     terrains: Rc<HashMap<ID, Terrain>>,
     modifiers: Vec<Modifier>,
     terrain_id: ID,
-    height: u8
+    height: u8,
+    city_id: Option<ID>
 }
 
 #[derive (Debug)]
 pub struct TileBuilder {
     terrain_id: ID,
-    height: u8
+    height: u8,
+    city_id: Option<ID>
 }
 
 #[derive (Debug)]
@@ -32,7 +33,7 @@ pub struct TileMapBuilder {
 }
 
 #[derive (Debug)]
-pub struct AdjacencyMatrix {
+struct AdjacencyMatrix {
     matrix: Vec<Vec<Adjacencies>>
 }
 
@@ -45,9 +46,16 @@ pub struct Map {
     controller_locations: DuplicateCollectionMap<ID, Location>,
 }
 
+#[derive (Debug)]
+pub struct City {
+    population: u8, // (thousands)
+    factories: u8,
+    farms: u8
+}
+
 impl Terrain {
-    pub fn new (information: Information, modifiers: Vec<Modifier>, cost: u8 ) -> Self {
-        Self { information, modifiers, cost }
+    pub fn new (modifiers: Vec<Modifier>, cost: u8 ) -> Self {
+        Self { modifiers, cost }
     }
 
     pub fn get_modifiers (&self) -> &Vec<Modifier> {
@@ -105,14 +113,14 @@ impl Tile {
 }
 
 impl TileBuilder {
-    pub fn new (terrain_id: ID, height: u8) -> Self {
-        Self { terrain_id, height }
+    pub fn new (terrain_id: ID, height: u8, city_id: Option<ID>) -> Self {
+        Self { terrain_id, height, city_id }
     }
 
     pub fn build (&self, terrains: Rc<HashMap<ID, Terrain>>) -> Tile {
         let modifiers: Vec<Modifier> = Vec::new ();
 
-        Tile { terrains, modifiers, terrain_id: self.terrain_id, height: self.height }
+        Tile { terrains, modifiers, terrain_id: self.terrain_id, height: self.height, city_id: self.city_id }
     }
 }
 
@@ -127,7 +135,7 @@ impl TileMapBuilder {
 
     pub fn build (self, terrains: Rc<HashMap<ID, Terrain>>) -> Vec<Vec<Tile>> {
         let mut tile_map: Vec<Vec<Tile>> = Vec::new ();
-        
+
         for i in 0 .. self.tiles.len () {
             tile_map.push (Vec::new ());
 
@@ -161,15 +169,13 @@ impl AdjacencyMatrix {
                         Some (&tile_map[i][j])
                     } else {
                         None
-                    })
-                    .flatten ();
+                }).flatten ();
                 let down: Option<&Tile> = i.checked_add (1).map (|i|
                     if i < tile_map.len () {
                         Some (&tile_map[i][j])
                     } else {
                         None
-                    })
-                    .flatten ();
+                }).flatten ();
                 let left: Option<&Tile> = j.checked_sub (1).map (|j| &tile_map[i][j]);
                 let up: u8 = up.map_or (0, |t| tile.find_cost (t));
                 let right: u8 = right.map_or (0, |t| tile.find_cost (t));
@@ -218,7 +224,7 @@ impl Map {
     pub fn is_occupied (&self, location: &Location) -> bool {
         assert! (self.is_in_bounds (location));
 
-        self.get_character (location).is_some ()
+        self.get_location_occupant (location).is_some ()
     }
 
     fn is_placeable (&self, location: &Location) -> bool {
@@ -269,14 +275,12 @@ impl Map {
     }
 
     pub fn move_character (&mut self, character_id: ID, movements: Vec<Direction>) -> bool {
-        let location_old: Location = match self.get_location (&character_id) {
+        let location_old: Location = match self.get_character_location (&character_id) {
             Some (l) => l.clone (),
             None => return false
         };
         let mut location_new: Location = location_old.clone ();
 
-        // TODO: Pass through faction members
-        // Tiles need to know who occupies them, but characters need to be implemented first
         // Temporarily remove character
         self.character_locations.remove_first (&character_id);
 
@@ -297,30 +301,34 @@ impl Map {
         true
     }
 
-    pub fn get_character (&self, location: &Location) -> Option<&ID> {
+    pub fn is_character_encircled (&self, character_id: ID, faction_id: ID) -> bool {
+        todo!()
+    }
+
+    pub fn get_location_occupant (&self, location: &Location) -> Option<&ID> {
         assert! (self.is_in_bounds (location));
 
         self.character_locations.get_second (location)
     }
 
-    pub fn get_controller (&self, location: &Location) -> Option<&ID> {
+    pub fn get_location_controller (&self, location: &Location) -> Option<&ID> {
         assert! (self.is_in_bounds (location));
 
         self.controller_locations.get_second (location)
     }
 
-    pub fn get_location (&self, character_id: &ID) -> Option<&Location> {
+    pub fn get_character_location (&self, character_id: &ID) -> Option<&Location> {
         self.character_locations.get_first (character_id)
     }
 
-    pub fn get_locations (&self, faction_id: &ID) -> Option<&HashSet<Location>> {
+    pub fn get_faction_locations (&self, faction_id: &ID) -> Option<&HashSet<Location>> {
         self.controller_locations.get_first (faction_id)
     }
 }
 
 impl fmt::Display for Terrain {
     fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write! (f, "{}", self.information)
+        write! (f, "{}", self.cost)
     }
 }
 
@@ -340,7 +348,7 @@ impl fmt::Display for Map {
 
                 if self.is_occupied (&(i, j)) {
                     display.push_str (&format! ("{}o{} ",
-                            self.get_character (&(i, j))
+                            self.get_location_occupant (&(i, j))
                                     .expect (&format! ("Missing character on ({}, {})", i, j)),
                             tile.height));
                 } else {
@@ -363,9 +371,9 @@ mod tests {
     use super::*;
 
     fn generate_terrains () -> HashMap<ID, Terrain> {
-        let grass: Terrain = Terrain::new (Information::new (String::from ("Grass"), vec![String::from ("grass")], 0), Vec::new (), 1);
-        let dirt: Terrain = Terrain::new (Information::new (String::from ("Dirt"), vec![String::from ("dirt")], 0), Vec::new (), 2);
-        let stone: Terrain = Terrain::new (Information::new (String::from ("Stone"), vec![String::from ("stone")], 0), Vec::new (), 0);
+        let grass: Terrain = Terrain::new (Vec::new (), 1);
+        let dirt: Terrain = Terrain::new (Vec::new (), 2);
+        let stone: Terrain = Terrain::new (Vec::new (), 0);
         let mut terrains: HashMap<ID, Terrain> = HashMap::new ();
 
         terrains.insert (0, grass);
@@ -377,8 +385,8 @@ mod tests {
 
     fn generate_tile_map_builder () -> TileMapBuilder {
         TileMapBuilder::new (vec![
-            vec![TileBuilder::new (0, 0), TileBuilder::new (0, 1), TileBuilder::new (0, 0)],
-            vec![TileBuilder::new (1, 2), TileBuilder::new (1, 1), TileBuilder::new (2, 0)]
+            vec![TileBuilder::new (0, 0, None), TileBuilder::new (0, 1, None), TileBuilder::new (0, 0, None)],
+            vec![TileBuilder::new (1, 2, None), TileBuilder::new (1, 1, None), TileBuilder::new (2, 0, None)]
         ])
     }
 
@@ -390,7 +398,7 @@ mod tests {
     }
 
     fn generate_tile (terrains: Rc<HashMap<ID, Terrain>>, terrain_id: ID, height: u8) -> Tile {
-        let tile_builder: TileBuilder = TileBuilder::new (terrain_id, height);
+        let tile_builder: TileBuilder = TileBuilder::new (terrain_id, height, None);
 
         tile_builder.build (terrains)
     }
@@ -409,7 +417,7 @@ mod tests {
 
     #[test]
     fn tile_builder_data () {
-        let tile_builder: TileBuilder = TileBuilder::new (0, 0);
+        let tile_builder: TileBuilder = TileBuilder::new (0, 0, None);
 
         assert_eq! (tile_builder.terrain_id, 0);
         assert_eq! (tile_builder.height, 0);
@@ -417,7 +425,7 @@ mod tests {
 
     #[test]
     fn tile_builder_build () {
-        let tile_builder: TileBuilder = TileBuilder::new (0, 0);
+        let tile_builder: TileBuilder = TileBuilder::new (0, 0, None);
         let terrains: Rc<HashMap<u8, Terrain>> = Rc::new (generate_terrains ());
         let tile: Tile = tile_builder.build (terrains);
 
@@ -666,12 +674,12 @@ mod tests {
         assert_eq! (map.move_character (0, vec![Direction::Left]), false); // Test out-of-bounds
         // Test normal move
         assert_eq! (map.move_character (0, vec![Direction::Right]), true);
-        assert_eq! (map.get_location (&0).unwrap (), &(0, 1));
+        assert_eq! (map.get_character_location (&0).unwrap (), &(0, 1));
         // Test sequential move
         assert_eq! (map.move_character (0, vec![Direction::Right, Direction::Left, Direction::Down]), true);
-        assert_eq! (map.get_location (&0).unwrap (), &(1, 1));
+        assert_eq! (map.get_character_location (&0).unwrap (), &(1, 1));
         // Test atomic move
         assert_eq! (map.move_character (0, vec![Direction::Left, Direction::Right, Direction::Right]), false); // Test impassable
-        assert_eq! (map.get_location (&0).unwrap (), &(1, 1));
+        assert_eq! (map.get_character_location (&0).unwrap (), &(1, 1));
     }
 }

@@ -1,22 +1,33 @@
-use std::{collections::{HashMap, HashSet}, fmt, hash::Hash};
-
-// Unit statistics
-pub const HLT: usize = 0; // Morale – Willingness to fight
-pub const STR: usize = 1; // Strength – Ability to fight
-pub const ATK: usize = 2; // Attack – Physical damage
-pub const DEF: usize = 3; // Defence – Physical resistance
-pub const MAG: usize = 4; // Magic – Magical damage and resistance
-pub const MOV: usize = 5; // Manoeuvre – Speed and movement
-pub const ORG: usize = 6; // Cohesion – Modifier for formation effects and subordinate units
-// Weapon statistics
-pub const SLH: usize = 0; // Slash – Modifier for physical damage, strong against strength
-pub const PRC: usize = 1; // Pierce – Modifier for physical damage, strong against morale
-pub const DCY: usize = 2; // Decay – Modifier for magical damage
+use std::{collections::{HashMap, HashSet}, fmt, hash::Hash, sync::atomic::{AtomicU8, Ordering}};
 
 pub type ID = u8; // Up to 256 unique entities
 pub type Location = (usize, usize);
-// pub type Statistics = [Option<Statistic>; ORG + 1];
-pub type Adjustments = [Option<i8>; ORG + 1];
+pub type Value = u16;
+// pub type Statistics = [Option<Statistic>; UnitStatistics::Length as usize];
+pub type Adjustments = [Option<i16>; UnitStatisticTypes::Length as usize];
+
+#[derive (Debug)]
+#[derive (Clone, Copy)]
+pub enum UnitStatisticTypes {
+    MRL, // morale - willingness to fight (percentage)
+    HLT, // manpower - number of soldiers
+    SPL, // supply - proportion of soldiers equipped (percentage)
+    ATK, // attack – physical damage
+    DEF, // defence – physical resistance
+    MAG, // magic – magical damage and resistance
+    MOV, // manoeuvre – speed and movement
+    ORG, // cohesion – modifier for formation effects and subordinate units (percentage)
+    Length
+}
+
+#[derive (Debug)]
+pub enum WeaponStatisticTypes {
+    ATK, // attack - physical damage
+    SLH, // slash – modifier for physical damage, strong against manpower
+    PRC, // pierce – modifier for physical damage, strong against morale
+    DCY, // decay – modifier for magical damage
+    Length
+}
 
 #[derive (Debug)]
 pub enum Area {
@@ -30,13 +41,15 @@ pub enum Target {
     Ally (bool), // false = ally, true = self
     Allies (bool), // false = allies, true = self and allies
     All (bool), // false = enemies, true = allies and enemies
-    Enemy
+    Enemy,
+    Map
 }
 
 #[derive (Debug)]
-pub enum Value {
-    Constant (u8, u8), // current, base
-    Capacity (u8, u8) // current, maximum
+#[derive (Clone, Copy)]
+pub enum Capacity {
+    Constant (Value, Value), // current, base
+    Quantity (Value, Value) // current, maximum
 }
 
 #[derive (Debug)]
@@ -46,7 +59,7 @@ pub enum Direction {
     Right,
     Down,
     Left,
-    Length // 4
+    Length
 }
 
 #[derive (Debug)]
@@ -57,23 +70,21 @@ pub struct Information {
 }
 
 #[derive (Debug)]
-pub struct Statistic {
-    information: Information,
-    value: Value
-}
-
-#[derive (Debug)]
 pub struct Modifier {
-    information: Information,
-    adjustments: Adjustments
+    adjustments: Adjustments,
+    duration: Capacity
 }
 
 #[derive (Debug)]
 pub struct Effect {
-    information: Information,
+    // ???
+}
+
+#[derive (Debug)]
+pub struct Status {
     modifier: Modifier,
     duration: u8,
-    next: Option<Box<Effect>>
+    next: Option<Box<Status>>
 }
 
 #[derive (Debug)]
@@ -93,6 +104,15 @@ impl Information {
         Self { name, descriptions, current_description }
     }
 
+    pub fn new_test () -> Self {
+        static ID: AtomicU8 = AtomicU8::new (0);
+        let name: String = format! ("{}", ID.fetch_add (1, Ordering::SeqCst));
+        let descriptions: Vec<String> = Vec::new ();
+        let current_description: usize = 0;
+
+        Self { name, descriptions, current_description }
+    }
+
     pub fn get_name (&self) -> &str {
         &self.name
     }
@@ -103,8 +123,26 @@ impl Information {
 }
 
 impl Modifier {
-    pub fn new (information: Information, adjustments: Adjustments) -> Self {
-        Self { information, adjustments }
+    pub fn new (adjustments: Adjustments, duration: Capacity) -> Self {
+        Self { adjustments, duration }
+    }
+
+    pub fn get_duration (&self) -> Value {
+        match self.duration {
+            Capacity::Constant (d, _) => d,
+            Capacity::Quantity (d, _) => d
+        }
+    }
+
+    pub fn dec_duration (&mut self) -> () {
+        match self.duration {
+            Capacity::Constant (_, _) => (),
+            Capacity::Quantity (d, m) => {
+                let duration: Value = d.checked_sub (1).unwrap_or (0);
+
+                self.duration = Capacity::Quantity (duration, m)
+            }
+        }
     }
 }
 
@@ -319,12 +357,6 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
 impl fmt::Display for Information {
     fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write! (f, "{}\n{}", self.name, self.descriptions[self.current_description])
-    }
-}
-
-impl fmt::Display for Effect {
-    fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write! (f, "{}", self.information)
     }
 }
 
