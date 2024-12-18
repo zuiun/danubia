@@ -1,8 +1,9 @@
-use common::ID;
-
-pub mod character;
 pub mod common;
+pub mod event;
 pub mod map;
+pub mod unit;
+
+use common::ID;
 
 // TODO: Anything that has an ID also has an Information mapped to it
 

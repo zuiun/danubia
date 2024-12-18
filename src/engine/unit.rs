@@ -1,5 +1,6 @@
-use std::{cmp, collections::HashMap, rc::Rc};
-use crate::engine::common::{Area, Capacity, ID, Modifier, Target, UnitStatisticTypes, Value, WeaponStatisticTypes};
+use std::{cell::RefCell, cmp, collections::HashMap, rc::Rc};
+use crate::engine::common::{Area, Capacity, Event, ID, Modifier, Observer, Subject, Target, UnitStatisticTypes, Value, WeaponStatisticTypes};
+use crate::engine::event::{SET_ENCIRCLED_EVENT, UNIT_DIED_EVENT, UNIT_TYPE};
 use crate::engine::map::Map;
 
 const MRL_MAX: Value = 100;
@@ -9,6 +10,10 @@ const ORG_MAX: Value = 200;
 
 type WeaponStatistics = [u8; WeaponStatisticTypes::Length as usize];
 type UnitStatistics = [Capacity; UnitStatisticTypes::Length as usize];
+
+trait Damage {
+    fn get_dmg (&self) -> u8;
+}
 
 #[derive (Debug)]
 pub struct UnitStatisticsBuilder {
@@ -25,6 +30,7 @@ pub struct UnitStatisticsBuilder {
 #[derive (Debug)]
 pub struct Weapon {
     statistics: WeaponStatistics,
+    dmg: u8,
     area: Area,
     range: u8
 }
@@ -32,7 +38,7 @@ pub struct Weapon {
 #[derive (Debug)]
 pub struct Magic {
     // TODO: effects
-    damage: u8,
+    dmg: u8,
     area: Area,
     range: u8
 }
@@ -54,8 +60,17 @@ pub struct Unit {
     statistics: UnitStatistics,
     modifiers: Vec<Modifier>,
     magic_ids: Vec<ID>,
+    weapon_id: ID,
     faction_id: ID,
-    weapon_id: ID
+    observers: Vec<Rc<RefCell<dyn Observer>>>,
+    is_encircled: bool
+}
+
+pub struct UnitBuilder {
+    statistics_builder: UnitStatisticsBuilder,
+    magic_ids: Vec<ID>,
+    weapon_id: ID,
+    faction_id: ID
 }
 
 impl UnitStatisticsBuilder {
@@ -83,8 +98,8 @@ impl UnitStatisticsBuilder {
 }
 
 impl Weapon {
-    pub fn new (statistics: WeaponStatistics, area: Area, range: u8) -> Self {
-        Self { statistics, area, range }
+    pub fn new (statistics: WeaponStatistics, dmg: u8, area: Area, range: u8) -> Self {
+        Self { statistics, dmg, area, range }
     }
 
     pub fn get_statistic (&self, statistic: WeaponStatisticTypes) -> u8 {
@@ -93,12 +108,8 @@ impl Weapon {
 }
 
 impl Magic {
-    pub fn new (area: Area, damage: u8, range: u8) -> Self {
-        Self { area, damage, range }
-    }
-
-    pub fn get_damage (&self) -> u8 {
-        self.damage
+    pub fn new (dmg: u8, area: Area, range: u8) -> Self {
+        Self { dmg, area, range }
     }
 }
 
@@ -107,15 +118,6 @@ impl Skill {
 }
 
 impl Unit {
-    pub fn new (map: Rc<Map>, weapons: Rc<HashMap<ID, Weapon>>, magics: Rc<HashMap<ID, Magic>>, statistics: UnitStatistics, magic_ids: Vec<ID>, faction_id: ID, weapon_id: ID) -> Self {
-        let map: Rc<Map> = Rc::clone (&map);
-        let weapons: Rc<HashMap<ID, Weapon>> = Rc::clone (&weapons);
-        let magics: Rc<HashMap<ID, Magic>> = Rc::clone (&magics);
-        let modifiers: Vec<Modifier> = Vec::new ();
-
-        Self { map, weapons, magics, statistics, modifiers, magic_ids, faction_id, weapon_id }
-    }
-
     pub fn get_weapon (&self) -> &Weapon {
         self.weapons.get (&self.weapon_id)
                 .expect (&format! ("Weapon {} not found", self.weapon_id))
@@ -159,14 +161,14 @@ impl Unit {
                 } else {
                     panic! ("MAG should be a constant");
                 };
-                let multiplier: f32 = magic.get_damage () as f32;
+                let multiplier: f32 = magic.get_dmg () as f32;
 
                 (damage * multiplier) as Value
             }
             None => {
                 let weapon: &Weapon = self.get_weapon ();
                 let atk: Value = if let Capacity::Constant (a, _) = self.statistics[UnitStatisticTypes::ATK as usize] {
-                    (weapon.get_statistic (WeaponStatisticTypes::ATK) as Value) + a
+                    (weapon.get_dmg () as Value) + a
                 } else {
                     panic! ("ATK should be a constant");
                 };
@@ -175,7 +177,7 @@ impl Unit {
                 } else {
                     panic! ("DEF should be a constant");
                 };
-                let multiplier: f32 = if let Capacity::Quantity (s, m) = other.statistics[UnitStatisticTypes::SPL as usize] {
+                let multiplier: f32 = if let Capacity::Quantity (s, m) = self.statistics[UnitStatisticTypes::SPL as usize] {
                     (s as f32) / (m as f32)
                 } else {
                     panic! ("SPL should be a quantity");
@@ -234,6 +236,7 @@ impl Unit {
 println!("{:?}",weapon);
 if magic_id.is_some () { println!("{:?}",magic_id.unwrap()) }
 println!("{},{}",damage_mrl,damage_hlt);
+
         other.take_damage (damage_mrl, damage_hlt)
     }
 
@@ -241,7 +244,7 @@ println!("{},{}",damage_mrl,damage_hlt);
         let mrl: Value = if let Capacity::Quantity (m, _) = self.statistics[UnitStatisticTypes::MRL as usize] {
             m
         } else {
-            panic! ("HLT should be a quantity");
+            panic! ("MRL should be a quantity");
         };
         let mrl: Value = mrl.checked_sub (damage_mrl).unwrap_or (0);
         let hlt: Value = if let Capacity::Quantity (h, _) = self.statistics[UnitStatisticTypes::HLT as usize] {
@@ -249,10 +252,17 @@ println!("{},{}",damage_mrl,damage_hlt);
         } else {
             panic! ("HLT should be a quantity");
         };
-        let hlt: Value = hlt.checked_sub (damage_hlt as Value).unwrap_or (0);
+        let hlt: Value = hlt.checked_sub (damage_hlt).unwrap_or (0);
+        let spl: Value = if let Capacity::Quantity (s, _) = self.statistics[UnitStatisticTypes::SPL as usize] {
+            s
+        } else {
+            panic! ("SPL should be a quantity");
+        };
+        let spl: Value = spl.checked_sub (damage_mrl / 3).unwrap_or (0);
 
         self.set_statistic (UnitStatisticTypes::MRL, mrl);
         self.set_statistic (UnitStatisticTypes::HLT, hlt);
+        self.set_statistic (UnitStatisticTypes::SPL, spl);
 
         if hlt == 0 {
             self.die ();
@@ -264,8 +274,12 @@ println!("{},{}",mrl,hlt);
 
     pub fn end_turn (&mut self) -> () {
         let _ = self.modifiers.iter_mut ().map (|m| m.dec_duration ()).collect::<Vec<_>> ();
-        // TODO: Recover health and morale
         
+        if self.is_encircled {
+            // TODO: Drain supplies
+        } else {
+            // TODO: Recover health and morale
+        }
     }
 
     pub fn add_modifier (&mut self, modifier: &Modifier) -> bool {
@@ -277,10 +291,66 @@ println!("{},{}",mrl,hlt);
     }
 }
 
+impl UnitBuilder {
+    pub fn new (statistics_builder: UnitStatisticsBuilder, magic_ids: Vec<ID>, weapon_id: ID, faction_id: ID) -> Self {
+        Self { statistics_builder, magic_ids, weapon_id, faction_id }
+    }
+
+    pub fn build (self, map: Rc<Map>, weapons: Rc<HashMap<ID, Weapon>>, magics: Rc<HashMap<ID, Magic>>) -> Unit {
+        let statistics: UnitStatistics = self.statistics_builder.build ();
+        let modifiers: Vec<Modifier> = Vec::new ();
+        let observers: Vec<Rc<RefCell<dyn Observer>>> = Vec::new ();
+        let is_encircled: bool = false;
+
+        Unit { map, weapons, magics, statistics, modifiers, magic_ids: self.magic_ids, weapon_id: self.weapon_id, faction_id: self.faction_id, observers, is_encircled }
+    }
+}
+
+impl Damage for Weapon {
+    fn get_dmg (&self) -> u8 {
+        self.dmg
+    }
+}
+
+impl Damage for Magic {
+    fn get_dmg (&self) -> u8 {
+        self.dmg
+    }
+}
+
+impl Observer for Unit {
+    fn update (&mut self, event: Event) -> () {
+        match event {
+            (SET_ENCIRCLED_EVENT, v) => self.is_encircled = v > 0,
+            _ => ()
+        }
+    }
+
+    fn get_type (&self) -> ID {
+        UNIT_TYPE
+    }
+}
+
+impl Subject for Unit {
+    fn add_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> () {
+        let observer: Rc<RefCell<dyn Observer>> = Rc::clone (&observer);
+
+        self.observers.push (observer);
+    }
+
+    fn remove_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> () {
+        todo!()
+    }
+
+    fn notify (&self, event: Event) -> () {
+        self.observers.iter ().map (|o| o.borrow_mut ().update (event)).collect () // Ignore borrow checking, since single-threaded
+    }
+}
+
 #[cfg (test)]
 mod tests {
     use std::collections::HashMap;
-    use crate::engine::map::{Terrain, TileBuilder, TileMapBuilder};
+    use crate::engine::map::{Terrain, TileBuilder};
     use super::*;
 
     fn generate_terrains () -> HashMap<ID, Terrain> {
@@ -296,28 +366,43 @@ mod tests {
         terrains
     }
 
-    fn generate_tile_map_builder () -> TileMapBuilder {
-        TileMapBuilder::new (vec![
+    fn generate_tile_builders () -> Vec<Vec<TileBuilder>> {
+        vec![
             vec![TileBuilder::new (0, 0, None), TileBuilder::new (0, 1, None), TileBuilder::new (0, 0, None)],
             vec![TileBuilder::new (1, 2, None), TileBuilder::new (1, 1, None), TileBuilder::new (2, 0, None)]
-        ])
+        ]
+    }
+
+    fn generate_unit_factions () -> HashMap<ID, ID> {
+        let mut unit_factions: HashMap<ID, ID> = HashMap::new ();
+
+        unit_factions.insert (0, 1);
+        unit_factions.insert (1, 1);
+        unit_factions.insert (2, 2);
+        unit_factions.insert (3, 3);
+
+        unit_factions
     }
 
     fn generate_map () -> Map {
         let terrains: HashMap<ID, Terrain> = generate_terrains ();
-        let tile_map_builder: TileMapBuilder = generate_tile_map_builder ();
+        let tile_map_builder: Vec<Vec<TileBuilder>> = generate_tile_builders ();
+        let unit_factions: HashMap<ID, ID> = generate_unit_factions ();
 
-        Map::new (terrains, tile_map_builder)
+        Map::new (terrains, tile_map_builder, unit_factions)
     }
 
     fn generate_weapons () -> HashMap<ID, Weapon> {
-        let sword_statistics: WeaponStatistics = [2, 1, 1, 0];
-        let sword = Weapon::new (sword_statistics, Area::Single, 1);
-        let spear_statistics: WeaponStatistics = [2, 0, 2, 0];
-        let spear = Weapon::new (spear_statistics, Area::Path (1), 2);
-        let book_statistics: WeaponStatistics = [1, 1, 0, 1];
-        let book = Weapon::new (book_statistics, Area::Radial (2), 2);
         let mut weapons: HashMap<ID, Weapon> = HashMap::new ();
+
+        let sword_statistics: WeaponStatistics = [1, 1, 0];
+        let sword = Weapon::new (sword_statistics, 2, Area::Single, 1);
+
+        let spear_statistics: WeaponStatistics = [0, 2, 0];
+        let spear = Weapon::new (spear_statistics, 2, Area::Path (1), 2);
+
+        let book_statistics: WeaponStatistics = [1, 0, 1];
+        let book = Weapon::new (book_statistics, 1, Area::Radial (2), 2);
 
         weapons.insert (0, sword);
         weapons.insert (1, spear);
@@ -339,12 +424,18 @@ mod tests {
         let weapons: Rc<HashMap<ID, Weapon>> = Rc::new (weapons);
         let magics: HashMap<ID, Magic> = generate_magics ();
         let magics: Rc<HashMap<ID, Magic>> = Rc::new (magics);
+
         let statistics_character_1: UnitStatisticsBuilder = UnitStatisticsBuilder::new (100, 1000, 100, 20, 20, 20, 10, 100);
-        let character_1: Unit = Unit::new (Rc::clone (&map), Rc::clone (&weapons), Rc::clone (&magics), statistics_character_1.build (), vec![], 0, 0);
+        let character_1: UnitBuilder = UnitBuilder::new (statistics_character_1, vec![], 0, 0);
+        let character_1: Unit = character_1.build (Rc::clone (&map), Rc::clone (&weapons), Rc::clone (&magics));
+
         let statistics_character_2: UnitStatisticsBuilder = UnitStatisticsBuilder::new (100, 1000, 100, 20, 20, 20, 10, 100);
-        let character_2: Unit = Unit::new (Rc::clone (&map), Rc::clone (&weapons), Rc::clone (&magics), statistics_character_2.build (), vec![], 0, 1);
+        let character_2: UnitBuilder = UnitBuilder::new (statistics_character_2, vec![], 0, 1);
+        let character_2: Unit = character_2.build (Rc::clone (&map), Rc::clone (&weapons), Rc::clone (&magics));
+
         let statistics_character_3: UnitStatisticsBuilder = UnitStatisticsBuilder::new (100, 1000, 100, 20, 20, 20, 10, 100);
-        let character_3: Unit = Unit::new (Rc::clone (&map), Rc::clone (&weapons), Rc::clone (&magics), statistics_character_3.build (), vec![], 0, 2);
+        let character_3: UnitBuilder = UnitBuilder::new (statistics_character_3, vec![], 0, 2);
+        let character_3: Unit = character_3.build (Rc::clone (&map), Rc::clone (&weapons), Rc::clone (&magics));
 
         (character_1, character_2, character_3)
     }

@@ -1,8 +1,10 @@
-use std::{collections::{HashMap, HashSet}, fmt, hash::Hash, sync::atomic::{AtomicU8, Ordering}};
+use core::fmt::Debug;
+use std::{cell::RefCell, collections::{HashMap, HashSet}, fmt, hash::Hash, rc::Rc, sync::atomic::{AtomicU8, Ordering}};
 
-pub type ID = u8; // Up to 256 unique entities
-pub type Location = (usize, usize);
+pub type ID = u8; // up to 256 unique entities
+pub type Location = (usize, usize); // row, column
 pub type Value = u16;
+pub type Event = (ID, Value); // ID, value
 // pub type Statistics = [Option<Statistic>; UnitStatistics::Length as usize];
 pub type Adjustments = [Option<i16>; UnitStatisticTypes::Length as usize];
 
@@ -22,7 +24,6 @@ pub enum UnitStatisticTypes {
 
 #[derive (Debug)]
 pub enum WeaponStatisticTypes {
-    ATK, // attack - physical damage
     SLH, // slash – modifier for physical damage, strong against manpower
     PRC, // pierce – modifier for physical damage, strong against morale
     DCY, // decay – modifier for magical damage
@@ -60,6 +61,17 @@ pub enum Direction {
     Down,
     Left,
     Length
+}
+
+pub trait Observer: Debug {
+    fn update (&mut self, event: Event) -> ();
+    fn get_type (&self) -> ID;
+}
+
+pub trait Subject {
+    fn add_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> ();
+    fn remove_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> ();
+    fn notify (&self, event: Event) -> ();
 }
 
 #[derive (Debug)]
