@@ -1,11 +1,12 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, fmt, rc::Rc};
-use crate::engine::common::{Direction, DuplicateCollectionMap, DuplicateMap, Location, Modifier, ID};
-use crate::engine::event::{SET_ENCIRCLED_EVENT, UNIT_TYPE};
+use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}, fmt, rc::Rc};
+use crate::engine::Lists;
+use crate::engine::common::{Direction, DuplicateCollectionMap, DuplicateMap, Event, Location, Modifier, Observer, Subject, ID};
+use crate::engine::event::{EVENT_MAP_GET_SUPPLY, EVENT_UNIT_SET_SUPPLY};
+
+type Adjacencies = [u8; Direction::Length as usize];
 
 const CLIMB_MAX: u8 = 2;
 const FACTION_UNCONTROLLED: ID = 0;
-
-type Adjacencies = [u8; Direction::Length as usize];
 
 #[derive (Debug)]
 pub struct Terrain {
@@ -14,23 +15,19 @@ pub struct Terrain {
 }
 
 #[derive (Debug)]
-struct Tile {
-    terrains: Rc<HashMap<ID, Terrain>>,
+pub struct City {
+    population: u16, // (thousands)
+    factories: u16,
+    farms: u16
+}
+
+#[derive (Debug)]
+pub struct Tile {
+    lists: Rc<Lists>,
     modifiers: Vec<Modifier>,
     terrain_id: ID,
     height: u8,
     city_id: Option<ID>
-}
-
-#[derive (Debug)]
-pub struct TileBuilder {
-    terrain_id: ID,
-    height: u8,
-    city_id: Option<ID>
-}
-
-pub struct TileMap {
-    tiles: Vec<Vec<Tile>>
 }
 
 #[derive (Debug)]
@@ -40,23 +37,17 @@ struct AdjacencyMatrix {
 
 #[derive (Debug)]
 pub struct Map {
-    terrains: Rc<HashMap<ID, Terrain>>,
+    lists: Rc<Lists>,
     tiles: Vec<Vec<Tile>>,
     adjacency_matrix: AdjacencyMatrix,
     unit_locations: DuplicateMap<ID, Location>,
     faction_locations: DuplicateCollectionMap<ID, Location>,
-    faction_units: DuplicateCollectionMap<ID, ID>
-}
-
-#[derive (Debug)]
-pub struct City {
-    population: u8, // (thousands)
-    factories: u8,
-    farms: u8
+    faction_units: DuplicateCollectionMap<ID, ID>,
+    observers: Vec<Rc<RefCell<dyn Observer>>>
 }
 
 impl Terrain {
-    pub fn new (modifiers: Vec<Modifier>, cost: u8 ) -> Self {
+    pub const fn new (modifiers: Vec<Modifier>, cost: u8 ) -> Self {
         Self { modifiers, cost }
     }
 
@@ -69,22 +60,42 @@ impl Terrain {
     }
 }
 
+impl City {
+    pub const fn new (population: u16, factories: u16, farms: u16) -> Self {
+        Self { population, factories, farms }
+    }
+
+    pub fn get_population (&self) -> u16 {
+        self.population
+    }
+
+    pub fn get_factories (&self) -> u16 {
+        self.factories
+    }
+
+    pub fn get_farms (&self) -> u16 {
+        self.farms
+    }
+}
+
 impl Tile {
-    pub fn get_terrain (&self) -> &Terrain {
-        self.terrains.get (&self.terrain_id)
-                .expect (&format! ("Terrain {} not found", self.terrain_id))
+    pub fn new (lists: Rc<Lists>, terrain_id: ID, height: u8, city_id: Option<ID>) -> Self {
+        let lists: Rc<Lists> = Rc::clone (&lists);
+        let modifiers: Vec<Modifier> = Vec::new ();
+
+        Self { lists, modifiers, terrain_id, height, city_id }
     }
 
     pub fn get_cost (&self) -> u8 {
-        self.get_terrain ().get_cost ()
+        self.lists.get_terrain (&self.terrain_id).get_cost ()
     }
 
     pub fn is_impassable (&self) -> bool {
         self.get_cost () == 0
     }
 
-    fn try_climb (&self, tile: &Tile) -> Option<u8> {
-        let climb: u8 = self.height.abs_diff (tile.height);
+    fn try_climb (&self, other: &Tile) -> Option<u8> {
+        let climb: u8 = self.height.abs_diff (other.height);
 
         if climb < CLIMB_MAX {
             Some (climb)
@@ -93,11 +104,11 @@ impl Tile {
         }
     }
 
-    pub fn find_cost (&self, tile: &Tile) -> u8 {
-        if self.is_impassable () || tile.is_impassable () {
+    pub fn find_cost (&self, other: &Tile) -> u8 {
+        if self.is_impassable () || other.is_impassable () {
             0
         } else {
-            self.try_climb (tile).map_or (0, |c| tile.get_cost () + c)
+            self.try_climb (other).map_or (0, |c| other.get_cost () + c)
         }
     }
 
@@ -115,18 +126,6 @@ impl Tile {
 
     pub fn get_city_id (&self) -> Option<ID> {
         self.city_id
-    }
-}
-
-impl TileBuilder {
-    pub fn new (terrain_id: ID, height: u8, city_id: Option<ID>) -> Self {
-        Self { terrain_id, height, city_id }
-    }
-
-    pub fn build (&self, terrains: Rc<HashMap<ID, Terrain>>) -> Tile {
-        let modifiers: Vec<Modifier> = Vec::new ();
-
-        Tile { terrains, modifiers, terrain_id: self.terrain_id, height: self.height, city_id: self.city_id }
     }
 }
 
@@ -179,25 +178,25 @@ impl AdjacencyMatrix {
         self.matrix[location.0][location.1][direction as usize]
     }
 
-    pub fn try_move (&self, location: &Location, direction: Direction) -> Option<(Location, u8)> {
-        assert! (rectangular_map::is_in_bounds (&self.matrix, location));
+    pub fn try_move (&self, start: &Location, direction: Direction) -> Option<(Location, u8)> {
+        assert! (rectangular_map::is_in_bounds (&self.matrix, start));
         assert! ((direction as usize) < (Direction::Length as usize));
 
-        let cost: u8 = self.matrix[location.0][location.1][direction as usize];
+        let cost: u8 = self.matrix[start.0][start.1][direction as usize];
 
         if cost > 0 {
-            let mut destination: Location = location.clone ();
+            let mut end: Location = start.clone ();
 
             match direction {
-                Direction::Up => destination.0 = location.0.checked_sub (1)?,
-                Direction::Right => destination.1 = location.1.checked_add (1)?,
-                Direction::Down => destination.0 = location.0.checked_add (1)?,
-                Direction::Left => destination.1 = location.1.checked_sub (1)?,
+                Direction::Up => end.0 = start.0.checked_sub (1)?,
+                Direction::Right => end.1 = start.1.checked_add (1)?,
+                Direction::Down => end.0 = start.0.checked_add (1)?,
+                Direction::Left => end.1 = start.1.checked_sub (1)?,
                 _ => panic! ("Unknown direction {:?}", direction)
             }
 
-            if rectangular_map::is_in_bounds (&self.matrix, &destination) {
-                Some ((destination, cost))
+            if rectangular_map::is_in_bounds (&self.matrix, &end) {
+                Some ((end, cost))
             } else {
                 None
             }
@@ -208,22 +207,16 @@ impl AdjacencyMatrix {
 }
 
 impl Map {
-    pub fn new (terrains: HashMap<ID, Terrain>, tile_builders: Vec<Vec<TileBuilder>>, unit_factions: HashMap<ID, ID>) -> Self {
+    pub fn new (lists: Rc<Lists>, tiles: Vec<Vec<Tile>>, unit_factions: HashMap<ID, ID>) -> Self {
+        let lists: Rc<Lists> = Rc::clone (&lists);
         let (_, mut factions): (Vec<ID>, Vec<ID>) = unit_factions.iter ().unzip ();
-        let terrains: Rc<HashMap<ID, Terrain>> = Rc::new (terrains);
-        let mut tiles: Vec<Vec<Tile>> = Vec::new ();
 
         factions.push (FACTION_UNCONTROLLED);
 
         let mut faction_locations: DuplicateCollectionMap<ID, Location> = DuplicateCollectionMap::new (factions.clone ());
 
-        for i in 0 .. tile_builders.len () {
-            tiles.push (Vec::new ());
-
-            for j in 0 .. tile_builders[i].len () {
-                let terrains: Rc<HashMap<ID, Terrain>> = Rc::clone (&terrains);
-
-                tiles[i].push (tile_builders[i][j].build (terrains));
+        for i in 0 .. tiles.len () {
+            for j in 0 .. tiles[i].len () {
                 faction_locations.insert ((FACTION_UNCONTROLLED, (i, j)));
             }
         }
@@ -232,23 +225,31 @@ impl Map {
         let unit_locations: DuplicateMap<ID, Location> = DuplicateMap::new ();
         let mut faction_units: DuplicateCollectionMap<ID, ID> = DuplicateCollectionMap::new (factions);
 
-        let _ = unit_factions.iter ().map (|(u, f)| faction_units.insert ((*f, *u))).collect::<Vec<_>> ();
+        for (unit_id, faction_id) in unit_factions {
+            faction_units.insert ((faction_id, unit_id));
+        }
 
-        Self { terrains, tiles, adjacency_matrix, unit_locations, faction_locations, faction_units }
+        let observers: Vec<Rc<RefCell<dyn Observer>>> = Vec::new ();
+
+        Self { lists, tiles, adjacency_matrix, unit_locations, faction_locations, faction_units, observers }
     }
 
-    
+    pub fn is_impassable (&self, location: &Location) -> bool {
+        assert! (rectangular_map::is_in_bounds (&self.tiles, location));
+
+        self.tiles[location.0][location.1].is_impassable ()
+    }
 
     pub fn is_occupied (&self, location: &Location) -> bool {
         assert! (rectangular_map::is_in_bounds (&self.tiles, location));
 
-        self.get_location_occupant (location).is_some ()
+        self.unit_locations.get_second (location).is_some ()
     }
 
     fn is_placeable (&self, location: &Location) -> bool {
         assert! (rectangular_map::is_in_bounds (&self.tiles, location));
 
-        !self.is_occupied (location) && !self.tiles[location.0][location.1].is_impassable ()
+        !self.is_occupied (location) && !self.is_impassable(location)
     }
 
     pub fn try_move (&self, location: &Location, direction: Direction) -> Option<(Location, u8)> {
@@ -285,27 +286,30 @@ impl Map {
     pub fn move_unit (&mut self, unit_id: ID, movements: Vec<Direction>) -> bool {
         let mut locations: Vec<Location> = Vec::new ();
         let faction_id: &ID = self.faction_units.get_second (&unit_id).expect (&format! ("Faction not found for unit {}", unit_id));
-        let location_old: Location = self.get_unit_location (&unit_id).expect (&format! ("Location not found for unit {}", unit_id)).clone ();
-        let mut location_new: Location = location_old.clone ();
+        let start: Location = self.get_unit_location (&unit_id).expect (&format! ("Location not found for unit {}", unit_id)).clone ();
+        let mut end: Location = start.clone ();
 
         // Temporarily remove unit
         self.unit_locations.remove_first (&unit_id);
 
         for direction in movements {
-            location_new = match self.try_move (&location_new, direction) {
-                Some (d) => d.0.clone (),
+            end = match self.try_move (&end, direction) {
+                Some (e) => e.0.clone (),
                 None => {
                     // Restore unit
-                    self.unit_locations.insert ((unit_id, location_old));
+                    self.unit_locations.insert ((unit_id, start));
 
                     return false
                 }
             };
-            locations.push (location_new);
+            locations.push (end);
         }
 
-        let _ = locations.iter ().map (|d| self.faction_locations.replace (*d, *faction_id)).collect::<Vec<_>> ();
-        self.unit_locations.insert ((unit_id, location_new));
+        for location in locations {
+            self.faction_locations.replace (location, *faction_id);
+        }
+
+        self.unit_locations.insert ((unit_id, end));
 
         true
     }
@@ -319,7 +323,7 @@ impl Map {
         let location: Location = self.get_unit_location (unit_id).expect (&format! ("Location not found for unit {}", unit_id)).clone ();
         let mut locations: VecDeque<Location> = VecDeque::new ();
         let mut is_visited: Vec<Vec<bool>> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
-        let mut cities: Vec<ID> = Vec::new ();
+        let mut city_ids: Vec<ID> = Vec::new ();
 
         locations.push_back (location);
         is_visited[location.0][location.1] = true;
@@ -328,46 +332,85 @@ impl Map {
             let location: Location = locations.pop_front ().expect ("Location not found");
 
             if let Some (c) = self.tiles[location.0][location.1].get_city_id () {
-                cities.push (c);
+                city_ids.push (c);
             }
 
-            let _ = directions.iter ().map (|d| {
-                match self.adjacency_matrix.try_move (&location, *d) {
-                    Some ((d, _)) => {
-                        let controller_id: &ID = self.faction_locations.get_second (&d).expect (&format! ("Faction not found for location {:?}", d));
+            for direction in directions {
+                match self.adjacency_matrix.try_move (&location, direction) {
+                    Some ((e, _)) => {
+                        let controller_id: &ID = self.faction_locations.get_second (&e).expect (&format! ("Faction not found for location {:?}", e));
 
-                        if !is_visited[d.0][d.1] && controller_id == faction_id {
-                            locations.push_back (d);
-                            is_visited[d.0][d.1] = true;
+                        if !is_visited[e.0][e.1] && controller_id == faction_id {
+                            locations.push_back (e);
+                            is_visited[e.0][e.1] = true;
                         }
                     }
                     None => ()
                 }
-            }).collect::<Vec<_>> ();
+            }
         };
 
-        // TODO: Signal units about encirclement
-        cities
-    }
+        for city_id in city_ids.iter () {
+            let mut value: u16 = *unit_id as u16;
 
-    pub fn get_location_occupant (&self, location: &Location) -> Option<&ID> {
-        assert! (rectangular_map::is_in_bounds (&self.tiles, location));
+            value <<= 8;
+            value |= *city_id as u16;
+            // Automatically assume encircled if no event received
+            self.notify ((EVENT_UNIT_SET_SUPPLY, value));
+        }
 
-        self.unit_locations.get_second (location)
-    }
-
-    pub fn get_location_controller (&self, location: &Location) -> Option<&ID> {
-        assert! (rectangular_map::is_in_bounds (&self.tiles, location));
-
-        self.faction_locations.get_second (location)
+        city_ids
     }
 
     pub fn get_unit_location (&self, unit_id: &ID) -> Option<&Location> {
         self.unit_locations.get_first (unit_id)
     }
 
+    pub fn get_location_unit (&self, location: &Location) -> Option<&ID> {
+        assert! (rectangular_map::is_in_bounds (&self.tiles, location));
+
+        self.unit_locations.get_second (location)
+    }
+
     pub fn get_faction_locations (&self, faction_id: &ID) -> Option<&HashSet<Location>> {
         self.faction_locations.get_first (faction_id)
+    }
+
+    pub fn get_location_faction (&self, location: &Location) -> Option<&ID> {
+        assert! (rectangular_map::is_in_bounds (&self.tiles, location));
+
+        self.faction_locations.get_second (location)
+    }
+}
+
+impl Subject for Map {
+    fn add_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> () {
+        let observer: Rc<RefCell<dyn Observer>> = Rc::clone (&observer);
+
+        self.observers.push (observer);
+    }
+
+    fn remove_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> () {
+        unimplemented! ()
+    }
+
+    fn notify (&self, event: Event) -> () {
+        for observer in self.observers.iter () {
+            observer.borrow_mut ().update (event);
+        }
+    }
+}
+
+impl Observer for Map {
+    fn update (&mut self, event: Event) -> () {
+        match event {
+            (EVENT_MAP_GET_SUPPLY, u) => {
+                let unit_id: ID = u as ID;
+
+                self.get_unit_supply_cities (&unit_id);
+            }
+            _ => ()
+        }
     }
 }
 
@@ -393,14 +436,11 @@ impl fmt::Display for Map {
 
                 if self.is_occupied (&(i, j)) {
                     display.push_str (&format! ("{}o{} ",
-                            self.get_location_occupant (&(i, j))
+                            self.unit_locations.get_second (&(i, j))
                                     .expect (&format! ("Missing unit on ({}, {})", i, j)),
                             tile.height));
                 } else {
-                    display.push_str (&format! ("{}_{} ",
-                            self.terrains.get (&tile.terrain_id)
-                                    .expect (&format! ("Unknown terrain ID {}", tile.terrain_id)),
-                            tile.height));
+                    display.push_str (&format! ("{}_{} ", self.lists.get_terrain (&tile.terrain_id), tile.height));
                 }
             }
 
@@ -430,43 +470,17 @@ mod rectangular_map {
 }
 
 #[cfg (test)]
-mod tests {
+pub mod tests {
     use super::*;
-
-    fn generate_terrains () -> HashMap<ID, Terrain> {
-        let passable_1: Terrain = Terrain::new (Vec::new (), 1);
-        let passable_2: Terrain = Terrain::new (Vec::new (), 2);
-        let impassable: Terrain = Terrain::new (Vec::new (), 0);
-        let mut terrains: HashMap<ID, Terrain> = HashMap::new ();
-
-        terrains.insert (0, passable_1);
-        terrains.insert (1, passable_2);
-        terrains.insert (2, impassable);
-
-        terrains
-    }
-
-    fn generate_tile_builders () -> Vec<Vec<TileBuilder>> {
-        vec![
-            vec![TileBuilder::new (0, 0, Some (0)), TileBuilder::new (0, 1, None), TileBuilder::new (0, 0, Some (1))],
-            vec![TileBuilder::new (1, 2, None), TileBuilder::new (1, 1, None), TileBuilder::new (2, 0, None)]
-        ]
-    }
+    use crate::engine::tests::generate_lists;
 
     fn generate_tiles () -> Vec<Vec<Tile>> {
-        let terrains: Rc<HashMap<ID, Terrain>> = Rc::new (generate_terrains ());
-        let tile_builders: Vec<Vec<TileBuilder>> = generate_tile_builders ();
-        let mut tiles: Vec<Vec<Tile>> = Vec::new ();
+        let lists: Rc<Lists> = generate_lists ();
 
-        for i in 0 .. tile_builders.len () {
-            tiles.push (Vec::new ());
-
-            for j in 0 .. tile_builders[i].len () {
-                tiles[i].push (tile_builders[i][j].build (Rc::clone (&terrains)));
-            }
-        }
-
-        tiles
+        vec![
+            vec![Tile::new (Rc::clone (&lists), 0, 0, Some (0)), Tile::new (Rc::clone (&lists), 0, 1, None), Tile::new (Rc::clone (&lists), 0, 0, Some (1))],
+            vec![Tile::new (Rc::clone (&lists), 1, 2, None), Tile::new (Rc::clone (&lists), 1, 1, None), Tile::new (Rc::clone (&lists), 2, 0, None)]
+        ]
     }
 
     fn generate_unit_factions () -> HashMap<ID, ID> {
@@ -480,125 +494,84 @@ mod tests {
         unit_factions
     }
 
-    fn generate_map () -> Map {
-        let terrains: HashMap<ID, Terrain> = generate_terrains ();
-        let tile_map_builder: Vec<Vec<TileBuilder>> = generate_tile_builders ();
+    pub fn generate_map () -> Map {
+        let lists: Rc<Lists> = generate_lists ();
+        let tiles: Vec<Vec<Tile>> = generate_tiles ();
         let unit_factions: HashMap<ID, ID> = generate_unit_factions ();
 
-        Map::new (terrains, tile_map_builder, unit_factions)
-    }
-
-    fn generate_tile (terrains: Rc<HashMap<ID, Terrain>>, terrain_id: ID, height: u8) -> Tile {
-        let tile_builder: TileBuilder = TileBuilder::new (terrain_id, height, None);
-
-        tile_builder.build (terrains)
+        Map::new (Rc::clone (&lists), tiles, unit_factions)
     }
 
     #[test]
     fn terrain_data () {
-        let terrains: HashMap<ID, Terrain> = generate_terrains ();
+        let lists: Rc<Lists> = generate_lists ();
 
-        assert_eq! (terrains.get (&0).unwrap ().get_modifiers ().len (), 0);
-        assert_eq! (terrains.get (&0).unwrap ().get_cost (), 1);
-        assert_eq! (terrains.get (&1).unwrap ().get_modifiers ().len (), 0);
-        assert_eq! (terrains.get (&1).unwrap ().get_cost (), 2);
-        assert_eq! (terrains.get (&2).unwrap ().get_modifiers ().len (), 0);
-        assert_eq! (terrains.get (&2).unwrap ().get_cost (), 0);
-    }
-
-    #[test]
-    fn tile_builder_data () {
-        let tile_builder: TileBuilder = TileBuilder::new (0, 0, None);
-
-        assert_eq! (tile_builder.terrain_id, 0);
-        assert_eq! (tile_builder.height, 0);
-    }
-
-    #[test]
-    fn tile_builder_build () {
-        let tile_builder: TileBuilder = TileBuilder::new (0, 0, None);
-        let terrains: Rc<HashMap<u8, Terrain>> = Rc::new (generate_terrains ());
-        let tile: Tile = tile_builder.build (terrains);
-
-        assert_eq! (Rc::strong_count (&tile.terrains), 1);
-        assert_eq! (tile.get_modifiers ().len (), 0);
-        assert_eq! (tile.get_terrain_id (), 0);
-        assert_eq! (tile.get_height (), 0);
-    }
-
-    #[test]
-    fn tile_get_terrain () {
-        let terrains: Rc<HashMap<u8, Terrain>> = Rc::new (generate_terrains ());
-
-        let tile: Tile = generate_tile (Rc::clone (&terrains), 0, 0);
-        assert_eq! (tile.get_terrain ().cost, 1);
-        let tile: Tile = generate_tile (Rc::clone (&terrains), 1, 0);
-        assert_eq! (tile.get_terrain ().cost, 2);
-        let tile: Tile = generate_tile (Rc::clone (&terrains), 2, 0);
-        assert_eq! (tile.get_terrain ().cost, 0);
+        assert_eq! (lists.get_terrain (&0).get_modifiers ().len (), 0);
+        assert_eq! (lists.get_terrain (&0).get_cost (), 1);
+        assert_eq! (lists.get_terrain (&1).get_modifiers ().len (), 0);
+        assert_eq! (lists.get_terrain (&1).get_cost (), 2);
+        assert_eq! (lists.get_terrain (&2).get_modifiers ().len (), 0);
+        assert_eq! (lists.get_terrain (&2).get_cost (), 0);
     }
 
     #[test]
     fn tile_get_cost () {
-        let terrains: Rc<HashMap<u8, Terrain>> = Rc::new (generate_terrains ());
+        let lists: Rc<Lists> = generate_lists ();
+        let tile_0: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let tile_1: Tile = Tile::new (Rc::clone (&lists), 1, 0, None);
+        let tile_2: Tile = Tile::new (Rc::clone (&lists), 2, 0, None);
 
-        let tile: Tile = generate_tile (Rc::clone (&terrains), 0, 0);
-        assert_eq! (tile.get_cost (), 1);
-        let tile: Tile = generate_tile (Rc::clone (&terrains), 1, 0);
-        assert_eq! (tile.get_cost (), 2);
-        let tile: Tile = generate_tile (Rc::clone (&terrains), 2, 0);
-        assert_eq! (tile.get_cost (), 0);
+        assert_eq! (tile_0.get_cost (), 1);
+        assert_eq! (tile_1.get_cost (), 2);
+        assert_eq! (tile_2.get_cost (), 0);
     }
 
     #[test]
     fn tile_is_impassable () {
-        let terrains: Rc<HashMap<u8, Terrain>> = Rc::new (generate_terrains ());
+        let lists: Rc<Lists> = generate_lists ();
+        let tile_0: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let tile_2: Tile = Tile::new (Rc::clone (&lists), 2, 0, None);
 
         // Test passable tile
-        let tile: Tile = generate_tile (Rc::clone (&terrains), 0, 0);
-        assert! (!tile.is_impassable ());
+        assert! (!tile_0.is_impassable ());
         // Test impassable tile
-        let tile: Tile = generate_tile (Rc::clone (&terrains), 2, 0);
-        assert! (tile.is_impassable ());
+        assert! (tile_2.is_impassable ());
     }
 
+    #[test]
     fn tile_try_climb () {
-        let terrains: Rc<HashMap<u8, Terrain>> = Rc::new (generate_terrains ());
+        let lists: Rc<Lists> = generate_lists ();
+        let tile_0: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let tile_1_0: Tile = Tile::new (Rc::clone (&lists), 1, 0, None);
+        let tile_1_1: Tile = Tile::new (Rc::clone (&lists), 1, 1, None);
+        let tile_1_2: Tile = Tile::new (Rc::clone (&lists), 1, 2, None);
 
         // Test impassable climb
-        let tile_1: Tile = generate_tile (Rc::clone (&terrains), 0, 0);
-        let tile_2: Tile = generate_tile (Rc::clone (&terrains), 2, 0);
-        assert_eq! (tile_1.try_climb (&tile_2), None);
-        assert_eq! (tile_2.try_climb (&tile_1), None);
+        assert_eq! (tile_0.try_climb (&tile_1_2), None);
+        assert_eq! (tile_1_2.try_climb (&tile_0), None);
         // Test passable climb
-        let tile_1: Tile = generate_tile (Rc::clone (&terrains), 0, 0);
-        let tile_2: Tile = generate_tile (Rc::clone (&terrains), 1, 0);
-        assert_eq! (tile_1.try_climb (&tile_2).unwrap (), 0);
-        assert_eq! (tile_2.try_climb (&tile_1).unwrap (), 0);
-        let tile_1: Tile = generate_tile (Rc::clone (&terrains), 0, 0);
-        let tile_2: Tile = generate_tile (Rc::clone (&terrains), 1, 1);
-        assert_eq! (tile_1.try_climb (&tile_2).unwrap (), 1);
-        assert_eq! (tile_2.try_climb (&tile_1).unwrap (), 1);
+        assert_eq! (tile_0.try_climb (&tile_1_0).unwrap (), 0);
+        assert_eq! (tile_1_0.try_climb (&tile_0).unwrap (), 0);
+        assert_eq! (tile_1_0.try_climb (&tile_1_1).unwrap (), 1);
+        assert_eq! (tile_1_1.try_climb (&tile_1_0).unwrap (), 1);
     }
 
     #[test]
     fn tile_find_cost () {
-        let terrains: Rc<HashMap<u8, Terrain>> = Rc::new (generate_terrains ());
+        let lists: Rc<Lists> = generate_lists ();
+        let tile_0: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let tile_1_0: Tile = Tile::new (Rc::clone (&lists), 1, 0, None);
+        let tile_1_1: Tile = Tile::new (Rc::clone (&lists), 1, 1, None);
+        let tile_2: Tile = Tile::new (Rc::clone (&lists), 2, 0, None);
 
         // Test impassable cost
-        let tile_1: Tile = generate_tile (Rc::clone (&terrains), 0, 0);
-        let tile_2: Tile = generate_tile (Rc::clone (&terrains), 2, 0);
-        assert_eq! (tile_1.find_cost (&tile_2), 0);
-        assert_eq! (tile_2.find_cost (&tile_1), 0);
+        assert_eq! (tile_0.find_cost (&tile_2), 0);
+        assert_eq! (tile_2.find_cost (&tile_0), 0);
         // Test passable cost
-        let tile_1: Tile = generate_tile (Rc::clone (&terrains), 0, 0);
-        let tile_2: Tile = generate_tile (Rc::clone (&terrains), 1, 0);
-        assert_eq! (tile_1.find_cost (&tile_2), 2);
-        assert_eq! (tile_2.find_cost (&tile_1), 1);
-        let tile_1: Tile = generate_tile (Rc::clone (&terrains), 0, 0);
-        let tile_2: Tile = generate_tile (Rc::clone (&terrains), 1, 1);
-        assert_eq! (tile_1.find_cost (&tile_2), 3);
-        assert_eq! (tile_2.find_cost (&tile_1), 2);
+        assert_eq! (tile_0.find_cost (&tile_1_0), 2);
+        assert_eq! (tile_1_0.find_cost (&tile_0), 1);
+        assert_eq! (tile_0.find_cost (&tile_1_1), 3);
+        assert_eq! (tile_1_1.find_cost (&tile_0), 2);
     }
 
     #[test]
@@ -631,6 +604,17 @@ mod tests {
         assert_eq! (adjacency_matrix.get_connection (&(1, 2), Direction::Right), 0);
         assert_eq! (adjacency_matrix.get_connection (&(1, 2), Direction::Down), 0);
         assert_eq! (adjacency_matrix.get_connection (&(1, 2), Direction::Left), 0);
+    }
+
+    
+    #[test]
+    fn map_is_impassable () {
+        let map: Map = generate_map ();
+
+        // Test passable
+        assert_eq! (map.is_impassable (&(0, 0)), false);
+        // Test impassable
+        assert_eq! (map.is_impassable (&(1, 2)), true);
     }
 
     #[test]
@@ -733,15 +717,6 @@ mod tests {
         assert_eq! (map.get_unit_location (&0).unwrap (), &(1, 1));
     }
 
-    // vec![
-    //         vec![TileBuilder::new (0, 0, Some (0)), TileBuilder::new (0, 1, None), TileBuilder::new (0, 0, Some (1))],
-    //         vec![TileBuilder::new (1, 2, None), TileBuilder::new (1, 1, None), TileBuilder::new (2, 0, None)]
-    //     ]
-    //     unit_factions.insert (0, 1);
-    //     unit_factions.insert (1, 1);
-    //     unit_factions.insert (2, 2);
-    //     unit_factions.insert (3, 3);
-
     #[test]
     fn map_get_unit_supply_cities () {
         let mut map: Map = generate_map ();
@@ -758,6 +733,7 @@ mod tests {
         // Test normal supply
         map.place_unit (1, (0, 2));
         assert_eq! (map.get_unit_supply_cities (&0).len (), 1);
+        assert_eq! (map.get_unit_supply_cities (&1).len (), 1);
         assert_eq! (map.get_unit_supply_cities (&2).len (), 1);
     }
 }

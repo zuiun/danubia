@@ -1,0 +1,7 @@
+effects
+modifiers (units)
+magic
+modifiers (terrain)
+order-of-batle
+integrate
+turns

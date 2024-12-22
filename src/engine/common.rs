@@ -1,12 +1,40 @@
 use core::fmt::Debug;
-use std::{cell::RefCell, collections::{HashMap, HashSet}, fmt, hash::Hash, rc::Rc, sync::atomic::{AtomicU8, Ordering}};
+use std::{cell::RefCell, collections::{HashMap, HashSet}, fmt, hash::Hash, rc::Rc, sync::atomic::{AtomicUsize, Ordering}};
 
-pub type ID = u8; // up to 256 unique entities
+pub type ID = usize;
 pub type Location = (usize, usize); // row, column
-pub type Value = u16;
-pub type Event = (ID, Value); // ID, value
+pub type Event = (ID, u16); // value may be bit-packed
 // pub type Statistics = [Option<Statistic>; UnitStatistics::Length as usize];
 pub type Adjustments = [Option<i16>; UnitStatisticTypes::Length as usize];
+
+pub const TYPE_UNIT: ID = 0;
+pub const TYPE_TERRAIN: ID = 1;
+pub const TYPE_CITY: ID = 2;
+pub const TYPE_WEAPON: ID = 3;
+pub const TYPE_MAGIC: ID = 4;
+pub static IDS: [AtomicUsize; 5] = [
+    AtomicUsize::new (0),
+    AtomicUsize::new (0),
+    AtomicUsize::new (0),
+    AtomicUsize::new (0),
+    AtomicUsize::new (0),
+];
+
+pub trait Unique {
+    fn assign_id () -> ID;
+    fn get_id (&self) -> ID;
+    fn get_type (&self) -> ID;
+}
+
+pub trait Observer: Debug {
+    fn update (&mut self, event: Event) -> ();
+}
+
+pub trait Subject {
+    fn add_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> ();
+    fn remove_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> ();
+    fn notify (&self, event: Event) -> ();
+}
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
@@ -49,8 +77,8 @@ pub enum Target {
 #[derive (Debug)]
 #[derive (Clone, Copy)]
 pub enum Capacity {
-    Constant (Value, Value), // current, base
-    Quantity (Value, Value) // current, maximum
+    Constant (u16, u16, u16), // current, maximum, base
+    Quantity (u16, u16) // current, maximum
 }
 
 #[derive (Debug)]
@@ -61,17 +89,6 @@ pub enum Direction {
     Down,
     Left,
     Length
-}
-
-pub trait Observer: Debug {
-    fn update (&mut self, event: Event) -> ();
-    fn get_type (&self) -> ID;
-}
-
-pub trait Subject {
-    fn add_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> ();
-    fn remove_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> ();
-    fn notify (&self, event: Event) -> ();
 }
 
 #[derive (Debug)]
@@ -117,7 +134,7 @@ impl Information {
     }
 
     pub fn new_test () -> Self {
-        static ID: AtomicU8 = AtomicU8::new (0);
+        static ID: AtomicUsize = AtomicUsize::new (0);
         let name: String = format! ("{}", ID.fetch_add (1, Ordering::SeqCst));
         let descriptions: Vec<String> = Vec::new ();
         let current_description: usize = 0;
@@ -139,20 +156,22 @@ impl Modifier {
         Self { adjustments, duration }
     }
 
-    pub fn get_duration (&self) -> Value {
+    pub fn get_duration (&self) -> u16 {
         match self.duration {
-            Capacity::Constant (d, _) => d,
+            Capacity::Constant (d, _, _) => d,
             Capacity::Quantity (d, _) => d
         }
     }
 
-    pub fn dec_duration (&mut self) -> () {
+    pub fn dec_duration (&mut self) -> bool {
         match self.duration {
-            Capacity::Constant (_, _) => (),
+            Capacity::Constant (_, _, _) => false,
             Capacity::Quantity (d, m) => {
-                let duration: Value = d.checked_sub (1).unwrap_or (0);
+                let duration: u16 = d.checked_sub (1).unwrap_or (0);
 
-                self.duration = Capacity::Quantity (duration, m)
+                self.duration = Capacity::Quantity (duration, m);
+
+                true
             }
         }
     }
@@ -254,7 +273,10 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     pub fn new (collection: impl IntoIterator<Item = T>) -> Self {
         let mut map_first: HashMap<T, HashSet<U>> = HashMap::new ();
         let map_second: HashMap<U, T> = HashMap::new ();
-        let _ = collection.into_iter ().map (|k| map_first.insert (k, HashSet::new ())).collect::<Vec<_>> ();
+
+        for key in collection {
+            map_first.insert (key, HashSet::new ());
+        }
 
         Self { map_first, map_second }
     }
