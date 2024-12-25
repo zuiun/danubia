@@ -1,13 +1,13 @@
 pub mod common;
 pub mod event;
 pub mod map;
-pub mod unit;
+pub mod character;
 
 use std::rc::Rc;
 use crate::lists;
-use common::{Information, ID};
+use common::{Information, ID, Modifier, Status};
 use map::{City, Terrain};
-use unit::{Faction, Magic, Skill, Unit, Weapon};
+use character::{Faction, Magic, Skill, Unit, Weapon};
 
 /*
  * Calculated from build.rs
@@ -25,6 +25,8 @@ const DELAY_WAIT: f32 = 0.67;
 #[derive (Debug)]
 pub struct Lists {
     delays: [u8; 101],
+    modifiers: Box<[Modifier]>,
+    statuses: Box<[Status]>,
     terrains: Box<[Terrain]>,
     cities: Box<[City]>,
     weapons: Box<[Weapon]>,
@@ -42,6 +44,8 @@ pub struct Game {
 impl Lists {
     pub fn new () -> Self {
         let delays: [u8; 101] = DELAYS;
+        let modifiers: Box<[Modifier]> = Box::new (lists::game::MODIFIERS);
+        let statuses: Box<[Status]> = Box::new (lists::game::STATUSES);
         let terrains: Box<[Terrain]> = Box::new (lists::game::TERRAINS);
         let cities: Box<[City]> = Box::new (lists::game::CITIES);
         let weapons: Box<[Weapon]> = Box::new (lists::game::WEAPONS);
@@ -50,11 +54,13 @@ impl Lists {
         let factions: Box<[Faction]> = Box::new (lists::game::FACTIONS);
         let units: Box<[Unit]> = Box::new (lists::game::UNITS);
 
-        Self { delays, terrains, cities, weapons, magics, skills, factions, units }
+        Self { modifiers, statuses, delays, terrains, cities, weapons, magics, skills, factions, units }
     }
 
     pub fn debug () -> Self {
         let delays: [u8; 101] = DELAYS;
+        let modifiers: Box<[Modifier]> = Box::new (lists::debug::MODIFIERS);
+        let statuses: Box<[Status]> = Box::new (lists::debug::STATUSES);
         let terrains: Box<[Terrain]> = Box::new (lists::debug::TERRAINS);
         let cities: Box<[City]> = Box::new (lists::debug::CITIES);
         let weapons: Box<[Weapon]> = Box::new (lists::debug::WEAPONS);
@@ -63,13 +69,25 @@ impl Lists {
         let factions: Box<[Faction]> = Box::new (lists::debug::FACTIONS);
         let units: Box<[Unit]> = Box::new (lists::debug::UNITS);
 
-        Self { delays, terrains, cities, weapons, magics, skills, factions, units }
+        Self { modifiers, statuses, delays, terrains, cities, weapons, magics, skills, factions, units }
     }
 
     pub fn get_delay (&self, speed: &usize) -> &u8 {
         assert! (*speed < self.delays.len ());
 
         &self.delays[*speed]
+    }
+
+    pub fn get_modifier (&self, id: &ID) -> &Modifier {
+        assert! (*id < self.modifiers.len ());
+
+        &self.modifiers[*id]
+    }
+
+    pub fn get_status (&self, id: &ID) -> &Status {
+        assert! (*id < self.statuses.len ());
+
+        &self.statuses[*id]
     }
 
     pub fn get_terrain (&self, id: &ID) -> &Terrain {

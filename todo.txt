@@ -1,7 +1,11 @@
-effects
-modifiers (units)
-magic
-modifiers (terrain)
+testing skills, magics, modifiers
+targets
+faction and unit storage
+
+!ASYNC (probably condvar) EVENTS!
+
 order-of-batle
 integrate
 turns
+
+What is this LLVM source-based code coverage

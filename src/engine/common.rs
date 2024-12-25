@@ -1,11 +1,9 @@
 use core::fmt::Debug;
-use std::{cell::RefCell, collections::{HashMap, HashSet}, fmt, hash::Hash, rc::Rc, sync::atomic::{AtomicUsize, Ordering}};
+use std::{collections::{HashMap, HashSet}, fmt, hash::Hash, sync::atomic::{AtomicUsize, Ordering}};
 
-pub type ID = usize;
-pub type Location = (usize, usize); // row, column
-pub type Event = (ID, u16); // value may be bit-packed
-// pub type Statistics = [Option<Statistic>; UnitStatistics::Length as usize];
-pub type Adjustments = [Option<i16>; UnitStatisticTypes::Length as usize];
+pub type ID = usize; // Due to event values, ID is assumed to be an u8
+pub type Adjustment = (Statistic, u16, bool); // statistic, change (value depends on context), is add
+pub type Adjustments = [Option<Adjustment>; 4]; // Any more than 4 is probably excessive
 
 pub const TYPE_UNIT: ID = 0;
 pub const TYPE_TERRAIN: ID = 1;
@@ -26,19 +24,19 @@ pub trait Unique {
     fn get_type (&self) -> ID;
 }
 
-pub trait Observer: Debug {
-    fn update (&mut self, event: Event) -> ();
+pub trait Timed {
+    fn get_duration (&self) -> u16;
+    fn dec_duration (&mut self) -> bool;
 }
 
-pub trait Subject {
-    fn add_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> ();
-    fn remove_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> ();
-    fn notify (&self, event: Event) -> ();
+pub trait Modifiable {
+    fn add_modifier (&mut self, modifier: Modifier) -> bool;
+    fn dec_durations (&mut self) -> ();
 }
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
-pub enum UnitStatisticTypes {
+pub enum UnitStatistic {
     MRL, // morale - willingness to fight (percentage)
     HLT, // manpower - number of soldiers
     SPL, // supply - proportion of soldiers equipped (percentage)
@@ -51,7 +49,9 @@ pub enum UnitStatisticTypes {
 }
 
 #[derive (Debug)]
-pub enum WeaponStatisticTypes {
+#[derive (Clone, Copy)]
+pub enum WeaponStatistic {
+    DMG, // damage - base damage
     SLH, // slash – modifier for physical damage, strong against manpower
     PRC, // pierce – modifier for physical damage, strong against morale
     DCY, // decay – modifier for magical damage
@@ -59,6 +59,15 @@ pub enum WeaponStatisticTypes {
 }
 
 #[derive (Debug)]
+#[derive (Clone, Copy)]
+pub enum Statistic {
+    Unit (UnitStatistic),
+    Weapon (WeaponStatistic),
+    Tile
+}
+
+#[derive (Debug)]
+#[derive (Clone, Copy)]
 pub enum Area {
     Single,
     Radial (u8), // radius
@@ -66,11 +75,11 @@ pub enum Area {
 }
 
 #[derive (Debug)]
+#[derive (Clone, Copy)]
 pub enum Target {
     Ally (bool), // false = ally, true = self
-    Allies (bool), // false = allies, true = self and allies
-    All (bool), // false = enemies, true = allies and enemies
     Enemy,
+    All (bool), // false = enemies, true = allies
     Map
 }
 
@@ -92,6 +101,12 @@ pub enum Direction {
 }
 
 #[derive (Debug)]
+pub enum Condition {
+    OnHit,
+    OnAttack
+}
+
+#[derive (Debug)]
 pub struct Information {
     name: String,
     descriptions: Vec<String>,
@@ -99,20 +114,20 @@ pub struct Information {
 }
 
 #[derive (Debug)]
+#[derive (Clone, Copy)]
 pub struct Modifier {
+    id: ID,
     adjustments: Adjustments,
-    duration: Capacity
-}
-
-#[derive (Debug)]
-pub struct Effect {
-    // ???
+    duration: Capacity,
+    can_stack: bool // for tiles: false = flat change, true = set to constant
 }
 
 #[derive (Debug)]
 pub struct Status {
-    modifier: Modifier,
-    duration: u8,
+    modifier_id: ID,
+    // trigger: Condition, // TODO: triggered statuses: on hit -> reflect damage, on attack -> apply modifier, against specific units -> apply modifier, what else?
+    duration: Capacity,
+    target: Target,
     next: Option<Box<Status>>
 }
 
@@ -152,28 +167,26 @@ impl Information {
 }
 
 impl Modifier {
-    pub fn new (adjustments: Adjustments, duration: Capacity) -> Self {
-        Self { adjustments, duration }
+    pub const fn new (id: ID, adjustments: Adjustments, duration: Capacity, can_stack: bool) -> Self {
+        Self { id, adjustments, duration, can_stack }
     }
 
-    pub fn get_duration (&self) -> u16 {
-        match self.duration {
-            Capacity::Constant (d, _, _) => d,
-            Capacity::Quantity (d, _) => d
-        }
+    pub fn get_adjustments (&self) -> Adjustments {
+        self.adjustments
     }
 
-    pub fn dec_duration (&mut self) -> bool {
-        match self.duration {
-            Capacity::Constant (_, _, _) => false,
-            Capacity::Quantity (d, m) => {
-                let duration: u16 = d.checked_sub (1).unwrap_or (0);
+    pub fn can_stack (&self) -> bool {
+        self.can_stack
+    }
+}
 
-                self.duration = Capacity::Quantity (duration, m);
+impl Status {
+    pub const fn new (modifier_id: ID, duration: Capacity, target: Target, next: Option<Box<Status>>) -> Self {
+        Self { modifier_id, duration, target, next }
+    }
 
-                true
-            }
-        }
+    pub fn get_modifier_id (&self) -> ID {
+        self.modifier_id
     }
 }
 
@@ -388,6 +401,56 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
 //     }
 // }
 
+impl Timed for Modifier {
+    fn get_duration (&self) -> u16 {
+        match self.duration {
+            Capacity::Constant (d, _, _) => d,
+            Capacity::Quantity (d, _) => d
+        }
+    }
+
+    fn dec_duration (&mut self) -> bool {
+        match self.duration {
+            Capacity::Constant (_, _, _) => false,
+            Capacity::Quantity (d, m) => {
+                let duration: u16 = d.checked_sub (1).unwrap_or (0);
+
+                self.duration = Capacity::Quantity (duration, m);
+
+                duration == 0
+            }
+        }
+    }
+}
+
+impl Timed for Status {
+    fn get_duration (&self) -> u16 {
+        match self.duration {
+            Capacity::Constant (d, _, _) => d,
+            Capacity::Quantity (d, _) => d
+        }
+    }
+
+    fn dec_duration (&mut self) -> bool {
+        match self.duration {
+            Capacity::Constant (_, _, _) => false,
+            Capacity::Quantity (d, m) => {
+                let duration: u16 = d.checked_sub (1).unwrap_or (0);
+
+                self.duration = Capacity::Quantity (duration, m);
+
+                duration == 0
+            }
+        }
+    }
+}
+
+impl PartialEq for Modifier {
+    fn eq (&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
 impl fmt::Display for Information {
     fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write! (f, "{}\n{}", self.name, self.descriptions[self.current_description])
@@ -397,6 +460,7 @@ impl fmt::Display for Information {
 #[cfg (test)]
 mod tests {
     use super::*;
+    use crate::engine::map::Location;
 
     #[test]
     fn duplicate_map_insert () {
