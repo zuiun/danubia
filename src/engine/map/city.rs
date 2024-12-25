@@ -1,5 +1,6 @@
 use std::{cell::RefCell, cmp, rc::Rc};
-use crate::engine::event::{Event, Subject, Observer, Result, RESULT_NOTIFICATION};
+use crate::engine::common::{ID, ID_UNINITIALISED};
+use crate::engine::event::{Event, Subject, Observer, Response, RESPONSE_NOTIFICATION};
 
 const RECOVER_MANPOWER_DIVIDEND: u16 = 10;
 
@@ -10,16 +11,16 @@ pub struct City {
     farms: u16,
     draw_count: u16,
     stockpile: (u16, u16),
-    observers: Vec<Rc<RefCell<dyn Observer>>>
+    observer_id: ID
 }
 
 impl City {
     pub const fn new (population: u16, factories: u16, farms: u16) -> Self {
         let draw_count: u16 = 0;
         let stockpile: (u16, u16) = (0, 0);
-        let observers: Vec<Rc<RefCell<dyn Observer>>> = Vec::new ();
+        let observer_id: ID = ID_UNINITIALISED;
 
-        Self { population, factories, farms, draw_count, stockpile, observers }
+        Self { population, factories, farms, draw_count, stockpile, observer_id }
     }
 
     pub fn get_manpower (&self) -> u16 {
@@ -62,30 +63,30 @@ impl City {
     }
 }
 
-impl Subject for City {
-    fn add_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> () {
-        let observer: Rc<RefCell<dyn Observer>> = Rc::clone (&observer);
-
-        self.observers.push (observer);
-    }
-
-    fn remove_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> () {
-        unimplemented! ()
-    }
-
-    async fn notify (&self, event: Event) -> Result {
-        for observer in self.observers.iter () {
-            observer.borrow_mut ().update (event);
-        }
-
-        RESULT_NOTIFICATION
-    }
-}
-
 impl Observer for City {
-    fn update (&mut self, event: Event) -> () {
-        todo!()
+    fn subscribe (&mut self, event_id: ID) -> ID {
+        todo! ()
+    }
+
+    fn unsubscribe (&mut self, event_id: ID) -> ID {
+        todo! ()   
+    }
+
+    fn update (&mut self, event_id: ID) -> () {
+        todo! ()
+    }
+
+    fn get_observer_id (&self) -> Option<ID> {
+        if self.observer_id == ID_UNINITIALISED {
+            None
+        } else {
+            Some (self.observer_id)
+        }
     }
 }
 
-
+impl Subject for City {
+    async fn notify (&self, event: Event) -> Response {
+        RESPONSE_NOTIFICATION
+    }
+}

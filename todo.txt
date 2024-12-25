@@ -9,3 +9,4 @@ integrate
 turns
 
 What is this LLVM source-based code coverage
+In general needs more error checking (for example, if a a fallible function is called, check that it succeeded)

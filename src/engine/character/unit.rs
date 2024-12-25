@@ -1,7 +1,7 @@
-use std::{cell::RefCell, cmp, rc::Rc, sync::atomic::Ordering};
+use std::{cmp, rc::Rc, sync::atomic::Ordering};
 use crate::engine::Lists;
-use crate::engine::common::{Area, Capacity, ID, IDS, Modifiable, Modifier, Statistic, Target, Timed, TYPE_UNIT, UnitStatistic, Unique, WeaponStatistic};
-use crate::engine::event::{Event, Observer, Subject, ACTION_CITY_DRAW_SUPPLY, ACTION_UNIT_DIE, OBSERVER_NOTIFICATION, Result, RESULT_NOTIFICATION, VALUE_NOTIFICATION};
+use crate::engine::common::{Area, Capacity, ID, IDS, ID_UNINITIALISED, Modifiable, Modifier, Statistic, Target, Timed, TYPE_UNIT, UnitStatistic, Unique, WeaponStatistic};
+use crate::engine::event::{Event, Observer, Subject, EVENT_CITY_DRAW_SUPPLY, EVENT_UNIT_DIE, Response, RESPONSE_NOTIFICATION, FLAG_NOTIFICATION};
 use crate::engine::map::{Grid, Location};
 use super::*;
 
@@ -69,7 +69,7 @@ pub struct Unit {
     weapon_ids: [ID; 3],
     faction_id: ID,
     supply_city_ids: Vec<ID>,
-    observers: Vec<Rc<RefCell<dyn Observer>>>
+    observer_id: ID
 }
 
 impl Unit {
@@ -79,9 +79,9 @@ impl Unit {
         let statistics: UnitStatistics = statistics_builder.build ();
         let modifiers: Vec<Modifier> = Vec::new ();
         let supply_city_ids: Vec<ID> = Vec::new ();
-        let observers: Vec<Rc<RefCell<dyn Observer>>> = Vec::new ();
+        let observer_id: ID = ID_UNINITIALISED;
 
-        Self { id, lists, grid: grid, statistics, modifiers, magic_ids, weapon_ids, faction_id, supply_city_ids, observers }
+        Self { id, lists, grid: grid, statistics, modifiers, magic_ids, weapon_ids, faction_id, supply_city_ids, observer_id }
     }
 
     fn get_statistic (&self, statistic: UnitStatistic) -> (u16, u16) {
@@ -245,7 +245,7 @@ self.get_statistic (UnitStatistic::HLT).0);
     }
 
     fn die (&mut self) -> () {
-        self.notify ((ACTION_UNIT_DIE, OBSERVER_NOTIFICATION, VALUE_NOTIFICATION));
+        self.notify ((EVENT_UNIT_DIE, FLAG_NOTIFICATION));
         // TODO: ???
     }
 
@@ -363,7 +363,7 @@ println!("{:?}",self.supply_city_ids);
 
             for supply_city_id in &self.supply_city_ids {
                 // TODO: This eventually needs to mut draw supplies
-                self.notify ((ACTION_CITY_DRAW_SUPPLY, (*supply_city_id, 0), VALUE_NOTIFICATION)).await;
+                let supplies: Response = self.notify ((EVENT_CITY_DRAW_SUPPLY, FLAG_NOTIFICATION)).await;
 
                 let change_hlt: u16 = self.lists.get_city (supply_city_id).get_manpower ();
                 let change_spl: u16 = self.lists.get_city (supply_city_id).get_equipment ();
@@ -400,30 +400,30 @@ impl Unique for Unit {
 }
 
 impl Observer for Unit {
-    fn update (&mut self, event: Event) -> () {
-        match event {
-            _ => ()
+    fn subscribe (&mut self, event_id: ID) -> ID {
+        todo! ()
+    }
+
+    fn unsubscribe (&mut self, event_id: ID) -> ID {
+        todo! ()   
+    }
+
+    fn update (&mut self, event_id: ID) -> () {
+        todo! ()
+    }
+
+    fn get_observer_id (&self) -> Option<ID> {
+        if self.observer_id == ID_UNINITIALISED {
+            None
+        } else {
+            Some (self.observer_id)
         }
     }
 }
 
 impl Subject for Unit {
-    fn add_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> () {
-        let observer: Rc<RefCell<dyn Observer>> = Rc::clone (&observer);
-
-        self.observers.push (observer);
-    }
-
-    fn remove_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> () {
-        unimplemented! ()
-    }
-
-    async fn notify (&self, event: Event) -> Result {
-        for observer in self.observers.iter () {
-            observer.borrow_mut ().update (event);
-        }
-
-        RESULT_NOTIFICATION
+    async fn notify (&self, event: Event) -> Response {
+        RESPONSE_NOTIFICATION
     }
 }
 
@@ -483,16 +483,16 @@ mod tests {
         character_1.act_attack (&mut character_2);
         character_2.act_attack (&mut character_3);
         character_3.act_attack (&mut character_1);
-        assert! (false);
+        todo! ();
     }
 
     #[test]
     fn unit_act_magic () {
-
+        todo! ();
     }
 
     #[test]
     fn unit_act_skill () {
-
+        todo! ();
     }
 }

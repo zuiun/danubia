@@ -1,7 +1,7 @@
 use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}, fmt, rc::Rc};
 use crate::engine::Lists;
-use crate::engine::common::{Area, Direction, DuplicateCollectionMap, DuplicateMap, ID, Modifiable, Modifier, Target};
-use crate::engine::event::{Event, Subject, Observer, Result, RESULT_NOTIFICATION};
+use crate::engine::common::{Area, Direction, DuplicateInnerMap, DuplicateNaturalMap, ID, ID_UNINITIALISED, Modifiable, Modifier, Target};
+use crate::engine::event::{Event, Subject, Observer, Response, RESPONSE_NOTIFICATION};
 use super::{Location, Tile};
 
 type Adjacencies = [u8; Direction::Length as usize];
@@ -131,21 +131,21 @@ pub struct Grid {
     lists: Rc<Lists>,
     tiles: Vec<Vec<Tile>>,
     adjacency_matrix: AdjacencyMatrix,
-    unit_locations: DuplicateMap<ID, Location>,
-    faction_locations: DuplicateCollectionMap<ID, Location>,
+    unit_locations: DuplicateNaturalMap<ID, Location>,
+    faction_locations: DuplicateInnerMap<ID, Location>,
     // TODO: This is definitely getting replaced whenever factions are done
-    faction_units: DuplicateCollectionMap<ID, ID>,
-    observers: Vec<Rc<RefCell<dyn Observer>>>
+    faction_units: DuplicateInnerMap<ID, ID>,
+    observer_id: ID
 }
 
 impl Grid {
     pub fn new (lists: Rc<Lists>, tiles: Vec<Vec<Tile>>, unit_factions: HashMap<ID, ID>) -> Self {
         let lists: Rc<Lists> = Rc::clone (&lists);
-        let (_, mut factions): (Vec<ID>, Vec<ID>) = unit_factions.iter ().unzip ();
-
-        factions.push (FACTION_UNCONTROLLED);
-
-        let mut faction_locations: DuplicateCollectionMap<ID, Location> = DuplicateCollectionMap::new (factions.clone ());
+        let mut faction_locations: DuplicateInnerMap<ID, Location> = DuplicateInnerMap::new ();
+        let adjacency_matrix: AdjacencyMatrix = AdjacencyMatrix::new (&tiles);
+        let unit_locations: DuplicateNaturalMap<ID, Location> = DuplicateNaturalMap::new ();
+        let mut faction_units: DuplicateInnerMap<ID, ID> = DuplicateInnerMap::new ();
+        let observer_id: ID = ID_UNINITIALISED;
 
         for i in 0 .. tiles.len () {
             for j in 0 .. tiles[i].len () {
@@ -153,17 +153,11 @@ impl Grid {
             }
         }
 
-        let adjacency_matrix: AdjacencyMatrix = AdjacencyMatrix::new (&tiles);
-        let unit_locations: DuplicateMap<ID, Location> = DuplicateMap::new ();
-        let mut faction_units: DuplicateCollectionMap<ID, ID> = DuplicateCollectionMap::new (factions);
-
         for (unit_id, faction_id) in unit_factions {
             faction_units.insert ((faction_id, unit_id));
         }
 
-        let observers: Vec<Rc<RefCell<dyn Observer>>> = Vec::new ();
-
-        Self { lists, tiles, adjacency_matrix, unit_locations, faction_locations, faction_units, observers }
+        Self { lists, tiles, adjacency_matrix, unit_locations, faction_locations, faction_units, observer_id }
     }
 
     pub fn is_impassable (&self, location: &Location) -> bool {
@@ -326,31 +320,31 @@ impl Grid {
     }
 }
 
-impl Subject for Grid {
-    fn add_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> () {
-        let observer: Rc<RefCell<dyn Observer>> = Rc::clone (&observer);
-
-        self.observers.push (observer);
+impl Observer for Grid {
+    fn subscribe (&mut self, event_id: ID) -> ID {
+        todo! ()
     }
 
-    fn remove_observer (&mut self, observer: Rc<RefCell<dyn Observer>>) -> () {
-        unimplemented! ()
+    fn unsubscribe (&mut self, event_id: ID) -> ID {
+        todo! ()   
     }
 
-    async fn notify (&self, event: Event) -> Result {
-        for observer in self.observers.iter () {
-            observer.borrow_mut ().update (event);
+    fn update (&mut self, event_id: ID) -> () {
+        todo! ()
+    }
+
+    fn get_observer_id (&self) -> Option<ID> {
+        if self.observer_id == ID_UNINITIALISED {
+            None
+        } else {
+            Some (self.observer_id)
         }
-
-        RESULT_NOTIFICATION
     }
 }
 
-impl Observer for Grid {
-    fn update (&mut self, event: Event) -> () {
-        match event {
-            _ => ()
-        }
+impl Subject for Grid {
+    async fn notify (&self, event: Event) -> Response {
+        RESPONSE_NOTIFICATION
     }
 }
 
