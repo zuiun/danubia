@@ -1,4 +1,4 @@
-use crate::engine::common::{Area, Capacity, DURATION_PERMANENT, Modifier, Statistic, Status, Target};
+use crate::engine::common::{Area, Capacity, DURATION_PERMANENT, Information, Modifier, Statistic, Status, Target};
 use crate::engine::map::{City, Terrain};
 use crate::engine::character::{Faction, Magic, Skill, Unit, UnitStatisticsBuilder, Weapon};
 
@@ -15,31 +15,26 @@ pub mod game {
         Terrain::new (Vec::new (), 0) // Void
     ];
     pub const CITIES: [City; 17] = [
-        /*
-         * Rule of thumb:
-         * Every 1 factory requires 5 population
-         * Every 1 farm requires 3 population 
-         */
         // Jassica
-        City::new (524, 1, 1), // Ilyvó
-        City::new (41, 1, 1), // Kismarton
-        City::new (23, 1, 1), // Újvidék
-        City::new (65, 1, 1), // Temesvár
-        City::new (88, 1, 1), // Telsze
-        City::new (156, 1, 1), // Kluż-Arad
-        City::new (32, 1, 1), // Stanisławów
-        City::new (124, 1, 1), // Jawaryn
+        City::new (524, 108, 24), // Ilyvó
+        City::new (41, 2, 14), // Kismarton
+        City::new (23, 3, 5), // Újvidék
+        City::new (65, 13, 6), // Temesvár
+        City::new (88, 4, 21), // Telsze
+        City::new (156, 27, 18), // Kluż-Arad
+        City::new (32, 5, 2), // Stanisławów
+        City::new (124, 18, 22), // Jawaryn
         // Dainava
-        City::new (109, 1, 1), // Alytus
-        City::new (37, 1, 1), // Rėzeknė
-        City::new (136, 1, 1), // Kuresarė
-        City::new (18, 1, 1), // Pėčas
-        City::new (53, 1, 1), // Cešynas
+        City::new (109, 20, 9), // Alytus
+        City::new (37, 2, 8), // Rėzeknė
+        City::new (136, 26, 11), // Kuresarė
+        City::new (18, 1, 3), // Pėčas
+        City::new (53, 3, 16), // Cešynas
         // Powiessern
-        City::new (203, 1, 1), // Memel
-        City::new (115, 1, 1), // Stolp
-        City::new (58, 1, 1), // Carlstadt
-        City::new (81, 1, 1) // Gnesen
+        City::new (203, 35, 14), // Memel
+        City::new (115, 19, 12), // Stolp
+        City::new (60, 3, 21), // Carlstadt
+        City::new (83,14, 11) // Gnesen
     ];
     // TODO: dmg, area, range
     pub const WEAPONS: [Weapon; 9] = [
@@ -130,5 +125,29 @@ pub mod debug {
     ];
     pub const UNITS: [Unit; 0] = [
 
+    ];
+}
+
+pub mod information {
+    use super::Information;
+
+    pub const CITIES: [Information; 17] = [
+        Information::new ("Ilyvó", ["", "", ""], 0),
+        Information::new ("Kismarton", ["", "", ""], 0),
+        Information::new ("Újvidék", ["", "", ""], 0),
+        Information::new ("Temesvár", ["", "", ""], 0),
+        Information::new ("Telsze", ["", "", ""], 0),
+        Information::new ("Kluż-Arad", ["", "", ""], 0),
+        Information::new ("Stanisławów", ["", "", ""], 0),
+        Information::new ("Jawaryn", ["", "", ""], 0),
+        Information::new ("Alytus", ["", "", ""], 0),
+        Information::new ("Rėzeknė", ["", "", ""], 0),
+        Information::new ("Kuresarė", ["", "", ""], 0),
+        Information::new ("Pėčas", ["", "", ""], 0),
+        Information::new ("Cešynas", ["", "", ""], 0),
+        Information::new ("Memel", ["", "", ""], 0),
+        Information::new ("Stolp", ["", "", ""], 0),
+        Information::new ("Carlstadt", ["", "", ""], 0),
+        Information::new ("Gnesen", ["", "", ""], 0)
     ];
 }

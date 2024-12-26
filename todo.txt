@@ -10,8 +10,8 @@ integrate
 turns
 
 What is this LLVM source-based code coverage
-In general needs more error checking (for example, if a a fallible function is called, check that it succeeded)
-Functions that can fail should be returning Option or Result
+Needs more error checking (for example, if a a fallible function is called, check that it succeeded)
+Functions that can fail should return Option or Result
 
 Balancing goals:
 When in combat, morale/manpower/equipment drain should always be greater than recovery

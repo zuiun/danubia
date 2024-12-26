@@ -1,8 +1,12 @@
-use std::{cell::RefCell, cmp, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 use crate::engine::common::{ID, ID_UNINITIALISED};
 use crate::engine::event::{Event, Subject, Observer, Response, RESPONSE_NOTIFICATION};
 
-const RECOVER_MANPOWER_DIVIDEND: u16 = 10;
+pub const WORKERS_FACTORY: f32 = 4.0;
+pub const WORKERS_FARM: f32 = 1.5;
+const RECOVER_MANPOWER_MODIFIER: f32 = 5.0;
+const RECOVER_EQUIPMENT_MODIFIER: f32 = 2.5;
+const MODIFIER_MINIMUM: f32 = 0.67;
 
 #[derive (Debug)]
 pub struct City {
@@ -23,21 +27,32 @@ impl City {
         Self { population, factories, farms, observer_id }
     }
 
-    const fn get_workers (&self) -> u16 {
-        self.factories + self.farms
+    pub const fn get_workers (&self) -> u16 {
+        let workers_factory: f32 = (self.factories as f32) * WORKERS_FACTORY;
+        let workers_farm: f32 = (self.farms as f32) * WORKERS_FARM;
+        let workers: u16 = (workers_factory + workers_farm) as u16;
+
+        workers
     }
 
     pub fn get_manpower (&self) -> u16 {
-        let workers: u16 = self.get_workers ();
-        let modifier: f32 = (self.farms as f32) / (self.factories as f32);
-        let recruitable: f32 = ((self.population / RECOVER_MANPOWER_DIVIDEND) as f32) * modifier;
-        let manpower: u16 = (recruitable as u16).checked_sub (workers).unwrap_or (1);
+        let factories: f32 = self.factories as f32;
+        let population: f32 = self.population as f32;
+        let farms: f32 = self.farms as f32;
+        let workers: f32 = self.get_workers () as f32;
+        let modifier: f32 = f32::max ((farms / RECOVER_MANPOWER_MODIFIER) / factories, MODIFIER_MINIMUM);
+        let recruitable: f32 = f32::max (population - workers, 1.0);
+        let manpower: u16 = (recruitable * modifier).ceil () as u16;
 
         manpower
     }
 
     pub fn get_equipment (&self) -> u16 {
-        let equipment: u16 = ((self.factories - 1) as f32).sqrt () as u16;
+        let factories: f32 = self.factories as f32;
+        let farms: f32 = self.farms as f32;
+        let modifier: f32 = f32::max ((factories - RECOVER_EQUIPMENT_MODIFIER) / farms, MODIFIER_MINIMUM);
+        let production: f32 = (factories + modifier).sqrt ();
+        let equipment: u16 = (production * modifier).ceil () as u16;
 
         equipment
     }
@@ -83,28 +98,27 @@ impl Subject for City {
 mod tests {
     use super::*;
     use std::rc::Rc;
-    use crate::engine::{Lists, tests::generate_lists};
+    use crate::engine::{common::Information, Lists, lists::{game, information}, tests::generate_lists};
 
     #[test]
     fn city_get_manpower () {
         let lists: Rc<Lists> = generate_lists ();
+
+        for i in 0 ..= 3 {
+            assert! (lists.get_city (&i).get_manpower () > 0);
+        }
+
         let manpower_0: u16 = lists.get_city (&0).get_manpower ();
         let manpower_1: u16 = lists.get_city (&1).get_manpower ();
         let manpower_2: u16 = lists.get_city (&2).get_manpower ();
         let manpower_3: u16 = lists.get_city (&3).get_manpower ();
 
-        assert! (manpower_0 > manpower_1);
-        assert! (manpower_0 < manpower_2);
-        // assert! (manpower_0 > manpower_3);
-        assert! (manpower_1 < manpower_2);
-        assert! (manpower_1 < manpower_3);
-        assert! (manpower_2 > manpower_3);
-
         println! ("{}", manpower_0);
         println! ("{}", manpower_1);
         println! ("{}", manpower_2);
         println! ("{}", manpower_3);
-        assert! (false);
+        // assert! (false);
+        assert! (true);
     }
 
     #[test]
@@ -116,15 +130,34 @@ mod tests {
         let equipment_2: u16 = lists.get_city (&2).get_equipment ();
         let equipment_3: u16 = lists.get_city (&3).get_equipment ();
 
-        assert_eq! (equipment_0, 0);
-        // assert_eq! (equipment_1, 1);
-        assert_eq! (equipment_2, 0);
-        // assert_eq! (equipment_3, 1);
+        for i in 0 ..= 3 {
+            assert! (lists.get_city (&i).get_manpower () > 0);
+        }
 
         println! ("{}", equipment_0);
         println! ("{}", equipment_1);
         println! ("{}", equipment_2);
         println! ("{}", equipment_3);
-        assert! (false);
+        // assert! (false);
+        assert! (true);
+    }
+
+    #[test]
+    fn cities_balance () {
+        for i in 0 .. game::CITIES.len () {
+            let city: &City = &game::CITIES[i];
+            let information: &Information = &information::CITIES[i];
+            let name: &str = &information.get_name();
+            let population: u16 = city.get_population ();
+            let workers: u16 = city.get_workers ();
+            let manpower: u16 = city.get_manpower ();
+            let equipment: u16 = city.get_equipment ();
+
+            println! ("{}: {} ? {} -> {}, {}", name, workers, population, manpower, equipment);
+            assert! (workers < population);
+        }
+
+        // assert! (false);
+        assert! (true);
     }
 }

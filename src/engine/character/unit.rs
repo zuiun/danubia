@@ -1,22 +1,22 @@
-use std::{cmp, rc::Rc};
+use std::rc::Rc;
 use crate::engine::Lists;
 use crate::engine::common::{Area, Capacity, ID, ID_UNINITIALISED, Modifiable, Modifier, Statistic, Target, Timed};
 use crate::engine::event::{Event, Observer, Subject, EVENT_CITY_DRAW_SUPPLY, EVENT_UNIT_DIE, Response, RESPONSE_NOTIFICATION, FLAG_NOTIFICATION};
-use crate::engine::map::{Grid, Location};
+use crate::engine::map::{Direction, Grid, Location};
 use super::*;
 
 type UnitStatistics = [Capacity; UnitStatistic::Length as usize];
 
-const MRL_MAX: u16 = 100;
-const HLT_MAX: u16 = 1000;
-const SPL_MAX: u16 = 1000;
-const ATK_MAX: u16 = 200;
-const DEF_MAX: u16 = 200;
-const MAG_MAX: u16 = 200;
-const MOV_MAX: u16 = 100;
-const ORG_MAX: u16 = 200;
-const DRAIN_SPL: u16 = 5;
-const RECOVER_MRL: u16 = 1;
+const MRL_MAX: u16 = 1000; // 100.0%
+const HLT_MAX: u16 = 1000; // 100.0%
+const SPL_MAX: u16 = 1000; // 1000
+const ATK_MAX: u16 = 200; // 200
+const DEF_MAX: u16 = 200; // 200
+const MAG_MAX: u16 = 200; // 200
+const MOV_MAX: u16 = 100; // 100
+const ORG_MAX: u16 = 2000; // 200.0%
+const DRAIN_SPL: u16 = 50; // 5.0%
+const RECOVER_MRL: u16 = 10; // 1.0%
 const WEAPON_1: usize = 0;
 const WEAPON_2: usize = 1;
 const WEAPON_ACTIVE: usize = 2;
@@ -190,7 +190,7 @@ impl Unit {
             }
         };
         let value: u16 = if is_add {
-            cmp::min (current + change, maximum)
+            u16::min (current + change, maximum)
         } else {
             current.checked_sub (change).unwrap_or (0)
         };
@@ -226,7 +226,7 @@ println!("{}",change);
         let atk_final: u16 = atk_self + dmg_weapon;
         let multiplier_other: f32 = (spl_other.0 as f32) / (spl_other.1 as f32);
         let def_final: u16 = ((def_other as f32) * multiplier_other) as u16;
-        let damage: u16 = cmp::max (atk_final.checked_sub (def_final).unwrap_or (1), 1);
+        let damage: u16 = u16::max (atk_final.checked_sub (def_final).unwrap_or (1), 1);
         let multiplier_self: f32 = (spl_self.0 as f32) / (spl_self.1 as f32);
 
         ((damage as f32) * multiplier_self) as u16
@@ -236,7 +236,7 @@ println!("{}",change);
         let weapon: &Weapon = self.lists.get_weapon (&self.weapon_ids[WEAPON_ACTIVE]);
         let mag_self: u16 = self.get_statistic (UnitStatistic::MAG).0;
         let mag_other: u16 = other.get_statistic (UnitStatistic::MAG).0;
-        let damage: u16 = cmp::max (mag_self.checked_sub (mag_other).unwrap_or (1), 1);
+        let damage: u16 = u16::max (mag_self.checked_sub (mag_other).unwrap_or (1), 1);
         let multiplier: u16 = ((weapon.get_statistic (WeaponStatistic::DCY) + 1) as u16) * 2;
 
         damage * multiplier
@@ -251,6 +251,18 @@ println!("{}",change);
         multiplier_hlt * multiplier_org
     }
 
+    pub fn calculate_damage (&self, other: &Unit) -> (u16, u16) {
+        let weapon: &Weapon = self.lists.get_weapon (&self.weapon_ids[WEAPON_ACTIVE]);
+        let damage_weapon: u16 = self.calculate_damage_weapon (other);
+        let damage_bonus: u16 = self.calculate_damage_bonus (other);
+        let multiplier: f32 = self.calculate_damage_multiplier ();
+        let damage_base: u16 = (((damage_weapon + damage_bonus) as f32) * multiplier) as u16;
+        let damage_mrl: u16 = damage_base + (weapon.get_statistic (WeaponStatistic::SLH) as u16);
+        let damage_hlt: u16 = damage_base * ((weapon.get_statistic (WeaponStatistic::PRC) + 1) as u16);
+
+        (damage_mrl, damage_hlt)
+    }
+
     fn take_damage (&mut self, damage_mrl: u16, damage_hlt: u16) -> bool {
         let damage_spl: u16 = (damage_mrl + damage_hlt) / 2;
 
@@ -260,7 +272,7 @@ println!("{}",change);
 
         if self.get_statistic (UnitStatistic::HLT).0 == 0 {
             self.die ();
-            
+
             true
         } else {
             false
@@ -272,36 +284,39 @@ println!("{}",change);
         // TODO: ???
     }
 
-    fn find_targets (&self, location: Location, target: Target, area: Area, range: u8) -> Vec<ID> {
+    fn find_targets (&self, location: Location, direction: Option<Direction>, target: Target, area: Area, range: u8) -> Vec<ID> {
         let mut unit_ids: Vec<ID> = Vec::new ();
 
-        match target {
-            Target::Ally (s) => {
-                if s {
-                    unit_ids.push (self.id);
-                } else {
-                    // TODO: Choose target
-                    let other_id: ID = ID::MAX;
+        // match target {
+        //     Target::Ally (s) => {
+        //         if s {
+        //             unit_ids.push (self.id);
+        //         } else {
+        //             let other_id: &ID = self.grid.get_location_unit (&location)
+        //                     .expect (panic! ("Unit not found for location {:?}", location));
 
-                    unit_ids.push (other_id);
-                }
-            }
-            Target::Enemy => {
+        //             unit_ids.push (*other_id);
+        //         }
+        //     }
+        //     Target::Enemy => {
+        //         let other_id: &ID = self.grid.get_location_unit (&location)
+        //                 .expect (panic! ("Unit not found for location {:?}", location));
 
-            }
-            Target::All (s) => {
-                if range > 0 {
-                    unit_ids = self.grid.find_nearby_allies (&self.id, target, area, range);
-                } else {
-                    let faction: &Faction = self.lists.get_faction (&self.faction_id);
-                    // TODO: Get allies from faction
-                    todo! ()
-                };
-            }
-            Target::Map => {
+        //         unit_ids.push (*other_id);
+        //     }
+        //     Target::All (s) => {
+        //         if range > 0 {
+        //             unit_ids = self.grid.find_nearby_units (location, area, range);
+        //         } else {
+        //             let faction: &Faction = self.lists.get_faction (&self.faction_id);
+        //             // TODO: Get allies from faction
+        //             todo! ()
+        //         };
+        //     }
+        //     Target::Map => {
 
-            }
-        }
+        //     }
+        // }
 
         unit_ids
     }
@@ -330,7 +345,12 @@ println!("{}",change);
 
         match action {
             Action::Attack (l) => {
+                let weapon: &Weapon = self.lists.get_weapon (&self.weapon_ids[WEAPON_ACTIVE]);
 
+                // other.take_damage (damage_mrl, damage_hlt)
+                // let damage_self = other.calculate_damage (self);
+                // let damage_spl = (damage_self.0 + damage_self.1) / 2;
+                // self.change_statistic_flat (UnitStatistic::SPL, damage_spl, false);
             }
             Action::Magic (m, l) => {
                 let magic: &Magic = self.lists.get_magic (&m);
@@ -344,23 +364,10 @@ println!("{}",change);
         self.lists.get_delay (mov, action)
     }
 
-    pub fn act_attack (&mut self, other: &mut Unit) -> bool {
-        let weapon: &Weapon = self.lists.get_weapon (&self.weapon_ids[WEAPON_ACTIVE]);
-        let damage_weapon: u16 = self.calculate_damage_weapon (other);
-        let damage_bonus: u16 = self.calculate_damage_bonus (other);
-        let multiplier: f32 = self.calculate_damage_multiplier ();
-        let damage_base: u16 = (((damage_weapon + damage_bonus) as f32) * multiplier) as u16;
-        let damage_mrl: u16 = damage_base + (weapon.get_statistic (WeaponStatistic::SLH) as u16);
-        let damage_hlt: u16 = damage_base * ((weapon.get_statistic (WeaponStatistic::PRC) + 1) as u16);
-
-        other.take_damage (damage_mrl, damage_hlt)
-    }
-
     pub fn act_magic (&mut self, magic_id: ID) -> () {
         let magic: &Magic = self.lists.get_magic (&magic_id);
 
         todo! ()
-        // magic.act ();
     }
 
     pub fn act_skill (&mut self, skill_id: ID) -> () {
@@ -384,7 +391,6 @@ println!("{}",change);
         // }
 
         todo! ()
-        // skill.act ();
     }
 
     pub async fn end_turn (&mut self) -> () {
@@ -523,9 +529,9 @@ mod tests {
     fn unit_act_attack () {
         let (mut unit_0, mut unit_1, mut unit_2): (Unit, Unit, Unit) = generate_units ();
 
-        unit_0.act_attack (&mut unit_1);
-        unit_1.act_attack (&mut unit_2);
-        unit_2.act_attack (&mut unit_0);
+        unit_0.calculate_damage (&mut unit_1);
+        unit_1.calculate_damage (&mut unit_2);
+        unit_2.calculate_damage (&mut unit_0);
         todo! ();
 
         // println!("{:?}",weapon);

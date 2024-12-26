@@ -3,6 +3,7 @@ pub use self::city::City;
 
 pub mod grid;
 pub use self::grid::Location;
+pub use self::grid::Direction;
 pub use self::grid::Grid;
 
 mod terrain;

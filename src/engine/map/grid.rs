@@ -30,7 +30,7 @@ fn is_in_bounds<T> (grid: &Vec<Vec<T>>, location: &Location) -> bool {
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
-enum Direction {
+pub enum Direction {
     Up,
     Right,
     Left,
@@ -74,6 +74,8 @@ impl Grid {
     }
 
     fn build_adjacencies (tiles: &Vec<Vec<Tile>>) -> Vec<Vec<Adjacency>> {
+        assert! (is_rectangular (tiles));
+
         let mut adjacencies: Vec<Vec<Adjacency>> = Vec::new ();
 
         for i in 0 .. tiles.len () {
@@ -113,12 +115,14 @@ impl Grid {
     }
 
     pub fn get_cost (&self, location: &Location, direction: Direction) -> u8 {
+        assert! (is_rectangular (&self.adjacencies));
         assert! (is_in_bounds (&self.adjacencies, location));
 
         self.adjacencies[location.0][location.1][direction as usize]
     }
 
     pub fn is_impassable (&self, location: &Location) -> bool {
+        assert! (is_rectangular (&self.tiles));
         assert! (is_in_bounds (&self.tiles, location));
 
         self.tiles[location.0][location.1].is_impassable ()
@@ -137,6 +141,7 @@ impl Grid {
     }
 
     pub fn try_connect (&self, start: &Location, direction: Direction) -> Option<Location> {
+        assert! (is_rectangular (&self.adjacencies));
         assert! (is_in_bounds (&self.adjacencies, start));
 
         let mut end: Location = start.clone ();
@@ -157,6 +162,7 @@ impl Grid {
     }
 
     pub fn try_move (&self, start: &Location, direction: Direction) -> Option<(Location, u8)> {
+        assert! (is_rectangular (&self.adjacencies));
         assert! (is_in_bounds (&self.adjacencies, start));
 
         let cost: u8 = self.adjacencies[start.0][start.1][direction as usize];
@@ -187,6 +193,11 @@ impl Grid {
     }
 
     pub fn update_adjacency (&mut self, location: &Location) -> () {
+        assert! (is_rectangular (&self.tiles));
+        assert! (is_in_bounds (&self.tiles, location));
+        assert! (is_rectangular (&self.adjacencies));
+        assert! (is_in_bounds (&self.adjacencies, location));
+
         let tile: &Tile = &self.tiles[location.0][location.1];
 
         for direction in DIRECTIONS {
@@ -250,8 +261,7 @@ impl Grid {
     }
 
     pub fn get_unit_supply_cities (&self, unit_id: &ID) -> Vec<ID> {
-        assert! (self.tiles.len () > 0);
-        assert! (self.tiles[0].len () > 0);
+        assert! (is_rectangular (&self.tiles));
 
         let faction_id: &ID = self.faction_units.get_second (unit_id).expect (&format! ("Faction not found for unit {}", unit_id));
         let location: Location = self.get_unit_location (unit_id).expect (&format! ("Location not found for unit {}", unit_id)).clone ();
@@ -287,24 +297,95 @@ impl Grid {
         city_ids
     }
 
-    pub fn find_nearby_allies (&self, unit_id: &ID, target: Target, area: Area, range: u8) -> Vec<ID> {
-        assert! (self.tiles.len () > 0);
-        assert! (self.tiles[0].len () > 0);
+    pub fn find_nearby_units (&self, location: Location, direction: Option<Direction>, area: Area, range: u8) -> Vec<ID> {
+        assert! (is_rectangular (&self.tiles));
+        assert! (is_in_bounds (&self.tiles, &location));
 
-        let location_self: Location = self.get_unit_location (unit_id).expect (&format! ("Location not found for unit {}", unit_id)).clone ();
+        let mut locations: HashSet<Location> = HashSet::new ();
 
-        self.faction_units.get_collection_second (unit_id)
-                .expect (&format! ("Faction not found for unit {}", unit_id))
-                .iter ().filter_map (|u: &ID| {
-                    let location_other: Location = self.get_unit_location (u).expect (&format! ("Location not found for unit {}", u)).clone ();
-                    let distance: usize = location_other.0.abs_diff (location_self.0) + location_other.1.abs_diff (location_self.1);
+        // TODO
+        match area {
+            Area::Single => { locations.insert (location); }
+            Area::Path (w) => {
+                let mut starts: Vec<Location> = Vec::new ();
 
-                    if distance > (range as usize) {
-                        None
-                    } else {
-                        Some (*u)
+                for i in 0 ..= w {
+                    let i: usize = i as usize;
+                    let j: usize = i;
+
+                    match direction.expect (&format! ("Direction not found for area {:?}", area)) {
+                        Direction::Up => {
+                            starts.push ((location.0.checked_sub (1).unwrap_or (0), location.1 + j));
+                            starts.push ((location.0.checked_sub (1).unwrap_or (0), location.1.checked_sub (j).unwrap_or (0)));
+                        }
+                        Direction::Right => {
+                            starts.push ((location.0.checked_sub (i).unwrap_or (0), location.1 + 1));
+                            starts.push ((location.0 + i, location.1 + 1));
+                        }
+                        Direction::Left => {
+                            starts.push ((location.0.checked_sub (i).unwrap_or (0), location.1.checked_sub (1).unwrap_or (0)));
+                            starts.push ((location.0 + 1, location.1.checked_sub (1).unwrap_or (0)));
+                        }
+                        Direction::Down => {
+                            starts.push ((location.0 + 1, location.1 + j));
+                            starts.push ((location.0.checked_sub (1).unwrap_or (0), location.1.checked_sub (j).unwrap_or (0)));
+                        }
+                        _ => panic! ("Invalid direction {:?}", direction)
                     }
-                }).collect ()
+                }
+
+                for i in 0 .. range {
+                    let i: usize = i as usize;
+                    let j: usize = i;
+
+                    match direction.expect (&format! ("Direction not found for area {:?}", area)) {
+                        Direction::Up => {
+                            locations.extend (starts.iter ().map (|l: &Location|
+                                (l.0.checked_sub (i).unwrap_or (0), l.1)
+                            ));
+                        }
+                        Direction::Right => {
+                            locations.extend (starts.iter ().map (|l: &Location|
+                                (l.0, l.1 + j)
+                            ));
+                        }
+                        Direction::Left => {
+                            locations.extend (starts.iter ().map (|l: &Location|
+                                (l.0, l.1.checked_sub (j).unwrap_or (0))
+                            ));
+                        }
+                        Direction::Down => {
+                            locations.extend (starts.iter ().map (|l: &Location|
+                                (l.0 + i, l.1)
+                            ));
+                        }
+                        _ => panic! ("Invalid direction {:?}", direction)
+                    }
+                }
+            }
+            Area::Radial (r) => {
+                for i in 0 ..= (range as usize) {
+                    for j in 0 ..= ((range as usize) - i) {
+                        let neighbour_p_p: Location = (location.0 + i, location.0 + j);
+                        let neighbour_p_n: Location = (location.0 + i, location.0.checked_sub (j).unwrap_or (0));
+                        let neighbour_n_p: Location = (location.0.checked_sub (i).unwrap_or (0), location.0 + j);
+                        let neighbour_n_n: Location = (location.0.checked_sub (i).unwrap_or (0), location.0.checked_sub (j).unwrap_or (0));
+
+                        locations.insert (neighbour_p_p);
+                        locations.insert (neighbour_p_n);
+                        locations.insert (neighbour_n_p);
+                        locations.insert (neighbour_n_n);
+                    }
+                }
+            }
+        };
+
+        locations.retain (|l: &Location| is_in_bounds (&self.tiles, l));
+
+        locations.iter ().filter_map (|l: &Location|
+            self.unit_locations.get_second (l)
+            .map (|u: &ID| u.clone ())
+        ).collect::<Vec<ID>> ()
     }
 
     pub fn get_unit_location (&self, unit_id: &ID) -> Option<&Location> {

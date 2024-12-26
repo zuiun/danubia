@@ -1,4 +1,4 @@
-use std::{cmp, fmt, rc::Rc};
+use std::{fmt, rc::Rc};
 use crate::engine::Lists;
 use crate::engine::common::{Adjustment, ID, Modifiable, Modifier, Statistic, Timed};
 use super::{COST_IMPASSABLE, COST_MINIMUM};
@@ -34,7 +34,7 @@ impl Tile {
                         if adjustment.2 {
                             cost + (adjustment.1 as u8)
                         } else {
-                            cmp::max (cost.checked_sub (adjustment.1 as u8).unwrap_or (COST_MINIMUM), COST_MINIMUM)
+                            u8::max (cost.checked_sub (adjustment.1 as u8).unwrap_or (COST_MINIMUM), COST_MINIMUM)
                         }
                     } else {
                         adjustment.1 as u8

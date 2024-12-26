@@ -2,13 +2,13 @@ use std::fmt;
 
 #[derive (Debug)]
 pub struct Information {
-    name: String,
-    descriptions: Vec<String>,
+    name: &'static str,
+    descriptions: [&'static str; 3],
     current_description: usize
 }
 
 impl Information {
-    pub fn new (name: String, descriptions: Vec<String>, current_description: usize) -> Self {
+    pub const fn new (name: &'static str, descriptions: [&'static str; 3], current_description: usize) -> Self {
         Self { name, descriptions, current_description }
     }
 
