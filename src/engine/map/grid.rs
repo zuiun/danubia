@@ -1,18 +1,24 @@
 use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}, fmt, rc::Rc};
 use crate::engine::Lists;
-use crate::engine::common::{Area, Direction, DuplicateInnerMap, DuplicateNaturalMap, ID, ID_UNINITIALISED, Modifiable, Modifier, Target};
+use crate::engine::common::{Area, DuplicateOuterMap, DuplicateInnerMap, ID, ID_UNINITIALISED, Modifiable, Modifier, Target};
 use crate::engine::event::{Event, Subject, Observer, Response, RESPONSE_NOTIFICATION};
-use super::{Location, Tile};
+use super::{COST_IMPASSABLE, Tile};
 
-type Adjacencies = [u8; Direction::Length as usize];
+pub type Location = (usize, usize); // row, column
+type Adjacency = [u8; Direction::Length as usize]; // cost, climb
 
 const FACTION_UNCONTROLLED: ID = 0;
+const DIRECTIONS: [Direction; Direction::Length as usize] = [Direction::Up, Direction::Right, Direction::Left, Direction::Down];
+
+const fn switch_direction (direction: Direction) -> Direction {
+    DIRECTIONS[(Direction::Length as usize) - (direction as usize) - 1]
+}
 
 fn is_rectangular<T> (grid: &Vec<Vec<T>>) -> bool {
     assert! (grid.len () > 0);
     assert! (grid[0].len () > 0);
 
-    grid.iter ().all (|r| r.len () == grid[0].len ())
+    grid.iter ().all (|r: &Vec<T>| r.len () == grid[0].len ())
 }
 
 fn is_in_bounds<T> (grid: &Vec<Vec<T>>, location: &Location) -> bool {
@@ -23,128 +29,35 @@ fn is_in_bounds<T> (grid: &Vec<Vec<T>>, location: &Location) -> bool {
 }
 
 #[derive (Debug)]
-struct AdjacencyMatrix {
-    matrix: Vec<Vec<Adjacencies>>
-}
-
-impl AdjacencyMatrix {
-    pub fn new (tiles: &Vec<Vec<Tile>>) -> Self {
-        assert! (is_rectangular (tiles));
-
-        let mut matrix: Vec<Vec<Adjacencies>> = Vec::new ();
-
-        for i in 0 .. tiles.len () {
-            matrix.push (Vec::new ());
-
-            for j in 0 .. tiles[i].len () {
-                let tile: &Tile = &tiles[i][j];
-                let up: Option<&Tile> = i.checked_sub (1).map (|i| &tiles[i][j]);
-                let right: Option<&Tile> = j.checked_add (1).map (|j|
-                    if j < tiles[i].len () {
-                        Some (&tiles[i][j])
-                    } else {
-                        None
-                }).flatten ();
-                let down: Option<&Tile> = i.checked_add (1).map (|i|
-                    if i < tiles.len () {
-                        Some (&tiles[i][j])
-                    } else {
-                        None
-                }).flatten ();
-                let left: Option<&Tile> = j.checked_sub (1).map (|j| &tiles[i][j]);
-                let up: u8 = up.map_or (0, |t| tile.find_cost (t));
-                let right: u8 = right.map_or (0, |t| tile.find_cost (t));
-                let down: u8 = down.map_or (0, |t| tile.find_cost (t));
-                let left: u8 = left.map_or (0, |t| tile.find_cost (t));
-                let mut adjacencies: Adjacencies = [0; Direction::Length as usize];
-
-                adjacencies[Direction::Up as usize] = up;
-                adjacencies[Direction::Right as usize] = right;
-                adjacencies[Direction::Down as usize] = down;
-                adjacencies[Direction::Left as usize] = left;
-                matrix[i].push (adjacencies);
-            }
-        }
-
-        AdjacencyMatrix { matrix }
-    }
-
-    pub fn get_connection (&self, location: &Location, direction: Direction) -> u8 {
-        assert! (is_in_bounds (&self.matrix, location));
-
-        self.matrix[location.0][location.1][direction as usize]
-    }
-
-    pub fn try_connect (&self, start: &Location, direction: Direction) -> Option<Location> {
-        assert! (is_in_bounds (&self.matrix, start));
-
-        let mut end: Location = start.clone ();
-
-        match direction {
-            Direction::Up => end.0 = start.0.checked_sub (1)?,
-            Direction::Right => end.1 = start.1.checked_add (1)?,
-            Direction::Down => end.0 = start.0.checked_add (1)?,
-            Direction::Left => end.1 = start.1.checked_sub (1)?,
-            _ => panic! ("Invalid direction {:?}", direction)
-        }
-
-        if is_in_bounds (&self.matrix, &end) {
-            Some (end)
-        } else {
-            None
-        }
-    }
-
-    pub fn try_move (&self, start: &Location, direction: Direction) -> Option<(Location, u8)> {
-        assert! (is_in_bounds (&self.matrix, start));
-
-        let cost: u8 = self.matrix[start.0][start.1][direction as usize];
-
-        if cost > 0 {
-            let mut end: Location = start.clone ();
-
-            match direction {
-                Direction::Up => end.0 = start.0.checked_sub (1)?,
-                Direction::Right => end.1 = start.1.checked_add (1)?,
-                Direction::Down => end.0 = start.0.checked_add (1)?,
-                Direction::Left => end.1 = start.1.checked_sub (1)?,
-                _ => panic! ("Invalid direction {:?}", direction)
-            }
-
-            if is_in_bounds (&self.matrix, &end) {
-                Some ((end, cost))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    pub fn update_adjacency (&mut self, location: &Location, cost: u8) -> () {
-
-    }
+#[derive (Clone, Copy)]
+enum Direction {
+    Up,
+    Right,
+    Left,
+    Down,
+    Length
 }
 
 #[derive (Debug)]
 pub struct Grid {
     lists: Rc<Lists>,
     tiles: Vec<Vec<Tile>>,
-    adjacency_matrix: AdjacencyMatrix,
-    unit_locations: DuplicateNaturalMap<ID, Location>,
-    faction_locations: DuplicateInnerMap<ID, Location>,
+    adjacencies: Vec<Vec<Adjacency>>,
+    unit_locations: DuplicateInnerMap<ID, Location>,
+    faction_locations: DuplicateOuterMap<ID, Location>,
     // TODO: This is definitely getting replaced whenever factions are done
-    faction_units: DuplicateInnerMap<ID, ID>,
+    faction_units: DuplicateOuterMap<ID, ID>,
     observer_id: ID
 }
 
 impl Grid {
     pub fn new (lists: Rc<Lists>, tiles: Vec<Vec<Tile>>, unit_factions: HashMap<ID, ID>) -> Self {
-        let lists: Rc<Lists> = Rc::clone (&lists);
-        let mut faction_locations: DuplicateInnerMap<ID, Location> = DuplicateInnerMap::new ();
-        let adjacency_matrix: AdjacencyMatrix = AdjacencyMatrix::new (&tiles);
-        let unit_locations: DuplicateNaturalMap<ID, Location> = DuplicateNaturalMap::new ();
-        let mut faction_units: DuplicateInnerMap<ID, ID> = DuplicateInnerMap::new ();
+        assert! (is_rectangular (&tiles));
+
+        let mut faction_locations: DuplicateOuterMap<ID, Location> = DuplicateOuterMap::new ();
+        let adjacencies: Vec<Vec<Adjacency>> = Grid::build_adjacencies (&tiles);
+        let unit_locations: DuplicateInnerMap<ID, Location> = DuplicateInnerMap::new ();
+        let mut faction_units: DuplicateOuterMap<ID, ID> = DuplicateOuterMap::new ();
         let observer_id: ID = ID_UNINITIALISED;
 
         for i in 0 .. tiles.len () {
@@ -157,7 +70,52 @@ impl Grid {
             faction_units.insert ((faction_id, unit_id));
         }
 
-        Self { lists, tiles, adjacency_matrix, unit_locations, faction_locations, faction_units, observer_id }
+        Self { lists, tiles, adjacencies, unit_locations, faction_locations, faction_units, observer_id }
+    }
+
+    fn build_adjacencies (tiles: &Vec<Vec<Tile>>) -> Vec<Vec<Adjacency>> {
+        let mut adjacencies: Vec<Vec<Adjacency>> = Vec::new ();
+
+        for i in 0 .. tiles.len () {
+            adjacencies.push (Vec::new ());
+
+            for j in 0 .. tiles[i].len () {
+                let tile: &Tile = &tiles[i][j];
+                let up: Option<&Tile> = i.checked_sub (1).map (|i: usize| &tiles[i][j]);
+                let right: Option<&Tile> = j.checked_add (1).map (|j: usize|
+                    if j < tiles[i].len () {
+                        Some (&tiles[i][j])
+                    } else {
+                        None
+                }).flatten ();
+                let left: Option<&Tile> = j.checked_sub (1).map (|j: usize| &tiles[i][j]);
+                let down: Option<&Tile> = i.checked_add (1).map (|i: usize|
+                    if i < tiles.len () {
+                        Some (&tiles[i][j])
+                    } else {
+                        None
+                }).flatten ();
+                let cost_up: u8 = up.map_or (COST_IMPASSABLE, |u: &Tile| tile.find_cost (u));
+                let cost_right: u8 = right.map_or (COST_IMPASSABLE, |r: &Tile| tile.find_cost (r));
+                let cost_left: u8 = left.map_or (COST_IMPASSABLE, |l: &Tile| tile.find_cost (l));
+                let cost_down: u8 = down.map_or (COST_IMPASSABLE, |d: &Tile| tile.find_cost (d));
+                let mut adjacency: Adjacency = [0; Direction::Length as usize];
+
+                adjacency[Direction::Up as usize] = cost_up;
+                adjacency[Direction::Right as usize] = cost_right;
+                adjacency[Direction::Left as usize] = cost_left;
+                adjacency[Direction::Down as usize] = cost_down;
+                adjacencies[i].push (adjacency);
+            }
+        }
+
+        adjacencies
+    }
+
+    pub fn get_cost (&self, location: &Location, direction: Direction) -> u8 {
+        assert! (is_in_bounds (&self.adjacencies, location));
+
+        self.adjacencies[location.0][location.1][direction as usize]
     }
 
     pub fn is_impassable (&self, location: &Location) -> bool {
@@ -175,21 +133,72 @@ impl Grid {
     fn is_placeable (&self, location: &Location) -> bool {
         assert! (is_in_bounds (&self.tiles, location));
 
-        !self.is_occupied (location) && !self.is_impassable(location)
+        !self.is_impassable(location) && !self.is_occupied (location)
     }
 
-    pub fn try_move (&self, location: &Location, direction: Direction) -> Option<(Location, u8)> {
-        assert! (is_in_bounds (&self.tiles, location));
+    pub fn try_connect (&self, start: &Location, direction: Direction) -> Option<Location> {
+        assert! (is_in_bounds (&self.adjacencies, start));
 
-        match self.adjacency_matrix.try_move (location, direction) {
-            Some ((d, c)) => {
-                if self.is_placeable (&d) {
-                    Some ((d, c))
+        let mut end: Location = start.clone ();
+
+        match direction {
+            Direction::Up => end.0 = start.0.checked_sub (1)?,
+            Direction::Right => end.1 = start.1.checked_add (1)?,
+            Direction::Left => end.1 = start.1.checked_sub (1)?,
+            Direction::Down => end.0 = start.0.checked_add (1)?,
+            _ => panic! ("Invalid direction {:?}", direction)
+        }
+
+        if is_in_bounds (&self.adjacencies, &end) {
+            Some (end)
+        } else {
+            None
+        }
+    }
+
+    pub fn try_move (&self, start: &Location, direction: Direction) -> Option<(Location, u8)> {
+        assert! (is_in_bounds (&self.adjacencies, start));
+
+        let cost: u8 = self.adjacencies[start.0][start.1][direction as usize];
+
+        if cost > COST_IMPASSABLE {
+            let mut end: Location = start.clone ();
+
+            match direction {
+                Direction::Up => end.0 = start.0.checked_sub (1)?,
+                Direction::Right => end.1 = start.1.checked_add (1)?,
+                Direction::Left => end.1 = start.1.checked_sub (1)?,
+                Direction::Down => end.0 = start.0.checked_add (1)?,
+                _ => panic! ("Invalid direction {:?}", direction)
+            }
+
+            if is_in_bounds (&self.adjacencies, &end) {
+                if self.is_placeable (&end) {
+                    Some ((end, cost))
                 } else {
                     None
                 }
+            } else {
+                None
             }
-            None => None
+        } else {
+            None
+        }
+    }
+
+    pub fn update_adjacency (&mut self, location: &Location) -> () {
+        let tile: &Tile = &self.tiles[location.0][location.1];
+
+        for direction in DIRECTIONS {
+            match self.try_connect (&location, direction) {
+                Some (n) => {
+                    let neighbour: &Tile = &self.tiles[n.0][n.1];
+                    let cost: u8 = neighbour.find_cost (tile);
+
+                    self.adjacencies[n.0][n.1][switch_direction (direction) as usize] = cost;
+                }
+                None => ()
+            }
         }
     }
 
@@ -244,7 +253,6 @@ impl Grid {
         assert! (self.tiles.len () > 0);
         assert! (self.tiles[0].len () > 0);
 
-        const DIRECTIONS: [Direction; Direction::Length as usize] = [Direction::Up, Direction::Right, Direction::Down, Direction::Left];
         let faction_id: &ID = self.faction_units.get_second (unit_id).expect (&format! ("Faction not found for unit {}", unit_id));
         let location: Location = self.get_unit_location (unit_id).expect (&format! ("Location not found for unit {}", unit_id)).clone ();
         let mut locations: VecDeque<Location> = VecDeque::new ();
@@ -262,13 +270,13 @@ impl Grid {
             }
 
             for direction in DIRECTIONS {
-                match self.adjacency_matrix.try_move (&location, direction) {
-                    Some ((e, _)) => {
-                        let controller_id: &ID = self.faction_locations.get_second (&e).expect (&format! ("Faction not found for location {:?}", e));
+                match self.try_connect (&location, direction) {
+                    Some (n) => {
+                        let controller_id: &ID = self.faction_locations.get_second (&n).expect (&format! ("Faction not found for location {:?}", n));
 
-                        if !is_visited[e.0][e.1] && controller_id == faction_id {
-                            locations.push_back (e);
-                            is_visited[e.0][e.1] = true;
+                        if !is_visited[n.0][n.1] && controller_id == faction_id {
+                            locations.push_back (n);
+                            is_visited[n.0][n.1] = true;
                         }
                     }
                     None => ()
@@ -287,7 +295,7 @@ impl Grid {
 
         self.faction_units.get_collection_second (unit_id)
                 .expect (&format! ("Faction not found for unit {}", unit_id))
-                .iter ().filter_map (|u| {
+                .iter ().filter_map (|u: &ID| {
                     let location_other: Location = self.get_unit_location (u).expect (&format! ("Location not found for unit {}", u)).clone ();
                     let distance: usize = location_other.0.abs_diff (location_self.0) + location_other.1.abs_diff (location_self.1);
 
@@ -321,15 +329,7 @@ impl Grid {
 }
 
 impl Observer for Grid {
-    fn subscribe (&mut self, event_id: ID) -> ID {
-        todo! ()
-    }
-
-    fn unsubscribe (&mut self, event_id: ID) -> ID {
-        todo! ()   
-    }
-
-    fn update (&mut self, event_id: ID) -> () {
+    async fn update (&mut self, event: Event) -> Response {
         todo! ()
     }
 
@@ -339,6 +339,10 @@ impl Observer for Grid {
         } else {
             Some (self.observer_id)
         }
+    }
+
+    fn set_observer_id (&mut self, observer_id: ID) -> () {
+        self.observer_id = observer_id;
     }
 }
 
@@ -408,38 +412,36 @@ pub mod tests {
     }
 
     #[test]
-    fn adjacency_matrix_get_connection () {
-        let tile_grid: Vec<Vec<Tile>> = generate_tiles ();
-        let adjacency_matrix: AdjacencyMatrix = AdjacencyMatrix::new (&tile_grid);
+    fn grid_get_cost () {
+        let grid: Grid = generate_grid ();
 
-        assert_eq! (adjacency_matrix.get_connection (&(0, 0), Direction::Up), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(0, 0), Direction::Right), 2);
-        assert_eq! (adjacency_matrix.get_connection (&(0, 0), Direction::Down), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(0, 0), Direction::Left), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(0, 1), Direction::Up), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(0, 1), Direction::Right), 2);
-        assert_eq! (adjacency_matrix.get_connection (&(0, 1), Direction::Down), 2);
-        assert_eq! (adjacency_matrix.get_connection (&(0, 1), Direction::Left), 2);
-        assert_eq! (adjacency_matrix.get_connection (&(0, 2), Direction::Up), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(0, 2), Direction::Right), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(0, 2), Direction::Down), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(0, 2), Direction::Left), 2);
+        assert_eq! (grid.get_cost (&(0, 0), Direction::Up), 0);
+        assert_eq! (grid.get_cost (&(0, 0), Direction::Right), 2);
+        assert_eq! (grid.get_cost (&(0, 0), Direction::Left), 0);
+        assert_eq! (grid.get_cost (&(0, 0), Direction::Down), 0);
+        assert_eq! (grid.get_cost (&(0, 1), Direction::Up), 0);
+        assert_eq! (grid.get_cost (&(0, 1), Direction::Right), 2);
+        assert_eq! (grid.get_cost (&(0, 1), Direction::Left), 2);
+        assert_eq! (grid.get_cost (&(0, 1), Direction::Down), 2);
+        assert_eq! (grid.get_cost (&(0, 2), Direction::Up), 0);
+        assert_eq! (grid.get_cost (&(0, 2), Direction::Right), 0);
+        assert_eq! (grid.get_cost (&(0, 2), Direction::Left), 2);
+        assert_eq! (grid.get_cost (&(0, 2), Direction::Down), 0);
 
-        assert_eq! (adjacency_matrix.get_connection (&(1, 0), Direction::Up), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(1, 0), Direction::Right), 3);
-        assert_eq! (adjacency_matrix.get_connection (&(1, 0), Direction::Down), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(1, 0), Direction::Left), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(1, 1), Direction::Up), 1);
-        assert_eq! (adjacency_matrix.get_connection (&(1, 1), Direction::Right), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(1, 1), Direction::Down), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(1, 1), Direction::Left), 3);
-        assert_eq! (adjacency_matrix.get_connection (&(1, 2), Direction::Up), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(1, 2), Direction::Right), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(1, 2), Direction::Down), 0);
-        assert_eq! (adjacency_matrix.get_connection (&(1, 2), Direction::Left), 0);
+        assert_eq! (grid.get_cost (&(1, 0), Direction::Up), 0);
+        assert_eq! (grid.get_cost (&(1, 0), Direction::Right), 3);
+        assert_eq! (grid.get_cost (&(1, 0), Direction::Left), 0);
+        assert_eq! (grid.get_cost (&(1, 0), Direction::Down), 0);
+        assert_eq! (grid.get_cost (&(1, 1), Direction::Up), 1);
+        assert_eq! (grid.get_cost (&(1, 1), Direction::Right), 0);
+        assert_eq! (grid.get_cost (&(1, 1), Direction::Left), 3);
+        assert_eq! (grid.get_cost (&(1, 1), Direction::Down), 0);
+        assert_eq! (grid.get_cost (&(1, 2), Direction::Up), 0);
+        assert_eq! (grid.get_cost (&(1, 2), Direction::Right), 0);
+        assert_eq! (grid.get_cost (&(1, 2), Direction::Left), 0);
+        assert_eq! (grid.get_cost (&(1, 2), Direction::Down), 0);
     }
 
-    
     #[test]
     fn grid_is_impassable () {
         let grid: Grid = generate_grid ();
@@ -457,7 +459,7 @@ pub mod tests {
         // Test empty
         assert_eq! (grid.is_occupied (&(0, 0)), false);
         // Test occupied
-        grid.place_unit (0, (0, 0));
+        grid.unit_locations.insert ((0, (0, 0)));
         assert_eq! (grid.is_occupied (&(0, 0)), true);
     }
 
@@ -474,7 +476,7 @@ pub mod tests {
         // Test impassable
         assert_eq! (grid.is_placeable (&(1, 2)), false);
         // Test occupied
-        grid.place_unit (0, (0, 0));
+        grid.unit_locations.insert ((0, (0, 0)));
         assert_eq! (grid.is_placeable (&(0, 0)), false);
     }
 
@@ -484,30 +486,120 @@ pub mod tests {
 
         assert_eq! (grid.try_move (&(0, 0), Direction::Up), None);
         assert_eq! (grid.try_move (&(0, 0), Direction::Right).unwrap (), ((0, 1), 2));
-        assert_eq! (grid.try_move (&(0, 0), Direction::Down), None); // Test not climbable
         assert_eq! (grid.try_move (&(0, 0), Direction::Left), None);
+        assert_eq! (grid.try_move (&(0, 0), Direction::Down), None); // Test not climbable
         assert_eq! (grid.try_move (&(0, 1), Direction::Up), None);
         assert_eq! (grid.try_move (&(0, 1), Direction::Right).unwrap (), ((0, 2), 2));
-        assert_eq! (grid.try_move (&(0, 1), Direction::Down).unwrap (), ((1, 1), 2));
         assert_eq! (grid.try_move (&(0, 1), Direction::Left).unwrap (), ((0, 0), 2));
+        assert_eq! (grid.try_move (&(0, 1), Direction::Down).unwrap (), ((1, 1), 2));
         assert_eq! (grid.try_move (&(0, 2), Direction::Up), None);
         assert_eq! (grid.try_move (&(0, 2), Direction::Right), None);
-        assert_eq! (grid.try_move (&(0, 2), Direction::Down), None); // Test impassable
         assert_eq! (grid.try_move (&(0, 2), Direction::Left).unwrap (), ((0, 1), 2));
+        assert_eq! (grid.try_move (&(0, 2), Direction::Down), None); // Test impassable
 
         assert_eq! (grid.try_move (&(1, 0), Direction::Up), None); // Test not climbable
         assert_eq! (grid.try_move (&(1, 0), Direction::Right).unwrap (), ((1, 1), 3));
-        assert_eq! (grid.try_move (&(1, 0), Direction::Down), None);
         assert_eq! (grid.try_move (&(1, 0), Direction::Left), None);
+        assert_eq! (grid.try_move (&(1, 0), Direction::Down), None);
         assert_eq! (grid.try_move (&(1, 1), Direction::Up).unwrap (), ((0, 1), 1));
         assert_eq! (grid.try_move (&(1, 1), Direction::Right), None); // Test impassable
-        assert_eq! (grid.try_move (&(1, 1), Direction::Down), None);
         assert_eq! (grid.try_move (&(1, 1), Direction::Left).unwrap (), ((1, 0), 3));
+        assert_eq! (grid.try_move (&(1, 1), Direction::Down), None);
         // Test impassable
         assert_eq! (grid.try_move (&(1, 2), Direction::Up), None);
         assert_eq! (grid.try_move (&(1, 2), Direction::Right), None);
-        assert_eq! (grid.try_move (&(1, 2), Direction::Down), None);
         assert_eq! (grid.try_move (&(1, 2), Direction::Left), None);
+        assert_eq! (grid.try_move (&(1, 2), Direction::Down), None);
+    }
+
+    #[test]
+    fn grid_try_connect () {
+        let grid: Grid = generate_grid ();
+
+        assert_eq! (grid.try_connect (&(0, 0), Direction::Up), None);
+        assert_eq! (grid.try_connect (&(0, 0), Direction::Right).unwrap (), (0, 1));
+        assert_eq! (grid.try_connect (&(0, 0), Direction::Left), None);
+        assert_eq! (grid.try_connect (&(0, 0), Direction::Down).unwrap (), (1, 0));
+        assert_eq! (grid.try_connect (&(0, 1), Direction::Up), None);
+        assert_eq! (grid.try_connect (&(0, 1), Direction::Right).unwrap (), (0, 2));
+        assert_eq! (grid.try_connect (&(0, 1), Direction::Left).unwrap (), (0, 0));
+        assert_eq! (grid.try_connect (&(0, 1), Direction::Down).unwrap (), (1, 1));
+        assert_eq! (grid.try_connect (&(0, 2), Direction::Up), None);
+        assert_eq! (grid.try_connect (&(0, 2), Direction::Right), None);
+        assert_eq! (grid.try_connect (&(0, 2), Direction::Left).unwrap (), (0, 1));
+        assert_eq! (grid.try_connect (&(0, 2), Direction::Down).unwrap (), (1, 2));
+
+        assert_eq! (grid.try_connect (&(1, 0), Direction::Up).unwrap (), (0, 0));
+        assert_eq! (grid.try_connect (&(1, 0), Direction::Right).unwrap (), (1, 1));
+        assert_eq! (grid.try_connect (&(1, 0), Direction::Left), None);
+        assert_eq! (grid.try_connect (&(1, 0), Direction::Down), None);
+        assert_eq! (grid.try_connect (&(1, 1), Direction::Up).unwrap (), (0, 1));
+        assert_eq! (grid.try_connect (&(1, 1), Direction::Right).unwrap (), (1, 2));
+        assert_eq! (grid.try_connect (&(1, 1), Direction::Left).unwrap (), (1, 0));
+        assert_eq! (grid.try_connect (&(1, 1), Direction::Down), None);
+        assert_eq! (grid.try_connect (&(1, 2), Direction::Up).unwrap (), (0, 2));
+        assert_eq! (grid.try_connect (&(1, 2), Direction::Right), None);
+        assert_eq! (grid.try_connect (&(1, 2), Direction::Left).unwrap (), (1, 1));
+        assert_eq! (grid.try_connect (&(1, 2), Direction::Down), None);
+    }
+
+    #[test]
+    fn grid_try_move () {
+        let mut grid: Grid = generate_grid ();
+
+        // Test empty move
+        assert_eq! (grid.try_move (&(0, 0), Direction::Up), None);
+        assert_eq! (grid.try_move (&(0, 0), Direction::Right).unwrap (), ((0, 1), 2));
+        assert_eq! (grid.try_move (&(0, 0), Direction::Left), None);
+        assert_eq! (grid.try_move (&(0, 0), Direction::Down), None);
+        assert_eq! (grid.try_move (&(0, 1), Direction::Up), None);
+        assert_eq! (grid.try_move (&(0, 1), Direction::Right).unwrap (), ((0, 2), 2));
+        assert_eq! (grid.try_move (&(0, 1), Direction::Left).unwrap (), ((0, 0), 2));
+        assert_eq! (grid.try_move (&(0, 1), Direction::Down).unwrap (), ((1, 1), 2));
+        assert_eq! (grid.try_move (&(0, 2), Direction::Up), None);
+        assert_eq! (grid.try_move (&(0, 2), Direction::Right), None);
+        assert_eq! (grid.try_move (&(0, 2), Direction::Left).unwrap (), ((0, 1), 2));
+        assert_eq! (grid.try_move (&(0, 2), Direction::Down), None);
+
+        assert_eq! (grid.try_move (&(1, 0), Direction::Up), None);
+        assert_eq! (grid.try_move (&(1, 0), Direction::Right).unwrap (), ((1, 1), 3));
+        assert_eq! (grid.try_move (&(1, 0), Direction::Left), None);
+        assert_eq! (grid.try_move (&(1, 0), Direction::Down), None);
+        assert_eq! (grid.try_move (&(1, 1), Direction::Up).unwrap (), ((0, 1), 1));
+        assert_eq! (grid.try_move (&(1, 1), Direction::Right), None);
+        assert_eq! (grid.try_move (&(1, 1), Direction::Left).unwrap (), ((1, 0), 3));
+        assert_eq! (grid.try_move (&(1, 1), Direction::Down), None);
+        assert_eq! (grid.try_move (&(1, 2), Direction::Up), None);
+        assert_eq! (grid.try_move (&(1, 2), Direction::Right), None);
+        assert_eq! (grid.try_move (&(1, 2), Direction::Left), None);
+        assert_eq! (grid.try_move (&(1, 2), Direction::Down), None);
+
+        // Test non-empty move
+        grid.unit_locations.insert ((0, (0, 1)));
+        assert_eq! (grid.try_move (&(0, 0), Direction::Right), None);
+        assert_eq! (grid.try_move (&(0, 2), Direction::Left), None);
+        assert_eq! (grid.try_move (&(1, 1), Direction::Up), None);
+    }
+
+    #[test]
+    fn grid_update_adjacency () {
+        let lists: Rc<Lists> = generate_lists ();
+        let tile_builder: TileBuilder = TileBuilder::new (Rc::clone (&lists));
+        let tiles_updated: Vec<Vec<Tile>> = vec![
+            vec![tile_builder.build (0, 10, Some (0)) /* changed */, tile_builder.build (0, 1, None), tile_builder.build (0, 0, Some (1))],
+            vec![tile_builder.build (1, 2, None), tile_builder.build (1, 1, None), tile_builder.build (0, 0, None) /* changed */]
+        ];
+        let mut grid: Grid = generate_grid ();
+
+        grid.tiles = tiles_updated;
+        // Test impassable update
+        grid.update_adjacency (&(0, 0));
+        assert_eq! (grid.try_move (&(0, 1), Direction::Left), None);
+        assert_eq! (grid.try_move (&(1, 0), Direction::Up), None);
+        // Test passable update
+        grid.update_adjacency (&(1, 2));
+        assert_eq! (grid.try_move (&(0, 2), Direction::Down).unwrap (), ((1, 2), 1));
+        assert_eq! (grid.try_move (&(1, 1), Direction::Right).unwrap (), ((1, 2), 2));
     }
 
     #[test]

@@ -1,12 +1,18 @@
 use std::{collections::{HashMap, HashSet}, hash::Hash};
 
+/*
+ * Map that behaves like an inner join:
+ * Each T maps to one U
+ * Each U maps to one T
+ * Mappings are duplicated
+ */
 #[derive (Debug)]
-pub struct DuplicateNaturalMap<T, U> {
+pub struct DuplicateInnerMap<T, U> {
     map_first: HashMap<T, U>,
     map_second: HashMap<U, T>
 }
 
-impl<T, U> DuplicateNaturalMap<T, U>
+impl<T, U> DuplicateInnerMap<T, U>
 where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + Hash {
     pub fn new () -> Self {
         let map_first: HashMap<T, U> = HashMap::new ();
@@ -97,13 +103,19 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     }
 }
 
+/*
+* Map that behaves like a (left) outer join:
+* Each T maps to many U
+* Each U maps to one T
+ * Mappings are duplicated
+ */
 #[derive (Debug)]
-pub struct DuplicateInnerMap<T, U> {
+pub struct DuplicateOuterMap<T, U> {
     map_first: HashMap<T, HashSet<U>>,
     map_second: HashMap<U, T>
 }
 
-impl<T, U> DuplicateInnerMap<T, U>
+impl<T, U> DuplicateOuterMap<T, U>
 where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + Hash {
     pub fn new () -> Self {
         let map_first: HashMap<T, HashSet<U>> = HashMap::new ();
@@ -197,6 +209,12 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     }
 }
 
+/*
+ * Map that behaves like a cross join:
+ * Each T maps to many U
+ * Each U maps to many T
+ * Mappings are duplicated
+ */
 #[derive (Debug)]
 pub struct DuplicateCrossMap<T, U> {
     map_first: HashMap<T, HashSet<U>>,
@@ -313,8 +331,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn duplicate_natural_map_insert () {
-        let mut map: DuplicateNaturalMap<u8, (u8, u8)> = DuplicateNaturalMap::new ();
+    fn duplicate_inner_map_insert () {
+        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
 
         // Test empty insert
         assert_eq! (map.insert ((0, (0, 0))).unwrap (), (None, None));
@@ -326,8 +344,8 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_natural_map_get () {
-        let mut map: DuplicateNaturalMap<u8, (u8, u8)> = DuplicateNaturalMap::new ();
+    fn duplicate_inner_map_get () {
+        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
 
         // Test empty get
         assert_eq! (map.get_first (&0), None);
@@ -345,8 +363,8 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_natural_map_remove () {
-        let mut map: DuplicateNaturalMap<u8, (u8, u8)> = DuplicateNaturalMap::new ();
+    fn duplicate_inner_map_remove () {
+        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
 
         // Test empty remove
         assert_eq! (map.remove_first (&0), None);
@@ -363,8 +381,8 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_natural_map_replace () {
-        let mut map: DuplicateNaturalMap<u8, (u8, u8)> = DuplicateNaturalMap::new ();
+    fn duplicate_inner_map_replace () {
+        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
 
         // Test empty replace
         assert_eq! (map.replace_first (0, (0, 0)), None);
@@ -395,8 +413,8 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_natural_map_contains_key () {
-        let mut map: DuplicateNaturalMap<u8, (u8, u8)> = DuplicateNaturalMap::new ();
+    fn duplicate_inner_map_contains_key () {
+        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
 
         // Test empty contains
         assert_eq! (map.contains_key_first (&0), false);
@@ -410,8 +428,8 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_inner_map_insert () {
-        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
+    fn duplicate_outer_map_insert () {
+        let mut map: DuplicateOuterMap<u8, (u8, u8)> = DuplicateOuterMap::new ();
 
         // Test empty insert
         assert_eq! (map.insert ((0, (0, 0))), true);
@@ -423,8 +441,8 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_inner_map_get () {
-        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
+    fn duplicate_outer_map_get () {
+        let mut map: DuplicateOuterMap<u8, (u8, u8)> = DuplicateOuterMap::new ();
 
         // Test empty get
         assert_eq! (map.get_first (&0), None);
@@ -452,8 +470,8 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_inner_map_remove () {
-        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
+    fn duplicate_outer_map_remove () {
+        let mut map: DuplicateOuterMap<u8, (u8, u8)> = DuplicateOuterMap::new ();
 
         // Test empty remove
         assert_eq! (map.remove (&(0, 0)), false);
@@ -466,8 +484,8 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_inner_map_replace () {
-        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
+    fn duplicate_outer_map_replace () {
+        let mut map: DuplicateOuterMap<u8, (u8, u8)> = DuplicateOuterMap::new ();
 
         // Test empty replace
         assert_eq! (map.replace ((0, 0), 0), None);
@@ -491,8 +509,8 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_inner_map_contains_key () {
-        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
+    fn duplicate_outer_map_contains_key () {
+        let mut map: DuplicateOuterMap<u8, (u8, u8)> = DuplicateOuterMap::new ();
 
         // Test empty contains
         assert_eq! (map.contains_key_first (&0), false);

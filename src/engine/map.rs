@@ -1,14 +1,16 @@
-pub use self::city::City;
 mod city;
+pub use self::city::City;
 
-pub use self::grid::Grid;
 pub mod grid;
+pub use self::grid::Location;
+pub use self::grid::Grid;
 
-pub use self::terrain::Terrain;
 mod terrain;
+pub use self::terrain::Terrain;
 
+mod tile;
 pub use self::tile::Tile;
 pub use self::tile::TileBuilder;
-mod tile;
 
-pub type Location = (usize, usize); // row, column
+pub const COST_IMPASSABLE: u8 = 0;
+pub const COST_MINIMUM: u8 = 1;

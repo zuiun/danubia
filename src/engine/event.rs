@@ -17,54 +17,47 @@ pub const FLAG_NOTIFICATION: Flag = (usize::MAX, usize::MAX, usize::MAX);
 pub const RESPONSE_NOTIFICATION: Response = (usize::MAX, usize::MAX);
 
 pub trait Observer: Debug {
-    fn subscribe (&mut self, event_id: ID) -> ID;
-    fn unsubscribe (&mut self, event_id: ID) -> ID;
-    fn update (&mut self, event_id: ID) -> ();
+    async fn update (&mut self, event: Event) -> Response;
     fn get_observer_id (&self) -> Option<ID>;
+    fn set_observer_id (&mut self, observer_id: ID) -> ();
 }
 
 pub trait Subject {
     async fn notify (&self, event: Event) -> Response;
 }
 
-#[derive (Debug)]
-pub struct Handler {
-    observers: HashMap<ID, Rc<RefCell<dyn Observer>>>,
-    event_observers: DuplicateCrossMap<ID, ID>,
-    id: ID
+pub enum Observers {
+    // Use enum here...
 }
 
-impl Handler {
-    pub fn new () -> Self {
-        let observers: HashMap<ID, Rc<RefCell<dyn Observer>>> = HashMap::new ();
-        let event_observers: DuplicateCrossMap<ID, ID> = DuplicateCrossMap::new ();
-        let id: ID = 0;
+// #[derive (Debug)]
+// pub struct Handler {
+//     observers: HashMap<ID, Rc<RefCell<dyn Observer>>>,
+//     event_observers: DuplicateCrossMap<ID, ID>,
+//     id: ID
+// }
 
-        Self { observers, event_observers, id }
-    }
+// impl Handler {
+//     pub fn new () -> Self {
+//         let observers: HashMap<ID, Rc<RefCell<dyn Observer>>> = HashMap::new ();
+//         let event_observers: DuplicateCrossMap<ID, ID> = DuplicateCrossMap::new ();
+//         let id: ID = 0;
 
-    pub fn subscribe (&mut self, observer: Rc<RefCell<dyn Observer>>, event_id: ID) -> ID {
-        let observer_id: ID = self.id;
+//         Self { observers, event_observers, id }
+//     }
 
-        self.observers.insert (observer_id, observer);
-        self.event_observers.insert ((event_id, observer_id));
-        self.id += 1;
+//     pub fn subscribe (&mut self, observer: Rc<RefCell<dyn Observer>>, event_id: ID) -> ID {
+//         let observer_id: ID = self.id;
 
-        observer_id
-    }
+//         observer.borrow_mut ().set_observer_id (observer_id);
+//         self.observers.insert (observer_id, observer);
+//         self.event_observers.insert ((event_id, observer_id));
+//         self.id += 1;
 
-    pub fn unsubscribe (&mut self, observer_id: &ID, event_id: &ID) -> Option<Rc<RefCell<dyn Observer>>> {
-        let observer: Option<Rc<RefCell<dyn Observer>>> = self.observers.remove (observer_id);
+//         observer_id
+//     }
 
-        match observer {
-            Some (o) => {
-                let observer_id: ID = o.borrow ().get_observer_id ()?;
-
-                self.event_observers.remove_second (&observer_id);
-
-                Some (o)
-            }
-            None => None
-        }
-    }
-}
+//     pub fn unsubscribe (&mut self, event_id: &ID, observer_id: &ID) -> bool {
+//         self.event_observers.remove (event_id, observer_id)
+//     }
+// }

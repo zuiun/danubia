@@ -1,6 +1,6 @@
-use std::{cmp, rc::Rc, sync::atomic::Ordering};
+use std::{cmp, rc::Rc};
 use crate::engine::Lists;
-use crate::engine::common::{Area, Capacity, ID, IDS, ID_UNINITIALISED, Modifiable, Modifier, Statistic, Target, Timed, TYPE_UNIT, UnitStatistic, Unique, WeaponStatistic};
+use crate::engine::common::{Area, Capacity, ID, ID_UNINITIALISED, Modifiable, Modifier, Statistic, Target, Timed};
 use crate::engine::event::{Event, Observer, Subject, EVENT_CITY_DRAW_SUPPLY, EVENT_UNIT_DIE, Response, RESPONSE_NOTIFICATION, FLAG_NOTIFICATION};
 use crate::engine::map::{Grid, Location};
 use super::*;
@@ -9,18 +9,40 @@ type UnitStatistics = [Capacity; UnitStatistic::Length as usize];
 
 const MRL_MAX: u16 = 100;
 const HLT_MAX: u16 = 1000;
-const SPL_MAX: u16 = 100;
+const SPL_MAX: u16 = 1000;
 const ATK_MAX: u16 = 200;
 const DEF_MAX: u16 = 200;
 const MAG_MAX: u16 = 200;
 const MOV_MAX: u16 = 100;
 const ORG_MAX: u16 = 200;
-const DAMAGE_DIVIDEND_SPL: u16 = 3;
 const DRAIN_SPL: u16 = 5;
 const RECOVER_MRL: u16 = 1;
 const WEAPON_1: usize = 0;
 const WEAPON_2: usize = 1;
 const WEAPON_ACTIVE: usize = 2;
+
+#[derive (Debug)]
+#[derive (Clone, Copy)]
+pub enum UnitStatistic {
+    MRL, // morale - willingness to fight (percentage)
+    HLT, // manpower - number of soldiers
+    SPL, // supply - proportion of soldiers equipped (percentage)
+    ATK, // attack – physical damage
+    DEF, // defence – physical resistance
+    MAG, // magic – magical damage and resistance
+    MOV, // manoeuvre – speed and movement
+    ORG, // cohesion – modifier for formation effects and subordinate units (percentage)
+    Length
+}
+
+#[derive (Debug)]
+#[derive (Clone, Copy)]
+pub enum Action {
+    Attack (Location),
+    Skill (ID, Location),
+    Magic (ID, Location),
+    Wait
+}
 
 #[derive (Debug)]
 pub struct UnitStatisticsBuilder {
@@ -39,6 +61,10 @@ impl UnitStatisticsBuilder {
         assert! (mrl <= MRL_MAX);
         assert! (hlt <= HLT_MAX);
         assert! (spl <= SPL_MAX);
+        assert! (atk <= ATK_MAX);
+        assert! (def <= DEF_MAX);
+        assert! (mag <= MAG_MAX);
+        assert! (mov <= MOV_MAX);
         assert! (org <= ORG_MAX);
 
         let mrl: Capacity = Capacity::Quantity (mrl, MRL_MAX);
@@ -73,15 +99,15 @@ pub struct Unit {
 }
 
 impl Unit {
-    pub fn new (lists: Rc<Lists>, statistics_builder: UnitStatisticsBuilder, magic_ids: Vec<ID>, weapon_ids: [ID; 3], faction_id: ID, grid: Rc<Grid>) -> Self {
-        let id: ID = Unit::assign_id ();
+    pub fn new (id: ID, lists: Rc<Lists>, grid: Rc<Grid>, statistics_builder: UnitStatisticsBuilder, magic_ids: Vec<ID>, weapon_ids: [ID; 3], faction_id: ID) -> Self {
         let lists: Rc<Lists> = Rc::clone (&lists);
+        let grid: Rc<Grid> = Rc::clone (&grid);
         let statistics: UnitStatistics = statistics_builder.build ();
         let modifiers: Vec<Modifier> = Vec::new ();
         let supply_city_ids: Vec<ID> = Vec::new ();
         let observer_id: ID = ID_UNINITIALISED;
 
-        Self { id, lists, grid: grid, statistics, modifiers, magic_ids, weapon_ids, faction_id, supply_city_ids, observer_id }
+        Self { id, lists, grid, statistics, modifiers, magic_ids, weapon_ids, faction_id, supply_city_ids, observer_id }
     }
 
     fn get_statistic (&self, statistic: UnitStatistic) -> (u16, u16) {
@@ -142,6 +168,8 @@ impl Unit {
     fn set_statistic (&mut self, statistic: UnitStatistic, value: u16) -> () {
         self.statistics[statistic as usize] = match self.statistics[statistic as usize] {
             Capacity::Constant (_, m, b) => {
+                assert! (value <= m);
+
                 Capacity::Constant (value, m, b)
             }
             Capacity::Quantity (_, m) => {
@@ -179,12 +207,11 @@ impl Unit {
                 m
             }
         };
-        let change: f32 = if is_add {
-            (change as f32) / 100.0
-        } else {
-            1.0 - ((change as f32) / 100.0)
-        };
+println!("{}",base);
+        let change: f32 = (change as f32) / 100.0;
+println!("{}",change);
         let change: u16 = ((base as f32) * change) as u16;
+println!("{}",change);
 
         self.change_statistic_flat (statistic, change, is_add);
     }
@@ -225,15 +252,11 @@ impl Unit {
     }
 
     fn take_damage (&mut self, damage_mrl: u16, damage_hlt: u16) -> bool {
-        let damage_spl: u16 = damage_mrl / DAMAGE_DIVIDEND_SPL;
+        let damage_spl: u16 = (damage_mrl + damage_hlt) / 2;
 
         self.change_statistic_flat (UnitStatistic::MRL, damage_mrl, false);
         self.change_statistic_flat (UnitStatistic::HLT, damage_hlt, false);
         self.change_statistic_flat (UnitStatistic::SPL, damage_spl, false);
-
-println!("{},{}",
-self.get_statistic (UnitStatistic::MRL).0,
-self.get_statistic (UnitStatistic::HLT).0);
 
         if self.get_statistic (UnitStatistic::HLT).0 == 0 {
             self.die ();
@@ -245,11 +268,11 @@ self.get_statistic (UnitStatistic::HLT).0);
     }
 
     fn die (&mut self) -> () {
-        self.notify ((EVENT_UNIT_DIE, FLAG_NOTIFICATION));
+        self.notify ((EVENT_UNIT_DIE, FLAG_NOTIFICATION)); // Likely don't need to await
         // TODO: ???
     }
 
-    fn find_targets (&self, target: Target, area: Area, range: u8) -> Vec<ID> {
+    fn find_targets (&self, location: Location, target: Target, area: Area, range: u8) -> Vec<ID> {
         let mut unit_ids: Vec<ID> = Vec::new ();
 
         match target {
@@ -284,9 +307,6 @@ self.get_statistic (UnitStatistic::HLT).0);
     }
 
     pub fn start_turn (&mut self) -> () {
-        self.modifiers.retain (|m| m.get_duration () > 0);
-        // TODO: apply all constant passive skills
-
         let location: &Location = self.grid.get_unit_location (&self.id)
                 .expect (&format! ("Location not found for unit {}", self.id));
 
@@ -305,6 +325,25 @@ self.get_statistic (UnitStatistic::HLT).0);
         self.weapon_ids[WEAPON_ACTIVE]
     }
 
+    pub fn act (&mut self, action: Action) -> u8 {
+        let mov: u16 = self.get_statistic (UnitStatistic::MOV).0;
+
+        match action {
+            Action::Attack (l) => {
+
+            }
+            Action::Magic (m, l) => {
+                let magic: &Magic = self.lists.get_magic (&m);
+            }
+            Action::Skill (s, l) => {
+                let skill: &Skill = self.lists.get_skill (&s);
+            }
+            Action::Wait => ()
+        }
+
+        self.lists.get_delay (mov, action)
+    }
+
     pub fn act_attack (&mut self, other: &mut Unit) -> bool {
         let weapon: &Weapon = self.lists.get_weapon (&self.weapon_ids[WEAPON_ACTIVE]);
         let damage_weapon: u16 = self.calculate_damage_weapon (other);
@@ -314,15 +353,11 @@ self.get_statistic (UnitStatistic::HLT).0);
         let damage_mrl: u16 = damage_base + (weapon.get_statistic (WeaponStatistic::SLH) as u16);
         let damage_hlt: u16 = damage_base * ((weapon.get_statistic (WeaponStatistic::PRC) + 1) as u16);
 
-println!("{:?}",weapon);
-println!("{},{}",damage_mrl,damage_hlt);
-
         other.take_damage (damage_mrl, damage_hlt)
     }
 
     pub fn act_magic (&mut self, magic_id: ID) -> () {
         let magic: &Magic = self.lists.get_magic (&magic_id);
-        let unit_ids: Vec<ID> = self.find_targets (magic.get_target (), magic.get_area (), magic.get_range ());
 
         todo! ()
         // magic.act ();
@@ -356,7 +391,6 @@ println!("{},{}",damage_mrl,damage_hlt);
         self.dec_durations ();
         self.supply_city_ids = self.grid.get_unit_supply_cities (&self.id);
 
-println!("{:?}",self.supply_city_ids);
         if self.supply_city_ids.len () > 0 {
             let mut recover_hlt: u16 = 0;
             let mut recover_spl: u16 = 0;
@@ -385,30 +419,8 @@ println!("{:?}",self.supply_city_ids);
     }
 }
 
-impl Unique for Unit {
-    fn assign_id () -> ID {
-        IDS[TYPE_UNIT as usize].fetch_add (1, Ordering::SeqCst)
-    }
-
-    fn get_id (&self) -> ID {
-        self.id
-    }
-
-    fn get_type (&self) -> ID {
-        TYPE_UNIT
-    }
-}
-
 impl Observer for Unit {
-    fn subscribe (&mut self, event_id: ID) -> ID {
-        todo! ()
-    }
-
-    fn unsubscribe (&mut self, event_id: ID) -> ID {
-        todo! ()   
-    }
-
-    fn update (&mut self, event_id: ID) -> () {
+    async fn update (&mut self, event: Event) -> Response {
         todo! ()
     }
 
@@ -418,6 +430,10 @@ impl Observer for Unit {
         } else {
             Some (self.observer_id)
         }
+    }
+
+    fn set_observer_id (&mut self, observer_id: ID) -> () {
+        self.observer_id = observer_id;
     }
 }
 
@@ -446,10 +462,30 @@ impl Modifiable for Unit {
         }
     }
 
+    fn remove_modifier (&mut self, modifier_id: &ID) -> bool {
+        let length_original: usize = self.modifiers.len ();
+
+        self.modifiers.retain (|m: &Modifier| m.get_id () != *modifier_id);
+
+        self.modifiers.len () < length_original
+    }
+
     fn dec_durations (&mut self) -> () {
-        for modifier in self.modifiers.iter_mut () {
-            modifier.dec_duration ();
-        }
+        self.modifiers.retain_mut (|m: &mut Modifier| !m.dec_duration ());
+    }
+}
+
+pub struct UnitBuilder {
+    // TODO
+}
+
+impl UnitBuilder {
+    pub fn new () -> Self {
+        todo! ()
+    }
+
+    pub fn build (self) -> Unit {
+        todo! ()
     }
 }
 
@@ -464,26 +500,41 @@ mod tests {
         let grid: Grid = generate_grid ();
         let grid: Rc<Grid> = Rc::new (grid);
 
-        let statistics_character_1: UnitStatisticsBuilder = UnitStatisticsBuilder::new (100, 1000, 100, 20, 20, 20, 10, 100);
-        let character_1: Unit = Unit::new (Rc::clone (&lists), statistics_character_1, vec![], [0, 0, 0], 0, Rc::clone (&grid));
+        let statistics_unit_0: UnitStatisticsBuilder = UnitStatisticsBuilder::new (100, 1000, 100, 20, 20, 20, 10, 100);
+        let unit_0: Unit = Unit::new (0, Rc::clone (&lists), Rc::clone (&grid), statistics_unit_0, vec![], [0, 0, 0], 0);
 
-        let statistics_character_2: UnitStatisticsBuilder = UnitStatisticsBuilder::new (100, 1000, 100, 20, 20, 20, 10, 100);
-        let character_2: Unit = Unit::new (Rc::clone (&lists), statistics_character_2, vec![], [1, 0, 1], 0, Rc::clone (&grid));
+        let statistics_unit_1: UnitStatisticsBuilder = UnitStatisticsBuilder::new (100, 1000, 100, 20, 20, 20, 10, 100);
+        let unit_1: Unit = Unit::new (1, Rc::clone (&lists), Rc::clone (&grid), statistics_unit_1, vec![], [1, 0, 1], 0);
 
-        let statistics_character_3: UnitStatisticsBuilder = UnitStatisticsBuilder::new (100, 1000, 100, 20, 20, 20, 10, 100);
-        let character_3: Unit = Unit::new (Rc::clone (&lists), statistics_character_3, vec![], [2, 0, 2], 0, Rc::clone (&grid));
+        let statistics_unit_2: UnitStatisticsBuilder = UnitStatisticsBuilder::new (100, 1000, 100, 20, 20, 20, 10, 100);
+        let unit_2: Unit = Unit::new (2, Rc::clone (&lists), Rc::clone (&grid), statistics_unit_2, vec![], [2, 0, 2], 0);
 
-        (character_1, character_2, character_3)
+        (unit_0, unit_1, unit_2)
     }
 
+    fn generate_modifiers () -> (Modifier, Modifier) {
+        let lists: Rc<Lists> = generate_lists ();
+        let modifier_3: Modifier = lists.get_modifier (&3).clone ();
+        let modifier_4: Modifier = lists.get_modifier (&4).clone ();
+
+        (modifier_3, modifier_4)
+    }
     #[test]
     fn unit_act_attack () {
-        let (mut character_1, mut character_2, mut character_3) = generate_units ();
+        let (mut unit_0, mut unit_1, mut unit_2): (Unit, Unit, Unit) = generate_units ();
 
-        character_1.act_attack (&mut character_2);
-        character_2.act_attack (&mut character_3);
-        character_3.act_attack (&mut character_1);
+        unit_0.act_attack (&mut unit_1);
+        unit_1.act_attack (&mut unit_2);
+        unit_2.act_attack (&mut unit_0);
         todo! ();
+
+        // println!("{:?}",weapon);
+        // println!("{},{}",damage_mrl,damage_hlt);
+        // println!("{},{},{}",
+        // self.get_statistic (UnitStatistic::MRL).0,
+        // self.get_statistic (UnitStatistic::HLT).0,
+        // self.get_statistic (UnitStatistic::SPL).0);
+        // assert! (false);
     }
 
     #[test]
@@ -494,5 +545,84 @@ mod tests {
     #[test]
     fn unit_act_skill () {
         todo! ();
+    }
+
+    #[test]
+    fn unit_add_modifier () {
+        let (mut unit, _, _): (Unit, _, _) = generate_units ();
+        let (modifier_3, modifier_4): (Modifier, Modifier) = generate_modifiers ();
+
+        // Test additive modifier
+        assert_eq! (unit.add_modifier (modifier_3), true);
+        assert_eq! (unit.modifiers.len (), 1);
+        assert_eq! (unit.get_statistic (UnitStatistic::ATK).0, 22);
+        // Test subtractive modifier
+        assert_eq! (unit.add_modifier (modifier_4), true);
+        assert_eq! (unit.modifiers.len (), 2);
+        assert_eq! (unit.get_statistic (UnitStatistic::ATK).0, 20);
+        // Test stacking modifier
+        assert_eq! (unit.add_modifier (modifier_3), true);
+        assert_eq! (unit.modifiers.len (), 3);
+        assert_eq! (unit.get_statistic (UnitStatistic::ATK).0, 22);
+        assert_eq! (unit.add_modifier (modifier_3), true);
+        assert_eq! (unit.modifiers.len (), 4);
+        assert_eq! (unit.get_statistic (UnitStatistic::ATK).0, 24);
+        // Test non-stacking modifier
+        assert_eq! (unit.add_modifier (modifier_4), false);
+        assert_eq! (unit.modifiers.len (), 4);
+        assert_eq! (unit.get_statistic (UnitStatistic::ATK).0, 24);
+    }
+
+    #[test]
+    fn unit_remove_modifier () {
+        let (mut unit, _, _): (Unit, _, _) = generate_units ();
+        let (modifier_3, modifier_4): (Modifier, Modifier) = generate_modifiers ();
+
+        // Test empty remove
+        assert_eq! (unit.remove_modifier (&3), false);
+        assert_eq! (unit.modifiers.len (), 0);
+        // Test non-empty remove
+        unit.add_modifier (modifier_3);
+        assert_eq! (unit.remove_modifier (&3), true);
+        assert_eq! (unit.modifiers.len (), 0);
+        // Test non-colliding remove
+        unit.add_modifier (modifier_3);
+        unit.add_modifier (modifier_3);
+        assert_eq! (unit.remove_modifier (&3), true);
+        assert_eq! (unit.modifiers.len (), 0);
+        // Test colliding remove
+        unit.add_modifier (modifier_3);
+        unit.add_modifier (modifier_3);
+        unit.add_modifier (modifier_4);
+        assert_eq! (unit.remove_modifier (&3), true);
+        assert_eq! (unit.modifiers.len (), 1);
+    }
+
+    #[test]
+    fn unit_dec_durations () {
+        let (mut unit, _, _): (Unit, _, _) = generate_units ();
+        let (modifier_3, modifier_4): (Modifier, Modifier) = generate_modifiers ();
+
+        // Test empty modifier
+        unit.dec_durations ();
+        assert_eq! (unit.modifiers.len (), 0);
+        // Test timed modifier
+        unit.add_modifier (modifier_3);
+        unit.dec_durations ();
+        assert_eq! (unit.modifiers.len (), 1);
+        unit.dec_durations ();
+        assert_eq! (unit.modifiers.len (), 0);
+        // Test permanent modifier
+        unit.add_modifier (modifier_4);
+        unit.dec_durations ();
+        assert_eq! (unit.modifiers.len (), 1);
+        unit.dec_durations ();
+        assert_eq! (unit.modifiers.len (), 1);
+        // Test multiple modifiers
+        unit.add_modifier (modifier_3);
+        unit.dec_durations ();
+        assert_eq! (unit.modifiers.len (), 2);
+        unit.dec_durations ();
+        assert_eq! (unit.modifiers.len (), 1);
     }
 }

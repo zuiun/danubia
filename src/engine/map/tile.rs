@@ -1,6 +1,7 @@
 use std::{cmp, fmt, rc::Rc};
 use crate::engine::Lists;
 use crate::engine::common::{Adjustment, ID, Modifiable, Modifier, Statistic, Timed};
+use super::{COST_IMPASSABLE, COST_MINIMUM};
 
 const CLIMB_MAX: u8 = 2;
 
@@ -30,13 +31,13 @@ impl Tile {
 
                 match adjustment.0 {
                     Statistic::Tile => if m.can_stack () {
-                        adjustment.1 as u8
-                    } else {
                         if adjustment.2 {
                             cost + (adjustment.1 as u8)
                         } else {
-                            cmp::max (cost - (adjustment.1 as u8), 1)
+                            cmp::max (cost.checked_sub (adjustment.1 as u8).unwrap_or (COST_MINIMUM), COST_MINIMUM)
                         }
+                    } else {
+                        adjustment.1 as u8
                     }
                     _ => panic! ("Invalid statistic {:?}", adjustment.0)
                 }
@@ -46,7 +47,7 @@ impl Tile {
     }
 
     pub fn is_impassable (&self) -> bool {
-        self.get_cost () == 0
+        self.get_cost () == COST_IMPASSABLE
     }
 
     pub fn try_climb (&self, other: &Tile) -> Option<u8> {
@@ -61,9 +62,9 @@ impl Tile {
 
     pub fn find_cost (&self, other: &Tile) -> u8 {
         if self.is_impassable () || other.is_impassable () {
-            0
+            COST_IMPASSABLE
         } else {
-            self.try_climb (other).map_or (0, |c| other.get_cost () + c)
+            self.try_climb (other).map_or (COST_IMPASSABLE, |c: u8| other.get_cost () + c)
         }
     }
 
@@ -88,10 +89,10 @@ impl Modifiable for Tile {
     fn add_modifier (&mut self, modifier: Modifier) -> bool {
         let adjustment: Adjustment = modifier.get_adjustments ()[0].expect (&format! ("Adjustment not found for modifier {:?}", modifier));
 
-        if let Statistic::Tile = adjustment.0 {
+        if modifier.get_duration () > 0 {
+            assert! (matches! (adjustment.0, Statistic::Tile));
+
             self.modifier = Some (modifier);
-            // TODO: Update adjacency matrix -> this is probably an event
-            // Alternatively, this is actually done by the map, which manages them together
 
             true
         } else {
@@ -99,9 +100,22 @@ impl Modifiable for Tile {
         }
     }
 
+    fn remove_modifier (&mut self, _modifier_id: &ID) -> bool {
+        match self.modifier {
+            Some (_) => {
+                self.modifier = None;
+
+                true
+            }
+            None => false
+        }
+    }
+
     fn dec_durations (&mut self) -> () {
-        if let Some (mut m) = self.modifier {
-            m.dec_duration ();
+        if let Some (ref mut m) = self.modifier {
+            if m.dec_duration () {
+                self.modifier = None;
+            }
         }
     }
 }
@@ -130,6 +144,16 @@ impl TileBuilder {
 mod tests {
     use super::*;
     use crate::engine::tests::generate_lists;
+    use crate::engine::common::ID_UNINITIALISED;
+
+    fn generate_modifiers () -> (Modifier, Modifier, Modifier) {
+        let lists: Rc<Lists> = generate_lists ();
+        let modifier_0: Modifier = lists.get_modifier (&0).clone ();
+        let modifier_1: Modifier = lists.get_modifier (&1).clone ();
+        let modifier_2: Modifier = lists.get_modifier (&2).clone ();
+
+        (modifier_0, modifier_1, modifier_2)
+    }
 
     #[test]
     fn tile_get_cost () {
@@ -189,5 +213,70 @@ mod tests {
         assert_eq! (tile_1_0.find_cost (&tile_0), 1);
         assert_eq! (tile_0.find_cost (&tile_1_1), 3);
         assert_eq! (tile_1_1.find_cost (&tile_0), 2);
+    }
+
+    #[test]
+    fn tile_add_modifier () {
+        let lists: Rc<Lists> = generate_lists ();
+        let mut tile: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let (modifier_0, modifier_1, modifier_2): (Modifier, Modifier, Modifier) = generate_modifiers ();
+
+        // Test additive modifier
+        assert_eq! (tile.add_modifier (modifier_0), true);
+        assert! (matches! (tile.modifier, Some { .. }));
+        assert_eq! (tile.get_cost (), 2);
+        // Test subtractive modifier
+        assert_eq! (tile.add_modifier (modifier_1), true);
+        assert! (matches! (tile.modifier, Some { .. }));
+        assert_eq! (tile.get_cost (), 1);
+        tile.terrain_id = 1;
+        assert_eq! (tile.get_cost (), 1);
+        // Test constant modifier
+        assert_eq! (tile.add_modifier (modifier_2), true);
+        assert! (matches! (tile.modifier, Some { .. }));
+        assert_eq! (tile.get_cost (), 1);
+    }
+
+    #[test]
+    fn tile_remove_modifier () {
+        let lists: Rc<Lists> = generate_lists ();
+        let mut tile: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let (modifier_0, _, _): (Modifier, _, _) = generate_modifiers ();
+
+        // Test empty remove
+        assert_eq! (tile.remove_modifier (&ID_UNINITIALISED), false);
+        assert! (matches! (tile.modifier, None));
+        assert_eq! (tile.get_cost (), 1);
+        // Test non-empty remove
+        tile.add_modifier (modifier_0);
+        assert_eq! (tile.remove_modifier (&ID_UNINITIALISED), true);
+        assert! (matches! (tile.modifier, None));
+        assert_eq! (tile.get_cost (), 1);
+        assert_eq! (tile.remove_modifier (&ID_UNINITIALISED), false);
+        assert! (matches! (tile.modifier, None));
+        assert_eq! (tile.get_cost (), 1);
+    }
+
+    #[test]
+    fn tile_dec_durations () {
+        let lists: Rc<Lists> = generate_lists ();
+        let mut tile: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let (modifier_0, modifier_1, _): (Modifier, Modifier, _) = generate_modifiers ();
+
+        // Test empty modifier
+        tile.dec_durations ();
+        assert! (matches! (tile.modifier, None));
+        // Test timed modifier
+        tile.add_modifier (modifier_0);
+        tile.dec_durations ();
+        assert! (matches! (tile.modifier, Some { .. }));
+        tile.dec_durations ();
+        assert! (matches! (tile.modifier, None));
+        // Test permanent modifier
+        tile.add_modifier (modifier_1);
+        tile.dec_durations ();
+        assert! (matches! (tile.modifier, Some { .. }));
+        tile.dec_durations ();
+        assert! (matches! (tile.modifier, Some { .. }));
     }
 }

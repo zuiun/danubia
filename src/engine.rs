@@ -4,20 +4,20 @@ pub mod map;
 pub mod character;
 
 use std::rc::Rc;
-use crate::lists;
 use common::{Information, ID, Modifier, Status};
 use map::{City, Terrain};
-use character::{Faction, Magic, Skill, Unit, Weapon};
+use character::{Action, Faction, Magic, Skill, Unit, Weapon};
+use super::lists;
 
 /*
  * Calculated from build.rs
- * Unit speed is an index into the table
- * Regular: 21 delay at 0, 20 delay at 1, 2 delay at 77, and 1 delay at 100
- * Magic (* 1.4): 29 delay at 0, 28 delay at 1, 2 delay at 77, and 1 delay at 100
+ * Unit MOV is an index into the table
+ * Attack (* 1.0): 21 delay at 0, 20 delay at 1, 2 delay at 77, and 1 delay at 100
+ * Magic/skill (* 1.4): 29 delay at 0, 28 delay at 1, 2 delay at 77, and 1 delay at 100
  * Wait (* 0.67): 14 delay at 0, 13 delay at 1, 2 delay at 54, and 1 delay at 77
  */
 const DELAYS: [u8; 101] = [21, 20, 19, 19, 18, 18, 17, 17, 16, 16, 15, 15, 14, 14, 14, 13, 13, 13, 12, 12, 11, 11, 11, 11, 10, 10, 10, 9, 9, 9, 9, 8, 8, 8, 8, 7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1];
-const DELAY_MAGIC: f32 = 1.4;
+const DELAY_APPLIER: f32 = 1.4;
 const DELAY_WAIT: f32 = 0.67;
 
 // TODO: Anything that has an ID also has an Information mapped to it
@@ -72,10 +72,16 @@ impl Lists {
         Self { modifiers, statuses, delays, terrains, cities, weapons, magics, skills, factions, units }
     }
 
-    pub fn get_delay (&self, speed: &usize) -> &u8 {
-        assert! (*speed < self.delays.len ());
+    pub fn get_delay (&self, mov: u16, action: Action) -> u8 {
+        assert! ((mov as usize) < self.delays.len ());
 
-        &self.delays[*speed]
+        let delay: u8 = self.delays[mov as usize];
+
+        match action {
+            Action::Attack (_) => delay,
+            Action::Wait => ((delay as f32) * DELAY_WAIT) as u8,
+            _ => ((delay as f32) * DELAY_APPLIER) as u8
+        }
     }
 
     pub fn get_modifier (&self, id: &ID) -> &Modifier {
