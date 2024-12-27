@@ -140,7 +140,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
                     self.map_first.insert (values.0.clone (), collection_first);
                     self.map_second.insert (values.1, values.0);
                 }
-            };
+            }
 
             true
         }

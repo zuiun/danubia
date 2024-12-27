@@ -112,56 +112,47 @@ impl Unit {
 
     fn get_statistic (&self, statistic: UnitStatistic) -> (u16, u16) {
         match statistic {
-            UnitStatistic::MRL => if let Capacity::Quantity (_, _) = self.statistics[UnitStatistic::MRL as usize] {
-                ()
+            UnitStatistic::MRL => if let Capacity::Quantity (c, m) = self.statistics[UnitStatistic::MRL as usize] {
+                (c, m)
             } else {
                 panic! ("MRL should be a quantity");
             }
-            UnitStatistic::HLT => if let Capacity::Quantity (_, _) = self.statistics[UnitStatistic::HLT as usize] {
-                ()
+            UnitStatistic::HLT => if let Capacity::Quantity (c, m) = self.statistics[UnitStatistic::HLT as usize] {
+                (c, m)
             } else {
                 panic! ("HLT should be a quantity");
             }
-            UnitStatistic::SPL => if let Capacity::Quantity (_, _) = self.statistics[UnitStatistic::SPL as usize] {
-                ()
+            UnitStatistic::SPL => if let Capacity::Quantity (c, m) = self.statistics[UnitStatistic::SPL as usize] {
+                (c, m)
             } else {
                 panic! ("SPL should be a quantity");
             }
-            UnitStatistic::ATK => if let Capacity::Constant (_, _, _) = self.statistics[UnitStatistic::ATK as usize] {
-                ()
+            UnitStatistic::ATK => if let Capacity::Constant (c, _, b) = self.statistics[UnitStatistic::ATK as usize] {
+                (c, b)
             } else {
                 panic! ("ATK should be a constant");
             }
-            UnitStatistic::DEF => if let Capacity::Constant (_, _, _) = self.statistics[UnitStatistic::DEF as usize] {
-                ()
+            UnitStatistic::DEF => if let Capacity::Constant (c, _, b) = self.statistics[UnitStatistic::DEF as usize] {
+                (c, b)
             } else {
                 panic! ("DEF should be a constant");
             }
-            UnitStatistic::MAG => if let Capacity::Constant (_, _, _) = self.statistics[UnitStatistic::MAG as usize] {
-                ()
+            UnitStatistic::MAG => if let Capacity::Constant (c, _, b) = self.statistics[UnitStatistic::MAG as usize] {
+                (c, b)
             } else {
                 panic! ("MAG should be a constant");
             }
-            UnitStatistic::MOV => if let Capacity::Constant (_, _, _) = self.statistics[UnitStatistic::MOV as usize] {
-                ()
+            UnitStatistic::MOV => if let Capacity::Constant (c, _, b) = self.statistics[UnitStatistic::MOV as usize] {
+                (c, b)
             } else {
                 panic! ("MOV should be a constant");
             }
-            UnitStatistic::ORG => if let Capacity::Quantity (_, _) = self.statistics[UnitStatistic::ORG as usize] {
-                ()
+            UnitStatistic::ORG => if let Capacity::Quantity (c, m) = self.statistics[UnitStatistic::ORG as usize] {
+                (c, m)
             } else {
                 panic! ("ORG should be a quantity");
             }
             _ => panic! ("Statistic not found")
-        }
-
-        match self.statistics[statistic as usize] {
-            Capacity::Constant (c, _, b) => {
-                (c, b)
-            }
-            Capacity::Quantity (c, m) => {
-                (c, m)
-            }
         }
     }
 
@@ -199,19 +190,12 @@ impl Unit {
     }
 
     fn change_statistic_percentage (&mut self, statistic: UnitStatistic, change: u16, is_add: bool) -> () {
-        let base: u16 = match self.statistics[statistic as usize] {
-            Capacity::Constant (_, _, b) => {
-                b
-            }
-            Capacity::Quantity (_, m) => {
-                m
-            }
-        };
-println!("{}",base);
+        let base: f32 = match self.statistics[statistic as usize] {
+            Capacity::Constant (_, _, b) => { b }
+            Capacity::Quantity (_, m) => { m }
+        } as f32;
         let change: f32 = (change as f32) / 100.0;
-println!("{}",change);
-        let change: u16 = ((base as f32) * change) as u16;
-println!("{}",change);
+        let change: u16 = (base * change) as u16;
 
         self.change_statistic_flat (statistic, change, is_add);
     }
@@ -395,7 +379,7 @@ println!("{}",change);
 
     pub async fn end_turn (&mut self) -> () {
         self.dec_durations ();
-        self.supply_city_ids = self.grid.get_unit_supply_cities (&self.id);
+        self.supply_city_ids = self.grid.find_unit_cities (&self.id);
 
         if self.supply_city_ids.len () > 0 {
             let mut recover_hlt: u16 = 0;
@@ -525,6 +509,17 @@ mod tests {
 
         (modifier_3, modifier_4)
     }
+
+    #[test]
+    fn unit_change_statistic_flat () {
+
+    }
+
+    #[test]
+    fn unit_change_statistic_percentage () {
+
+    }
+
     #[test]
     fn unit_act_attack () {
         let (mut unit_0, mut unit_1, mut unit_2): (Unit, Unit, Unit) = generate_units ();

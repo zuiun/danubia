@@ -260,7 +260,7 @@ impl Grid {
         true
     }
 
-    pub fn get_unit_supply_cities (&self, unit_id: &ID) -> Vec<ID> {
+    pub fn find_unit_cities (&self, unit_id: &ID) -> Vec<ID> {
         assert! (is_rectangular (&self.tiles));
 
         let faction_id: &ID = self.faction_units.get_second (unit_id).expect (&format! ("Faction not found for unit {}", unit_id));
@@ -292,43 +292,75 @@ impl Grid {
                     None => ()
                 }
             }
-        };
+        }
 
         city_ids
     }
 
-    pub fn find_nearby_units (&self, location: Location, direction: Option<Direction>, area: Area, range: u8) -> Vec<ID> {
+    pub fn find_nearby_locations (&self, location: Location, direction: Option<Direction>, area: Area, range: u8) -> Vec<Location> {
         assert! (is_rectangular (&self.tiles));
         assert! (is_in_bounds (&self.tiles, &location));
 
         let mut locations: HashSet<Location> = HashSet::new ();
 
-        // TODO
         match area {
             Area::Single => { locations.insert (location); }
             Area::Path (w) => {
-                let mut starts: Vec<Location> = Vec::new ();
+                let direction: Direction = direction.expect (&format! ("Direction not found for area {:?}", area));
+                let mut starts: HashSet<Location> = HashSet::new ();
 
                 for i in 0 ..= w {
                     let i: usize = i as usize;
                     let j: usize = i;
 
-                    match direction.expect (&format! ("Direction not found for area {:?}", area)) {
+                    match direction {
                         Direction::Up => {
-                            starts.push ((location.0.checked_sub (1).unwrap_or (0), location.1 + j));
-                            starts.push ((location.0.checked_sub (1).unwrap_or (0), location.1.checked_sub (j).unwrap_or (0)));
+                            let left: Location = (location.0.checked_sub (1).unwrap_or (0), location.1 + j);
+                            let right: Location = (location.0.checked_sub (1).unwrap_or (0), location.1.checked_sub (j).unwrap_or (0));
+
+                            if left != location {
+                                starts.insert (left);
+                            }
+
+                            if right != location {
+                                starts.insert (right);
+                            }
                         }
                         Direction::Right => {
-                            starts.push ((location.0.checked_sub (i).unwrap_or (0), location.1 + 1));
-                            starts.push ((location.0 + i, location.1 + 1));
+                            let up: Location = (location.0.checked_sub (i).unwrap_or (0), location.1 + 1);
+                            let down: Location = (location.0 + i, location.1 + 1);
+
+                            if up != location {
+                                starts.insert (up);
+                            }
+
+                            if down != location {
+                                starts.insert (down);
+                            }
                         }
                         Direction::Left => {
-                            starts.push ((location.0.checked_sub (i).unwrap_or (0), location.1.checked_sub (1).unwrap_or (0)));
-                            starts.push ((location.0 + 1, location.1.checked_sub (1).unwrap_or (0)));
+                            let up: Location = (location.0.checked_sub (i).unwrap_or (0), location.1.checked_sub (1).unwrap_or (0));
+                            let down: Location = (location.0 + i, location.1.checked_sub (1).unwrap_or (0));
+
+                            if up != location {
+                                starts.insert (up);
+                            }
+
+                            if down != location {
+                                starts.insert (down);
+                            }
                         }
                         Direction::Down => {
-                            starts.push ((location.0 + 1, location.1 + j));
-                            starts.push ((location.0.checked_sub (1).unwrap_or (0), location.1.checked_sub (j).unwrap_or (0)));
+                            let left: Location = (location.0.checked_sub (1).unwrap_or (0), location.1.checked_sub (j).unwrap_or (0));
+                            let right: Location = (location.0 + 1, location.1 + j);
+
+                            if left != location {
+                                starts.insert (left);
+                            }
+
+                            if right != location {
+                                starts.insert (right);
+                            }
                         }
                         _ => panic! ("Invalid direction {:?}", direction)
                     }
@@ -338,7 +370,7 @@ impl Grid {
                     let i: usize = i as usize;
                     let j: usize = i;
 
-                    match direction.expect (&format! ("Direction not found for area {:?}", area)) {
+                    match direction {
                         Direction::Up => {
                             locations.extend (starts.iter ().map (|l: &Location|
                                 (l.0.checked_sub (i).unwrap_or (0), l.1)
@@ -364,23 +396,30 @@ impl Grid {
                 }
             }
             Area::Radial (r) => {
-                for i in 0 ..= (range as usize) {
-                    for j in 0 ..= ((range as usize) - i) {
-                        let neighbour_p_p: Location = (location.0 + i, location.0 + j);
-                        let neighbour_p_n: Location = (location.0 + i, location.0.checked_sub (j).unwrap_or (0));
-                        let neighbour_n_p: Location = (location.0.checked_sub (i).unwrap_or (0), location.0 + j);
-                        let neighbour_n_n: Location = (location.0.checked_sub (i).unwrap_or (0), location.0.checked_sub (j).unwrap_or (0));
+                let r: usize = r as usize;
 
-                        locations.insert (neighbour_p_p);
-                        locations.insert (neighbour_p_n);
-                        locations.insert (neighbour_n_p);
-                        locations.insert (neighbour_n_n);
+                for i in location.0.checked_sub (r).unwrap_or (0) ..= (location.0 + r) {
+                    for j in location.1.checked_sub (r).unwrap_or (0) ..= (location.1 + r) {
+                        let distance: usize = location.0.abs_diff (i) + location.1.abs_diff (j);
+
+                        if distance <= r {
+                            locations.insert ((i, j));
+                        }
                     }
                 }
             }
-        };
+        }
 
         locations.retain (|l: &Location| is_in_bounds (&self.tiles, l));
+
+        locations.into_iter ().collect::<Vec<Location>> ()
+    }
+
+    pub fn find_nearby_units (&self, location: Location, direction: Option<Direction>, area: Area, range: u8) -> Vec<ID> {
+        assert! (is_rectangular (&self.tiles));
+        assert! (is_in_bounds (&self.tiles, &location));
+
+        let locations: Vec<Location> = self.find_nearby_locations (location, direction, area, range);
 
         locations.iter ().filter_map (|l: &Location|
             self.unit_locations.get_second (l)
@@ -480,6 +519,7 @@ pub mod tests {
         unit_factions.insert (1, 1);
         unit_factions.insert (2, 2);
         unit_factions.insert (3, 3);
+        unit_factions.insert (4, 4);
 
         unit_factions
     }
@@ -724,27 +764,148 @@ pub mod tests {
     }
 
     #[test]
-    fn grid_get_unit_supply_cities () {
+    fn grid_find_unit_cities () {
         let mut grid: Grid = generate_grid ();
 
         // Test no supply
         grid.place_unit (0, (0, 1));
-        assert_eq! (grid.get_unit_supply_cities (&0).len (), 0);
+        assert_eq! (grid.find_unit_cities (&0).len (), 0);
         grid.move_unit (0, vec![Direction::Down, Direction::Left]);
-        assert_eq! (grid.get_unit_supply_cities (&0).len (), 0);
+        assert_eq! (grid.find_unit_cities (&0).len (), 0);
         // Test contested supply
         grid.place_unit (2, (0, 0));
-        assert_eq! (grid.get_unit_supply_cities (&0).len (), 0);
-        assert_eq! (grid.get_unit_supply_cities (&2).len (), 1);
+        assert_eq! (grid.find_unit_cities (&0).len (), 0);
+        assert_eq! (grid.find_unit_cities (&2).len (), 1);
         // Test normal supply
         grid.place_unit (1, (0, 2));
-        assert_eq! (grid.get_unit_supply_cities (&0).len (), 1);
-        assert_eq! (grid.get_unit_supply_cities (&1).len (), 1);
-        assert_eq! (grid.get_unit_supply_cities (&2).len (), 1);
+        assert_eq! (grid.find_unit_cities (&0).len (), 1);
+        assert_eq! (grid.find_unit_cities (&1).len (), 1);
+        assert_eq! (grid.find_unit_cities (&2).len (), 1);
         // Test multiple supply
         grid.faction_locations.replace ((0, 0), 1);
-        assert_eq! (grid.get_unit_supply_cities (&0).len (), 2);
-        assert_eq! (grid.get_unit_supply_cities (&1).len (), 2);
-        assert_eq! (grid.get_unit_supply_cities (&2).len (), 1);
+        assert_eq! (grid.find_unit_cities (&0).len (), 2);
+        assert_eq! (grid.find_unit_cities (&1).len (), 2);
+        assert_eq! (grid.find_unit_cities (&2).len (), 1);
+    }
+
+    #[test]
+    fn grid_find_nearby_locations () {
+        let mut grid: Grid = generate_grid ();
+
+        assert_eq! (grid.find_nearby_locations ((0, 0), None, Area::Single, 0).len (), 1);
+        assert_eq! (grid.find_nearby_locations ((0, 1), None, Area::Single, 0).len (), 1);
+        assert_eq! (grid.find_nearby_locations ((0, 2), None, Area::Single, 0).len (), 1);
+        assert_eq! (grid.find_nearby_locations ((1, 0), None, Area::Single, 0).len (), 1);
+        assert_eq! (grid.find_nearby_locations ((1, 1), None, Area::Single, 0).len (), 1);
+        assert_eq! (grid.find_nearby_locations ((1, 2), None, Area::Single, 0).len (), 1);
+
+        assert_eq! (grid.find_nearby_locations ((0, 0), Some (Direction::Right), Area::Path (1), 1).len (), 2);
+        assert_eq! (grid.find_nearby_locations ((0, 1), Some (Direction::Down), Area::Path (1), 1).len (), 3);
+        assert_eq! (grid.find_nearby_locations ((0, 2), Some (Direction::Left), Area::Path (1), 1).len (), 2);
+        assert_eq! (grid.find_nearby_locations ((1, 0), Some (Direction::Right), Area::Path (1), 1).len (), 2);
+        assert_eq! (grid.find_nearby_locations ((1, 1), Some (Direction::Up), Area::Path (1), 1).len (), 3);
+        assert_eq! (grid.find_nearby_locations ((1, 2), Some (Direction::Left), Area::Path (1), 1).len (), 2);
+
+        assert_eq! (grid.find_nearby_locations ((0, 0), Some (Direction::Right), Area::Path (0), 2).len (), 2);
+        assert_eq! (grid.find_nearby_locations ((0, 1), Some (Direction::Down), Area::Path (0), 2).len (), 1);
+        assert_eq! (grid.find_nearby_locations ((0, 2), Some (Direction::Left), Area::Path (0), 2).len (), 2);
+        assert_eq! (grid.find_nearby_locations ((1, 0), Some (Direction::Right), Area::Path (0), 2).len (), 2);
+        assert_eq! (grid.find_nearby_locations ((1, 1), Some (Direction::Up), Area::Path (0), 2).len (), 1);
+        assert_eq! (grid.find_nearby_locations ((1, 2), Some (Direction::Left), Area::Path (0), 2).len (), 2);
+
+        assert_eq! (grid.find_nearby_locations ((0, 0), None, Area::Radial (1), 0).len (), 3);
+        assert_eq! (grid.find_nearby_locations ((0, 1), None, Area::Radial (1), 0).len (), 4);
+        assert_eq! (grid.find_nearby_locations ((0, 2), None, Area::Radial (1), 0).len (), 3);
+        assert_eq! (grid.find_nearby_locations ((1, 0), None, Area::Radial (1), 0).len (), 3);
+        assert_eq! (grid.find_nearby_locations ((1, 1), None, Area::Radial (1), 0).len (), 4);
+        assert_eq! (grid.find_nearby_locations ((1, 2), None, Area::Radial (1), 0).len (), 3);
+
+        assert_eq! (grid.find_nearby_locations ((0, 0), None, Area::Radial (2), 0).len (), 5);
+        assert_eq! (grid.find_nearby_locations ((0, 1), None, Area::Radial (2), 0).len (), 6);
+        assert_eq! (grid.find_nearby_locations ((0, 2), None, Area::Radial (2), 0).len (), 5);
+        assert_eq! (grid.find_nearby_locations ((1, 0), None, Area::Radial (2), 0).len (), 5);
+        assert_eq! (grid.find_nearby_locations ((1, 1), None, Area::Radial (2), 0).len (), 6);
+        assert_eq! (grid.find_nearby_locations ((1, 2), None, Area::Radial (2), 0).len (), 5);
+    }
+
+    #[test]
+    fn grid_find_nearby_units () {
+        let mut grid: Grid = generate_grid ();
+
+        // Test empty find
+        assert_eq! (grid.find_nearby_units ((0, 0), None, Area::Single, 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((0, 1), None, Area::Single, 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((0, 2), None, Area::Single, 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 0), None, Area::Single, 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 1), None, Area::Single, 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 2), None, Area::Single, 0).len (), 0);
+
+        assert_eq! (grid.find_nearby_units ((0, 0), Some (Direction::Right), Area::Path (1), 1).len (), 0);
+        assert_eq! (grid.find_nearby_units ((0, 1), Some (Direction::Down), Area::Path (1), 1).len (), 0);
+        assert_eq! (grid.find_nearby_units ((0, 2), Some (Direction::Left), Area::Path (1), 1).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 0), Some (Direction::Right), Area::Path (1), 1).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 1), Some (Direction::Up), Area::Path (1), 1).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 2), Some (Direction::Left), Area::Path (1), 1).len (), 0);
+
+        assert_eq! (grid.find_nearby_units ((0, 0), Some (Direction::Right), Area::Path (0), 2).len (), 0);
+        assert_eq! (grid.find_nearby_units ((0, 1), Some (Direction::Down), Area::Path (0), 2).len (), 0);
+        assert_eq! (grid.find_nearby_units ((0, 2), Some (Direction::Left), Area::Path (0), 2).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 0), Some (Direction::Right), Area::Path (0), 2).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 1), Some (Direction::Up), Area::Path (0), 2).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 2), Some (Direction::Left), Area::Path (0), 2).len (), 0);
+
+        assert_eq! (grid.find_nearby_units ((0, 0), None, Area::Radial (1), 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((0, 1), None, Area::Radial (1), 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((0, 2), None, Area::Radial (1), 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 0), None, Area::Radial (1), 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 1), None, Area::Radial (1), 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 2), None, Area::Radial (1), 0).len (), 0);
+
+        assert_eq! (grid.find_nearby_units ((0, 0), None, Area::Radial (2), 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((0, 1), None, Area::Radial (2), 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((0, 2), None, Area::Radial (2), 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 0), None, Area::Radial (2), 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 1), None, Area::Radial (2), 0).len (), 0);
+        assert_eq! (grid.find_nearby_units ((1, 2), None, Area::Radial (2), 0).len (), 0);
+        // Test non-empty find
+        grid.place_unit (0, (0, 0));
+        grid.place_unit (1, (0, 1));
+        grid.place_unit (2, (0, 2));
+        grid.place_unit (3, (1, 0));
+        grid.place_unit (4, (1, 1));
+        assert_eq! (grid.find_nearby_units ((0, 0), None, Area::Single, 0).len (), 1);
+        assert_eq! (grid.find_nearby_units ((0, 1), None, Area::Single, 0).len (), 1);
+        assert_eq! (grid.find_nearby_units ((0, 2), None, Area::Single, 0).len (), 1);
+        assert_eq! (grid.find_nearby_units ((1, 0), None, Area::Single, 0).len (), 1);
+        assert_eq! (grid.find_nearby_units ((1, 1), None, Area::Single, 0).len (), 1);
+        assert_eq! (grid.find_nearby_units ((1, 2), None, Area::Single, 0).len (), 0);
+
+        assert_eq! (grid.find_nearby_units ((0, 0), Some (Direction::Right), Area::Path (1), 1).len (), 2);
+        assert_eq! (grid.find_nearby_units ((0, 1), Some (Direction::Down), Area::Path (1), 1).len (), 2);
+        assert_eq! (grid.find_nearby_units ((0, 2), Some (Direction::Left), Area::Path (1), 1).len (), 2);
+        assert_eq! (grid.find_nearby_units ((1, 0), Some (Direction::Right), Area::Path (1), 1).len (), 2);
+        assert_eq! (grid.find_nearby_units ((1, 1), Some (Direction::Up), Area::Path (1), 1).len (), 3);
+        assert_eq! (grid.find_nearby_units ((1, 2), Some (Direction::Left), Area::Path (1), 1).len (), 2);
+
+        assert_eq! (grid.find_nearby_units ((0, 0), Some (Direction::Right), Area::Path (0), 2).len (), 2);
+        assert_eq! (grid.find_nearby_units ((0, 1), Some (Direction::Down), Area::Path (0), 2).len (), 1);
+        assert_eq! (grid.find_nearby_units ((0, 2), Some (Direction::Left), Area::Path (0), 2).len (), 2);
+        assert_eq! (grid.find_nearby_units ((1, 0), Some (Direction::Right), Area::Path (0), 2).len (), 1);
+        assert_eq! (grid.find_nearby_units ((1, 1), Some (Direction::Up), Area::Path (0), 2).len (), 1);
+        assert_eq! (grid.find_nearby_units ((1, 2), Some (Direction::Left), Area::Path (0), 2).len (), 2);
+
+        assert_eq! (grid.find_nearby_units ((0, 0), None, Area::Radial (1), 0).len (), 3);
+        assert_eq! (grid.find_nearby_units ((0, 1), None, Area::Radial (1), 0).len (), 4);
+        assert_eq! (grid.find_nearby_units ((0, 2), None, Area::Radial (1), 0).len (), 2);
+        assert_eq! (grid.find_nearby_units ((1, 0), None, Area::Radial (1), 0).len (), 3);
+        assert_eq! (grid.find_nearby_units ((1, 1), None, Area::Radial (1), 0).len (), 3);
+        assert_eq! (grid.find_nearby_units ((1, 2), None, Area::Radial (1), 0).len (), 2);
+
+        assert_eq! (grid.find_nearby_units ((0, 0), None, Area::Radial (2), 0).len (), 5);
+        assert_eq! (grid.find_nearby_units ((0, 1), None, Area::Radial (2), 0).len (), 5);
+        assert_eq! (grid.find_nearby_units ((0, 2), None, Area::Radial (2), 0).len (), 4);
+        assert_eq! (grid.find_nearby_units ((1, 0), None, Area::Radial (2), 0).len (), 4);
+        assert_eq! (grid.find_nearby_units ((1, 1), None, Area::Radial (2), 0).len (), 5);
+        assert_eq! (grid.find_nearby_units ((1, 2), None, Area::Radial (2), 0).len (), 4);
     }
 }

@@ -13,6 +13,7 @@ pub use self::modifier::Modifier;
 mod status;
 pub use self::status::Status;
 
+use std::ops::Sub;
 use std::sync::atomic::AtomicUsize;
 use crate::engine::character::{UnitStatistic, WeaponStatistic};
 
@@ -22,6 +23,21 @@ pub type Adjustments = [Option<Adjustment>; 4]; // Any more than 4 is probably e
 
 pub const ID_UNINITIALISED: ID = ID::MAX;
 pub const DURATION_PERMANENT: u16 = u16::MAX;
+
+pub fn checked_sub_or<T> (left: T, right: T, default: T, minimum: T) -> T
+        where T: Sub<Output = T> + PartialOrd + Copy {
+    let difference: T = if left < right {
+        default
+    } else {
+        left - right
+    };
+
+    if difference < minimum {
+        minimum
+    } else {
+        difference
+    }
+}
 
 pub trait Timed {
     fn get_duration (&self) -> u16;
