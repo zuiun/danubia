@@ -1,11 +1,15 @@
-use crate::engine::common::{Area, Capacity, DURATION_PERMANENT, Information, Modifier, Statistic, Status, Target};
+use crate::engine::character::{Faction, Magic, Skill, Unit, UnitStatistic, UnitStatisticsBuilder, Weapon};
+use crate::engine::common::{Area, Capacity, DURATION_PERMANENT, Target};
+use crate::engine::dynamic::{Change, Effect, ModifierBuilder, Statistic, Status, Trigger};
 use crate::engine::map::{City, Terrain};
-use crate::engine::character::{Faction, Magic, Skill, Unit, UnitStatisticsBuilder, Weapon};
 
 pub mod game {
     use super::*;
 
-    pub const MODIFIERS: [Modifier; 0] = [
+    pub const MODIFIER_BUILDERS: [ModifierBuilder; 0] = [
+
+    ];
+    pub const EFFECTS: [Effect; 0] = [
 
     ];
     pub const STATUSES: [Status; 0] = [
@@ -27,7 +31,7 @@ pub mod game {
         // Dainava
         City::new (109, 20, 9), // Alytus
         City::new (37, 2, 8), // Rėzeknė
-        City::new (136, 26, 11), // Kuresarė
+        City::new (136, 26, 11), // Debrecenas
         City::new (18, 1, 3), // Pėčas
         City::new (53, 3, 16), // Cešynas
         // Powiessern
@@ -39,14 +43,14 @@ pub mod game {
     // TODO: dmg, area, range
     pub const WEAPONS: [Weapon; 9] = [
         Weapon::new ([0, 2, 1, 0], Area::Single, 1), // Sabre
-        Weapon::new ([0, 0, 3, 0], Area::Single, 1), // Lance
-        Weapon::new ([0, 0, 2, 0], Area::Single, 1), // Pike
-        Weapon::new ([0, 1, 2, 0], Area::Single, 1), // Glaive
-        Weapon::new ([0, 1, 1, 1], Area::Single, 1), // Pistol
-        Weapon::new ([0, 0, 2, 1], Area::Single, 1), // Musket
-        Weapon::new ([0, 0, 3, 1], Area::Single, 1), // Rifle
+        Weapon::new ([0, 0, 3, 0], Area::Path (0), 2), // Lance
+        Weapon::new ([0, 0, 2, 0], Area::Path (0), 2), // Pike
+        Weapon::new ([0, 1, 2, 0], Area::Path (1), 1), // Glaive
+        Weapon::new ([0, 1, 1, 1], Area::Path (1), 4), // Pistol
+        Weapon::new ([0, 0, 2, 1], Area::Path (1), 8), // Musket
+        Weapon::new ([0, 0, 3, 1], Area::Path (2), 12), // Rifle
         Weapon::new ([0, 0, 1, 0], Area::Single, 1), // Bayonet
-        Weapon::new ([0, 0, 1, 2], Area::Single, 1), // Mortar
+        Weapon::new ([0, 0, 1, 2], Area::Radial (3), 12), // Mortar
     ];
     pub const MAGICS: [Magic; 0] = [
 
@@ -64,34 +68,58 @@ pub mod game {
 
 pub mod debug {
     use super::*;
-    use crate::engine::character::UnitStatistic;
 
-    pub const MODIFIERS: [Modifier; 5] = [
-        Modifier::new (0, [
-            (Some ((Statistic::Tile, 1, true))),
+    pub const MODIFIER_BUILDERS: [ModifierBuilder; 7] = [
+        ModifierBuilder::new (0, [
+            Some ((Statistic::Tile (false), 1, true)),
             None, None, None
-        ], 2, true), // terrain_cost_up
-        Modifier::new (1, [
-            (Some ((Statistic::Tile, 1, false))),
+        ]), // terrain_cost_+1
+        ModifierBuilder::new (1, [
+            Some ((Statistic::Tile (false), 1, false)),
             None, None, None
-        ], DURATION_PERMANENT, true), // terrain_cost_down
-        Modifier::new (2, [
-            (Some ((Statistic::Tile, 1, false))),
+        ]), // terrain_cost_-1
+        ModifierBuilder::new (2, [
+            Some ((Statistic::Tile (true), 1, false)),
             None, None, None
-        ], 1, false), // terrain_cost_1
-        Modifier::new (3, [
-            (Some ((Statistic::Unit (UnitStatistic::ATK), 10, true))),
+        ]), // terrain_cost_=1
+        ModifierBuilder::new (3, [
+            Some ((Statistic::Unit (UnitStatistic::ATK), 10, true)),
             None, None, None
-        ], 2, true), // atk_up
-        Modifier::new (4, [
-            (Some ((Statistic::Unit (UnitStatistic::ATK), 10, false))),
+        ]), // atk_+10
+        ModifierBuilder::new (4, [
+            Some ((Statistic::Unit (UnitStatistic::ATK), 10, false)),
+            Some ((Statistic::Unit (UnitStatistic::DEF), 10, false)),
+            None, None
+        ]), // atk_-10_def_-10
+        ModifierBuilder::new (5, [
+            Some ((Statistic::Unit (UnitStatistic::ATK), 10, false)),
             None, None, None
-        ], DURATION_PERMANENT, false), // atk_up
+        ]), // atk_-10
+        ModifierBuilder::new (5, [
+            Some ((Statistic::Unit (UnitStatistic::HLT), 2, false)),
+            None, None, None
+        ]) // poison
     ];
-    pub const STATUSES: [Status; 3] = [
-        Status::new (0, 2, Target::All (false), None), // atk_up
-        Status::new (1, DURATION_PERMANENT, Target::All (false), None), // poison
-        Status::new (1, DURATION_PERMANENT, Target::All (false), None), // terrain_cost_down
+    pub const EFFECTS: [Effect; 2] = [
+        Effect::new (0, [
+            Some ((Statistic::Unit (UnitStatistic::HLT), 2, false)),
+            None, None, None
+        ], true), // hlt_-2
+        Effect::new (1, [
+            Some ((Statistic::Unit (UnitStatistic::ATK), 5, true)),
+            Some ((Statistic::Unit (UnitStatistic::DEF), 5, false)),
+            None, None
+        ], false) // atk_+5_def_-5
+    ];
+    pub const STATUSES: [Status; 8] = [
+        Status::new (Change::Modifier (3, true), Trigger::None, DURATION_PERMANENT, Target::This, None), // atk_stack_up
+        Status::new (Change::Modifier (5, false), Trigger::None, 2, Target::This, None), // atk_down
+        Status::new (Change::Modifier (6, false), Trigger::OnOccupy, 2, Target::Map, None), // poison_2
+        Status::new (Change::Modifier (1, false), Trigger::None, DURATION_PERMANENT, Target::Map, None), // terrain_cost_down_permanent
+        Status::new (Change::Modifier (6, false), Trigger::OnOccupy, 2, Target::Map, Some (3)), // poison_2
+        Status::new (Change::Modifier (6, false), Trigger::OnHit, 2, Target::Enemy, Some (0)), // poison_2
+        Status::new (Change::Modifier (6, false), Trigger::OnAttack, 2, Target::Enemy, None), // poison_2
+        Status::new (Change::Modifier (6, false), Trigger::OnAttack, DURATION_PERMANENT, Target::Enemy, None) // poison_permanent
     ];
     pub const TERRAINS: [Terrain; 3] = [
         Terrain::new (Vec::new (), 1), // passable_1
@@ -110,13 +138,14 @@ pub mod debug {
         Weapon::new ([1, 1, 0, 1], Area::Radial (2), 2) // radial
     ];
     pub const MAGICS: [Magic; 4] = [
-        Magic::new (0, Target::All (true), Area::Single, 0), // atk_others
-        Magic::new (0, Target::Ally (true), Area::Single, 0), // atk_self
-        Magic::new (1, Target::Ally (true), Area::Single, 0), // poison_target_others
+        Magic::new (0, Target::Ally, Area::Radial (2), 0), // atk_others
+        Magic::new (1, Target::This, Area::Single, 0), // atk_self
+        Magic::new (1, Target::Enemy, Area::Single, 0), // poison_target_others
         Magic::new (2, Target::Map, Area::Single, 0) // terrain_cost_down
     ];
-    pub const SKILLS: [Skill; 0] = [
-
+    pub const SKILLS: [Skill; 2] = [
+        Skill::new ([0, 0, 0], Target::This, Area::Single, 0, Capacity::Quantity (2, 2)),
+        Skill::new ([0, 0, 0], Target::This, Area::Single, 0, Capacity::Constant (1, 0, 0))
     ];
     // TODO: Factions and units are dynamic and probably can't be const
     // Get around this by making const builders, then populate them when constructing lists
@@ -129,9 +158,10 @@ pub mod debug {
 }
 
 pub mod information {
-    use super::Information;
+    use crate::engine::Information;
 
     pub const CITIES: [Information; 17] = [
+        // Jassica
         Information::new ("Ilyvó", ["", "", ""], 0),
         Information::new ("Kismarton", ["", "", ""], 0),
         Information::new ("Újvidék", ["", "", ""], 0),
@@ -140,11 +170,13 @@ pub mod information {
         Information::new ("Kluż-Arad", ["", "", ""], 0),
         Information::new ("Stanisławów", ["", "", ""], 0),
         Information::new ("Jawaryn", ["", "", ""], 0),
+        // Dainava
         Information::new ("Alytus", ["", "", ""], 0),
         Information::new ("Rėzeknė", ["", "", ""], 0),
-        Information::new ("Kuresarė", ["", "", ""], 0),
+        Information::new ("Debrecenas", ["", "", ""], 0),
         Information::new ("Pėčas", ["", "", ""], 0),
         Information::new ("Cešynas", ["", "", ""], 0),
+        // Powiessern
         Information::new ("Memel", ["", "", ""], 0),
         Information::new ("Stolp", ["", "", ""], 0),
         Information::new ("Carlstadt", ["", "", ""], 0),

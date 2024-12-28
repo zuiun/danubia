@@ -4,12 +4,12 @@ use std::fmt;
 pub struct Information {
     name: &'static str,
     descriptions: [&'static str; 3],
-    current_description: usize
+    description_current: usize,
 }
 
 impl Information {
-    pub const fn new (name: &'static str, descriptions: [&'static str; 3], current_description: usize) -> Self {
-        Self { name, descriptions, current_description }
+    pub const fn new (name: &'static str, descriptions: [&'static str; 3], description_current: usize) -> Self {
+        Self { name, descriptions, description_current }
     }
 
     pub fn get_name (&self) -> &str {
@@ -17,12 +17,12 @@ impl Information {
     }
 
     pub fn get_description (&self) -> &str {
-        &self.descriptions[self.current_description]
+        &self.descriptions[self.description_current]
     }
 }
 
 impl fmt::Display for Information {
     fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write! (f, "{}\n{}", self.name, self.descriptions[self.current_description])
+        write! (f, "{}\n{}", self.name, self.descriptions[self.description_current])
     }
 }

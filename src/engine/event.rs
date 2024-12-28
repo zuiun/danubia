@@ -1,6 +1,8 @@
 use core::fmt::Debug;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
-use crate::engine::common::{DuplicateCrossMap, ID};
+use crate::engine::common::ID;
+use crate::engine::duplicate_map::DuplicateCrossMap;
+
 
 pub type Flag = (usize, usize, usize);
 pub type Event = (ID, Flag); // event, flag
@@ -13,6 +15,7 @@ pub const EVENT_UNIT_DRAW_SUPPLY: ID = 2; // value = unit ID
 pub const EVENT_CITY_STOCKPILE_SUPPLY: ID = 3; // value = unit ID
 
 pub const FLAG_NOTIFICATION: Flag = (usize::MAX, usize::MAX, usize::MAX);
+pub const FLAG_PART_NOTIFICATION: usize = usize::MAX;
 
 pub const RESPONSE_NOTIFICATION: Response = (usize::MAX, usize::MAX);
 

@@ -1,10 +1,10 @@
 use std::fmt;
-use crate::engine::common::Modifier;
+use crate::engine::dynamic::Modifier;
 
 #[derive (Debug)]
 pub struct Terrain {
     modifiers: Vec<Modifier>,
-    cost: u8
+    cost: u8,
 }
 
 impl Terrain {

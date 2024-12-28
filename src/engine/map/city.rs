@@ -13,7 +13,7 @@ pub struct City {
     population: u16, // (thousands)
     factories: u16,
     farms: u16,
-    observer_id: ID
+    observer_id: ID,
 }
 
 impl City {
@@ -98,7 +98,7 @@ impl Subject for City {
 mod tests {
     use super::*;
     use std::rc::Rc;
-    use crate::engine::{common::Information, Lists, lists::{game, information}, tests::generate_lists};
+    use crate::engine::{Information, Lists, lists::{game, information}, tests::generate_lists};
 
     #[test]
     fn city_get_manpower () {

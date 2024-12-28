@@ -1,6 +1,7 @@
 use std::{fmt, rc::Rc};
 use crate::engine::Lists;
-use crate::engine::common::{Adjustment, ID, Modifiable, Modifier, Statistic, Timed};
+use crate::engine::common::{Target, Timed, ID};
+use crate::engine::dynamic::{Adjustment, Appliable, Applier, Change, Changeable, Effect, Modifier, ModifierBuilder, Statistic, Status, Trigger};
 use super::{COST_IMPASSABLE, COST_MINIMUM};
 
 const CLIMB_MAX: u8 = 2;
@@ -9,17 +10,19 @@ const CLIMB_MAX: u8 = 2;
 pub struct Tile {
     lists: Rc<Lists>,
     modifier: Option<Modifier>,
+    status: Option<Status>,
     terrain_id: ID,
     height: u8,
-    city_id: Option<ID>
+    city_id: Option<ID>,
 }
 
 impl Tile {
     pub fn new (lists: Rc<Lists>, terrain_id: ID, height: u8, city_id: Option<ID>) -> Self {
         let lists: Rc<Lists> = Rc::clone (&lists);
         let modifier: Option<Modifier> = None;
+        let status: Option<Status> = None;
 
-        Self { lists, modifier, terrain_id, height, city_id }
+        Self { lists, modifier, status, terrain_id, height, city_id }
     }
 
     pub fn get_cost (&self) -> u8 {
@@ -30,14 +33,14 @@ impl Tile {
                 let adjustment: Adjustment = m.get_adjustments ()[0].expect (&format! ("Adjustment not found for modifier {:?}", m));
 
                 match adjustment.0 {
-                    Statistic::Tile => if m.can_stack () {
+                    Statistic::Tile (f) => if f {
+                        adjustment.1 as u8
+                    } else {
                         if adjustment.2 {
                             cost + (adjustment.1 as u8)
                         } else {
                             u8::max (cost.checked_sub (adjustment.1 as u8).unwrap_or (COST_MINIMUM), COST_MINIMUM)
                         }
-                    } else {
-                        adjustment.1 as u8
                     }
                     _ => panic! ("Invalid statistic {:?}", adjustment.0)
                 }
@@ -85,29 +88,44 @@ impl Tile {
     }
 }
 
-impl Modifiable for Tile {
-    fn add_modifier (&mut self, modifier: Modifier) -> bool {
-        let adjustment: Adjustment = modifier.get_adjustments ()[0].expect (&format! ("Adjustment not found for modifier {:?}", modifier));
+impl Changeable for Tile {
+    fn add_appliable (&mut self, appliable: Box<dyn Appliable>) -> bool {
+        if let Change::Modifier (_, _) = appliable.get_change () {
+            let modifier: Modifier = appliable.modifier ();
+            let adjustment: Adjustment = modifier.get_adjustments ()[0].expect (&format! ("Adjustment not found for modifier {:?}", modifier));
 
-        if modifier.get_duration () > 0 {
-            assert! (matches! (adjustment.0, Statistic::Tile));
+            if let Statistic::Tile (_) = adjustment.0 {
+                self.modifier = Some (modifier);
 
-            self.modifier = Some (modifier);
-
-            true
+                true
+            } else {
+                false
+            }
         } else {
             false
         }
     }
 
-    fn remove_modifier (&mut self, _modifier_id: &ID) -> bool {
-        match self.modifier {
-            Some (_) => {
-                self.modifier = None;
+    fn add_status (&mut self, status: Status) -> bool {
+        if let Change::Modifier (m, s) = status.get_change () {
+            let appliable: Box<dyn Appliable> = status.try_yield_appliable (Rc::clone (&self.lists))
+                    .expect (&format! ("Appliable not found for status {:?}", status));
+            let target: Target = status.get_target ()
+                    .expect (&format! ("Target not found for status {:?}", status));
 
-                true
+            if let Target::Map = target {
+                match status.get_trigger () {
+                    Trigger::OnOccupy => self.modifier = None,
+                    Trigger::None => { self.add_appliable (appliable); }
+                    _ => ()
+                }
             }
-            None => false
+
+            self.status = Some (status);
+
+            true
+        } else {
+            false
         }
     }
 
@@ -117,6 +135,24 @@ impl Modifiable for Tile {
                 self.modifier = None;
             }
         }
+
+        if let Some (ref mut s) = self.status {
+            if s.dec_duration () {
+                self.status = s.get_next_id ().and_then (|n: ID|
+                    Some (self.lists.get_status (&n).clone ())
+                );
+            }
+        }
+    }
+}
+
+impl Applier for Tile {
+    fn try_yield_appliable (&self, lists: Rc<Lists>) -> Option<Box<dyn Appliable>> {
+        self.status.and_then (|s| s.try_yield_appliable (lists))
+    }
+
+    fn get_target (&self) -> Option<Target> {
+        self.status.and_then (|s: Status| s.get_target ())
     }
 }
 
@@ -127,7 +163,7 @@ impl fmt::Display for Tile {
 }
 
 pub struct TileBuilder {
-    lists: Rc<Lists>
+    lists: Rc<Lists>,
 }
 
 impl TileBuilder {
@@ -143,16 +179,30 @@ impl TileBuilder {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use crate::engine::tests::generate_lists;
-    use crate::engine::common::ID_UNINITIALISED;
+    use crate::engine::{common::DURATION_PERMANENT, tests::generate_lists};
 
-    fn generate_modifiers () -> (Modifier, Modifier, Modifier) {
+    fn generate_modifiers () -> (Box<Modifier>, Box<Modifier>, Box<Modifier>) {
         let lists: Rc<Lists> = generate_lists ();
-        let modifier_0: Modifier = lists.get_modifier (&0).clone ();
-        let modifier_1: Modifier = lists.get_modifier (&1).clone ();
-        let modifier_2: Modifier = lists.get_modifier (&2).clone ();
+        let modifier_builder_0: &ModifierBuilder = lists.get_modifier_builder (&0);
+        let modifier_0: Modifier = modifier_builder_0.build (2, false);
+        let modifier_0: Box<Modifier> = Box::new (modifier_0);
+        let modifier_builder_1: &ModifierBuilder = lists.get_modifier_builder (&1);
+        let modifier_1: Modifier = modifier_builder_1.build (DURATION_PERMANENT, false);
+        let modifier_1: Box<Modifier> = Box::new (modifier_1);
+        let modifier_builder_2: &ModifierBuilder = lists.get_modifier_builder (&2);
+        let modifier_2: Modifier = modifier_builder_2.build (1, false);
+        let modifier_2: Box<Modifier> = Box::new (modifier_2);
 
         (modifier_0, modifier_1, modifier_2)
+    }
+
+    fn generate_statuses () -> (Status, Status, Status) {
+        let lists: Rc<Lists> = generate_lists ();
+        let status_2: Status = lists.get_status (&2).clone ();
+        let status_3: Status = lists.get_status (&3).clone ();
+        let status_4: Status = lists.get_status (&4).clone ();
+
+        (status_2, status_3, status_4)
     }
 
     #[test]
@@ -216,67 +266,92 @@ mod tests {
     }
 
     #[test]
-    fn tile_add_modifier () {
+    fn tile_add_appliable () {
         let lists: Rc<Lists> = generate_lists ();
         let mut tile: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
-        let (modifier_0, modifier_1, modifier_2): (Modifier, Modifier, Modifier) = generate_modifiers ();
+        let (modifier_0, modifier_1, modifier_2): (Box<Modifier>, Box<Modifier>, Box<Modifier>) = generate_modifiers ();
 
         // Test additive modifier
-        assert_eq! (tile.add_modifier (modifier_0), true);
+        assert_eq! (tile.add_appliable (modifier_0), true);
         assert! (matches! (tile.modifier, Some { .. }));
         assert_eq! (tile.get_cost (), 2);
         // Test subtractive modifier
-        assert_eq! (tile.add_modifier (modifier_1), true);
+        assert_eq! (tile.add_appliable (modifier_1), true);
         assert! (matches! (tile.modifier, Some { .. }));
         assert_eq! (tile.get_cost (), 1);
         tile.terrain_id = 1;
         assert_eq! (tile.get_cost (), 1);
         // Test constant modifier
-        assert_eq! (tile.add_modifier (modifier_2), true);
+        assert_eq! (tile.add_appliable (modifier_2), true);
         assert! (matches! (tile.modifier, Some { .. }));
         assert_eq! (tile.get_cost (), 1);
     }
 
+    
     #[test]
-    fn tile_remove_modifier () {
+    fn tile_add_status () {
         let lists: Rc<Lists> = generate_lists ();
         let mut tile: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
-        let (modifier_0, _, _): (Modifier, _, _) = generate_modifiers ();
+        let (status_2, status_3, _): (Status, Status, _) = generate_statuses ();
 
-        // Test empty remove
-        assert_eq! (tile.remove_modifier (&ID_UNINITIALISED), false);
-        assert! (matches! (tile.modifier, None));
+        // Test tile status
+        assert_eq! (tile.add_status (status_3), true);
+        assert! (matches! (tile.status, Some { .. }));
         assert_eq! (tile.get_cost (), 1);
-        // Test non-empty remove
-        tile.add_modifier (modifier_0);
-        assert_eq! (tile.remove_modifier (&ID_UNINITIALISED), true);
-        assert! (matches! (tile.modifier, None));
+        tile.terrain_id = 1;
         assert_eq! (tile.get_cost (), 1);
-        assert_eq! (tile.remove_modifier (&ID_UNINITIALISED), false);
-        assert! (matches! (tile.modifier, None));
-        assert_eq! (tile.get_cost (), 1);
+        // Test applier status
+        assert_eq! (tile.add_status (status_2), true);
+        assert! (matches! (tile.status, Some { .. }));
+        assert_eq! (tile.get_cost (), 2);
+        assert! (matches! (tile.try_yield_appliable (Rc::clone (&lists)), Some { .. }));
     }
 
     #[test]
     fn tile_dec_durations () {
         let lists: Rc<Lists> = generate_lists ();
         let mut tile: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
-        let (modifier_0, modifier_1, _): (Modifier, Modifier, _) = generate_modifiers ();
+        let (modifier_0, modifier_1, _): (Box<Modifier>, Box<Modifier>, _) = generate_modifiers ();
+        let (status_2, status_3, status_4): (Status, Status, Status) = generate_statuses ();
 
         // Test empty modifier
         tile.dec_durations ();
-        assert! (matches! (tile.modifier, None));
+        assert_eq! (tile.modifier, None);
         // Test timed modifier
-        tile.add_modifier (modifier_0);
+        tile.add_appliable (modifier_0);
         tile.dec_durations ();
         assert! (matches! (tile.modifier, Some { .. }));
         tile.dec_durations ();
-        assert! (matches! (tile.modifier, None));
+        assert_eq! (tile.modifier, None);
         // Test permanent modifier
-        tile.add_modifier (modifier_1);
+        tile.add_appliable (modifier_1);
         tile.dec_durations ();
         assert! (matches! (tile.modifier, Some { .. }));
         tile.dec_durations ();
         assert! (matches! (tile.modifier, Some { .. }));
+
+        // Test empty status
+        tile.dec_durations ();
+        assert! (matches! (tile.status, None));
+        // Test timed status
+        tile.add_status (status_2);
+        tile.dec_durations ();
+        assert! (matches! (tile.status, Some { .. }));
+        tile.dec_durations ();
+        assert! (matches! (tile.status, None));
+        // Test permanent status
+        tile.add_status (status_3);
+        tile.dec_durations ();
+        assert! (matches! (tile.status, Some { .. }));
+        tile.dec_durations ();
+        assert! (matches! (tile.status, Some { .. }));
+        // Test linked status
+        tile.add_status (status_4);
+        tile.dec_durations ();
+        assert! (matches! (tile.status, Some { .. }));
+        assert! (matches! (tile.status.unwrap ().get_next_id ().unwrap (), 3));
+        tile.dec_durations ();
+        assert! (matches! (tile.status, Some { .. }));
+        assert_eq! (tile.status.unwrap ().get_next_id (), None);
     }
 }

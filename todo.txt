@@ -1,6 +1,13 @@
-testing skills, magics
-targets
+test appliers
+trigger applications:
+tile (none => apply immediately modifier to cost, onoccupied => when unit ends turn on it, apply to unit)
+unit (none => apply immediately modifier to stats, onhit => when unit is attacked by other, apply to other)
+weapon (onattack => when unit attacks other, apply to other)
+
+units need to own weapons
+
 faction and unit storage
+consider changing durations to last 1 more turn (right now, they expire once the duration hits 0, but it could be that it expires the turn after)
 
 !ASYNC (probably condvar) EVENTS!
 
@@ -12,6 +19,7 @@ turns
 What is this LLVM source-based code coverage
 Needs more error checking (for example, if a a fallible function is called, check that it succeeded)
 Functions that can fail should return Option or Result
+Every struct (other than in common or engine) should only reference structs of its own module; the rest should be event-driven
 
 Balancing goals:
 When in combat, morale/manpower/equipment drain should always be greater than recovery

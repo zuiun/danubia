@@ -1,13 +1,14 @@
 use std::{cell::RefCell, collections::{HashMap, HashSet, VecDeque}, fmt, rc::Rc};
 use crate::engine::Lists;
-use crate::engine::common::{Area, DuplicateOuterMap, DuplicateInnerMap, ID, ID_UNINITIALISED, Modifiable, Modifier, Target};
+use crate::engine::common::{Area, FACTION_NONE, ID, ID_UNINITIALISED, Target};
+use crate::engine::duplicate_map::{DuplicateInnerMap, DuplicateOuterMap};
 use crate::engine::event::{Event, Subject, Observer, Response, RESPONSE_NOTIFICATION};
+use crate::engine::dynamic::{Changeable, Modifier};
 use super::{COST_IMPASSABLE, Tile};
 
 pub type Location = (usize, usize); // row, column
 type Adjacency = [u8; Direction::Length as usize]; // cost, climb
 
-const FACTION_UNCONTROLLED: ID = 0;
 const DIRECTIONS: [Direction; Direction::Length as usize] = [Direction::Up, Direction::Right, Direction::Left, Direction::Down];
 
 const fn switch_direction (direction: Direction) -> Direction {
@@ -35,7 +36,7 @@ pub enum Direction {
     Right,
     Left,
     Down,
-    Length
+    Length,
 }
 
 #[derive (Debug)]
@@ -47,7 +48,7 @@ pub struct Grid {
     faction_locations: DuplicateOuterMap<ID, Location>,
     // TODO: This is definitely getting replaced whenever factions are done
     faction_units: DuplicateOuterMap<ID, ID>,
-    observer_id: ID
+    observer_id: ID,
 }
 
 impl Grid {
@@ -62,7 +63,7 @@ impl Grid {
 
         for i in 0 .. tiles.len () {
             for j in 0 .. tiles[i].len () {
-                faction_locations.insert ((FACTION_UNCONTROLLED, (i, j)));
+                faction_locations.insert ((FACTION_NONE, (i, j)));
             }
         }
 
@@ -84,19 +85,21 @@ impl Grid {
             for j in 0 .. tiles[i].len () {
                 let tile: &Tile = &tiles[i][j];
                 let up: Option<&Tile> = i.checked_sub (1).map (|i: usize| &tiles[i][j]);
-                let right: Option<&Tile> = j.checked_add (1).map (|j: usize|
+                let right: Option<&Tile> = j.checked_add (1).and_then (|j: usize|
                     if j < tiles[i].len () {
                         Some (&tiles[i][j])
                     } else {
                         None
-                }).flatten ();
+                    }
+                );
                 let left: Option<&Tile> = j.checked_sub (1).map (|j: usize| &tiles[i][j]);
-                let down: Option<&Tile> = i.checked_add (1).map (|i: usize|
+                let down: Option<&Tile> = i.checked_add (1).and_then (|i: usize|
                     if i < tiles.len () {
                         Some (&tiles[i][j])
                     } else {
                         None
-                }).flatten ();
+                    }
+                );
                 let cost_up: u8 = up.map_or (COST_IMPASSABLE, |u: &Tile| tile.find_cost (u));
                 let cost_right: u8 = right.map_or (COST_IMPASSABLE, |r: &Tile| tile.find_cost (r));
                 let cost_left: u8 = left.map_or (COST_IMPASSABLE, |l: &Tile| tile.find_cost (l));
@@ -745,14 +748,14 @@ pub mod tests {
         assert_eq! (grid.move_unit (0, vec![Direction::Down]), false); // Test not climbable
         assert_eq! (grid.move_unit (0, vec![Direction::Left]), false); // Test out-of-bounds
         // Test normal move
-        assert_eq! (grid.faction_locations.get_second (&(0, 1)).unwrap (), &FACTION_UNCONTROLLED);
+        assert_eq! (grid.faction_locations.get_second (&(0, 1)).unwrap (), &FACTION_NONE);
         assert_eq! (grid.move_unit (0, vec![Direction::Right]), true);
         assert_eq! (grid.get_unit_location (&0).unwrap (), &(0, 1));
         assert_eq! (grid.faction_locations.get_second (&(0, 0)).unwrap (), &1);
         assert_eq! (grid.faction_locations.get_second (&(0, 1)).unwrap (), &1);
         // Test sequential move
-        assert_eq! (grid.faction_locations.get_second (&(0, 2)).unwrap (), &FACTION_UNCONTROLLED);
-        assert_eq! (grid.faction_locations.get_second (&(1, 1)).unwrap (), &FACTION_UNCONTROLLED);
+        assert_eq! (grid.faction_locations.get_second (&(0, 2)).unwrap (), &FACTION_NONE);
+        assert_eq! (grid.faction_locations.get_second (&(1, 1)).unwrap (), &FACTION_NONE);
         assert_eq! (grid.move_unit (0, vec![Direction::Right, Direction::Left, Direction::Down]), true); // Test overlap
         assert_eq! (grid.get_unit_location (&0).unwrap (), &(1, 1));
         assert_eq! (grid.faction_locations.get_second (&(0, 1)).unwrap (), &1);

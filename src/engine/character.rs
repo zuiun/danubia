@@ -1,10 +1,11 @@
-mod applier;
-pub use self::applier::Applier;
-pub use self::applier::Magic;
-pub use self::applier::Skill;
-
 mod faction;
 pub use self::faction::Faction;
+
+mod magic;
+pub use self::magic::Magic;
+
+mod skill;
+pub use self::skill::Skill;
 
 mod unit;
 pub use self::unit::Action;
