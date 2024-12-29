@@ -50,7 +50,7 @@ impl Timed for Modifier {
     fn get_duration (&self) -> u16 {
         match self.duration {
             Capacity::Constant (_, _, _) => DURATION_PERMANENT,
-            Capacity::Quantity (d, _) => d
+            Capacity::Quantity (d, _) => d,
         }
     }
 
@@ -58,11 +58,15 @@ impl Timed for Modifier {
         match self.duration {
             Capacity::Constant (_, _, _) => false,
             Capacity::Quantity (d, m) => {
-                let duration: u16 = d.checked_sub (1).unwrap_or (0);
+                if d == 0 {
+                    true
+                } else {
+                    let duration: u16 = d.checked_sub (1).unwrap_or (0);
 
-                self.duration = Capacity::Quantity (duration, m);
+                    self.duration = Capacity::Quantity (duration, m);
 
-                duration == 0
+                    false
+                }
             }
         }
     }
@@ -73,7 +77,6 @@ impl PartialEq for Modifier {
         self.id == other.id
     }
 }
-
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
@@ -102,9 +105,10 @@ impl ModifierBuilder {
 
 #[cfg (test)]
 mod tests {    
-    use super::{*, super::Statistic};
+    use super::*;
     use std::rc::Rc;
-    use crate::engine::{Lists, tests::generate_lists};
+    use crate::engine::Lists;
+    use crate::engine::tests::generate_lists;
 
     fn generate_modifiers () -> (Modifier, Modifier) {
         let lists: Rc<Lists> = generate_lists ();
@@ -123,9 +127,10 @@ mod tests {
         // Test timed modifier
         assert_eq! (modifier_0.dec_duration (), false);
         assert_eq! (modifier_0.get_duration (), 1);
-        assert_eq! (modifier_0.dec_duration (), true);
+        assert_eq! (modifier_0.dec_duration (), false);
         assert_eq! (modifier_0.get_duration (), 0);
         assert_eq! (modifier_0.dec_duration (), true);
+        assert_eq! (modifier_0.get_duration (), 0);
         // Test permanent modifier
         assert_eq! (modifier_1.dec_duration (), false);
         assert_eq! (modifier_1.get_duration (), DURATION_PERMANENT);

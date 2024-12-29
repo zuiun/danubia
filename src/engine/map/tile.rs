@@ -1,7 +1,8 @@
-use std::{fmt, rc::Rc};
+use std::fmt;
+use std::rc::Rc;
 use crate::engine::Lists;
 use crate::engine::common::{Target, Timed, ID};
-use crate::engine::dynamic::{Adjustment, Appliable, Applier, Change, Changeable, Effect, Modifier, ModifierBuilder, Statistic, Status, Trigger};
+use crate::engine::dynamic::{Adjustment, Appliable, Applier, Change, Changeable, Effect, Modifier, ModifierBuilder, StatisticType, Status, Trigger};
 use super::{COST_IMPASSABLE, COST_MINIMUM};
 
 const CLIMB_MAX: u8 = 2;
@@ -18,7 +19,6 @@ pub struct Tile {
 
 impl Tile {
     pub fn new (lists: Rc<Lists>, terrain_id: ID, height: u8, city_id: Option<ID>) -> Self {
-        let lists: Rc<Lists> = Rc::clone (&lists);
         let modifier: Option<Modifier> = None;
         let status: Option<Status> = None;
 
@@ -30,10 +30,11 @@ impl Tile {
 
         match self.modifier {
             Some (m) => {
-                let adjustment: Adjustment = m.get_adjustments ()[0].expect (&format! ("Adjustment not found for modifier {:?}", m));
+                let adjustment: Adjustment = m.get_adjustments ()[0]
+                        .expect (&format! ("Adjustment not found for modifier {:?}", m));
 
                 match adjustment.0 {
-                    Statistic::Tile (f) => if f {
+                    StatisticType::Tile (f) => if f {
                         adjustment.1 as u8
                     } else {
                         if adjustment.2 {
@@ -42,10 +43,10 @@ impl Tile {
                             u8::max (cost.checked_sub (adjustment.1 as u8).unwrap_or (COST_MINIMUM), COST_MINIMUM)
                         }
                     }
-                    _ => panic! ("Invalid statistic {:?}", adjustment.0)
+                    _ => panic! ("Invalid statistic {:?}", adjustment.0),
                 }
             }
-            None => cost
+            None => cost,
         }
     }
 
@@ -92,9 +93,10 @@ impl Changeable for Tile {
     fn add_appliable (&mut self, appliable: Box<dyn Appliable>) -> bool {
         if let Change::Modifier (_, _) = appliable.get_change () {
             let modifier: Modifier = appliable.modifier ();
-            let adjustment: Adjustment = modifier.get_adjustments ()[0].expect (&format! ("Adjustment not found for modifier {:?}", modifier));
+            let adjustment: Adjustment = modifier.get_adjustments ()[0]
+                    .expect (&format! ("Adjustment not found for modifier {:?}", modifier));
 
-            if let Statistic::Tile (_) = adjustment.0 {
+            if let StatisticType::Tile (_) = adjustment.0 {
                 self.modifier = Some (modifier);
 
                 true
@@ -117,7 +119,7 @@ impl Changeable for Tile {
                 match status.get_trigger () {
                     Trigger::OnOccupy => self.modifier = None,
                     Trigger::None => { self.add_appliable (appliable); }
-                    _ => ()
+                    _ => (),
                 }
             }
 
@@ -179,7 +181,8 @@ impl TileBuilder {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use crate::engine::{common::DURATION_PERMANENT, tests::generate_lists};
+    use crate::engine::common::DURATION_PERMANENT;
+    use crate::engine::tests::generate_lists;
 
     fn generate_modifiers () -> (Box<Modifier>, Box<Modifier>, Box<Modifier>) {
         let lists: Rc<Lists> = generate_lists ();
@@ -322,6 +325,8 @@ mod tests {
         tile.dec_durations ();
         assert! (matches! (tile.modifier, Some { .. }));
         tile.dec_durations ();
+        assert! (matches! (tile.modifier, Some { .. }));
+        tile.dec_durations ();
         assert_eq! (tile.modifier, None);
         // Test permanent modifier
         tile.add_appliable (modifier_1);
@@ -338,6 +343,8 @@ mod tests {
         tile.dec_durations ();
         assert! (matches! (tile.status, Some { .. }));
         tile.dec_durations ();
+        assert! (matches! (tile.status, Some { .. }));
+        tile.dec_durations ();
         assert! (matches! (tile.status, None));
         // Test permanent status
         tile.add_status (status_3);
@@ -347,6 +354,9 @@ mod tests {
         assert! (matches! (tile.status, Some { .. }));
         // Test linked status
         tile.add_status (status_4);
+        tile.dec_durations ();
+        assert! (matches! (tile.status, Some { .. }));
+        assert! (matches! (tile.status.unwrap ().get_next_id ().unwrap (), 3));
         tile.dec_durations ();
         assert! (matches! (tile.status, Some { .. }));
         assert! (matches! (tile.status.unwrap ().get_next_id ().unwrap (), 3));

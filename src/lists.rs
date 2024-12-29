@@ -1,6 +1,6 @@
-use crate::engine::character::{Faction, Magic, Skill, Unit, UnitStatistic, UnitStatisticsBuilder, Weapon};
+use crate::engine::character::{FactionBuilder, Magic, Skill, Unit, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
 use crate::engine::common::{Area, Capacity, DURATION_PERMANENT, Target};
-use crate::engine::dynamic::{Change, Effect, ModifierBuilder, Statistic, Status, Trigger};
+use crate::engine::dynamic::{Change, Effect, ModifierBuilder, StatisticType, Status, Trigger};
 use crate::engine::map::{City, Terrain};
 
 pub mod game {
@@ -58,10 +58,10 @@ pub mod game {
     pub const SKILLS: [Skill; 0] = [
 
     ];
-    pub const FACTIONS: [Faction; 0] = [
+    pub const FACTION_BUILDERS: [FactionBuilder; 0] = [
 
     ];
-    pub const UNITS: [Unit; 0] = [
+    pub const UNIT_BUILDERS: [UnitBuilder; 0] = [
 
     ];
 }
@@ -71,43 +71,43 @@ pub mod debug {
 
     pub const MODIFIER_BUILDERS: [ModifierBuilder; 7] = [
         ModifierBuilder::new (0, [
-            Some ((Statistic::Tile (false), 1, true)),
+            Some ((StatisticType::Tile (false), 1, true)),
             None, None, None
         ]), // terrain_cost_+1
         ModifierBuilder::new (1, [
-            Some ((Statistic::Tile (false), 1, false)),
+            Some ((StatisticType::Tile (false), 1, false)),
             None, None, None
         ]), // terrain_cost_-1
         ModifierBuilder::new (2, [
-            Some ((Statistic::Tile (true), 1, false)),
+            Some ((StatisticType::Tile (true), 1, false)),
             None, None, None
         ]), // terrain_cost_=1
         ModifierBuilder::new (3, [
-            Some ((Statistic::Unit (UnitStatistic::ATK), 10, true)),
+            Some ((StatisticType::Unit (UnitStatistic::ATK), 10, true)),
             None, None, None
         ]), // atk_+10
         ModifierBuilder::new (4, [
-            Some ((Statistic::Unit (UnitStatistic::ATK), 10, false)),
-            Some ((Statistic::Unit (UnitStatistic::DEF), 10, false)),
+            Some ((StatisticType::Unit (UnitStatistic::ATK), 10, false)),
+            Some ((StatisticType::Unit (UnitStatistic::DEF), 10, false)),
             None, None
         ]), // atk_-10_def_-10
         ModifierBuilder::new (5, [
-            Some ((Statistic::Unit (UnitStatistic::ATK), 10, false)),
+            Some ((StatisticType::Unit (UnitStatistic::ATK), 10, false)),
             None, None, None
         ]), // atk_-10
         ModifierBuilder::new (5, [
-            Some ((Statistic::Unit (UnitStatistic::HLT), 2, false)),
+            Some ((StatisticType::Unit (UnitStatistic::HLT), 2, false)),
             None, None, None
         ]) // poison
     ];
     pub const EFFECTS: [Effect; 2] = [
         Effect::new (0, [
-            Some ((Statistic::Unit (UnitStatistic::HLT), 2, false)),
+            Some ((StatisticType::Unit (UnitStatistic::HLT), 2, false)),
             None, None, None
         ], true), // hlt_-2
         Effect::new (1, [
-            Some ((Statistic::Unit (UnitStatistic::ATK), 5, true)),
-            Some ((Statistic::Unit (UnitStatistic::DEF), 5, false)),
+            Some ((StatisticType::Unit (UnitStatistic::ATK), 5, true)),
+            Some ((StatisticType::Unit (UnitStatistic::DEF), 5, false)),
             None, None
         ], false) // atk_+5_def_-5
     ];
@@ -144,16 +144,30 @@ pub mod debug {
         Magic::new (2, Target::Map, Area::Single, 0) // terrain_cost_down
     ];
     pub const SKILLS: [Skill; 2] = [
-        Skill::new ([0, 0, 0], Target::This, Area::Single, 0, Capacity::Quantity (2, 2)),
-        Skill::new ([0, 0, 0], Target::This, Area::Single, 0, Capacity::Constant (1, 0, 0))
+        Skill::new ([0, 0], Target::This, Area::Single, 0, Capacity::Quantity (2, 2)),
+        Skill::new ([0, 0], Target::This, Area::Single, 0, Capacity::Constant (1, 0, 0))
     ];
-    // TODO: Factions and units are dynamic and probably can't be const
-    // Get around this by making const builders, then populate them when constructing lists
-    pub const FACTIONS: [Faction; 0] = [
-
+    pub const FACTION_BUILDERS: [FactionBuilder; 3] = [
+        FactionBuilder::new (0),
+        FactionBuilder::new (1),
+        FactionBuilder::new (2),
     ];
-    pub const UNITS: [Unit; 0] = [
-
+    pub const UNIT_BUILDERS: [UnitBuilder; 5] = [
+        UnitBuilder::new (0,
+                UnitStatistics::new (100, 1000, 100, 20, 20, 20, 10, 100),
+                [false, false, false], [0, 0], 0),
+        UnitBuilder::new (1,
+                UnitStatistics::new (100, 1000, 100, 20, 20, 20, 10, 100),
+                [false, false, false], [0, 0], 0),
+        UnitBuilder::new (2,
+                UnitStatistics::new (100, 1000, 100, 20, 20, 20, 10, 100),
+                [false, false, false], [0, 0], 1),
+        UnitBuilder::new (3,
+                UnitStatistics::new (100, 1000, 100, 20, 20, 20, 10, 100),
+                [false, false, false], [0, 0], 0),
+        UnitBuilder::new (4,
+                UnitStatistics::new (100, 1000, 100, 20, 20, 20, 10, 100),
+                [false, false, false], [0, 0], 2),
     ];
 }
 

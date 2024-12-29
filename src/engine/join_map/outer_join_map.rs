@@ -7,12 +7,12 @@ use std::{collections::{HashMap, HashSet}, hash::Hash};
  * Mappings are duplicated
  */
 #[derive (Debug)]
-pub struct DuplicateOuterMap<T, U> {
+pub struct OuterJoinMap<T, U> {
     map_first: HashMap<T, HashSet<U>>,
     map_second: HashMap<U, T>
 }
 
-impl<T, U> DuplicateOuterMap<T, U>
+impl<T, U> OuterJoinMap<T, U>
 where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + Hash {
     pub fn new () -> Self {
         let map_first: HashMap<T, HashSet<U>> = HashMap::new ();
@@ -60,16 +60,16 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     pub fn remove (&mut self, key_second: &U) -> bool {
         let key_first: &T = match self.map_second.get (key_second) {
             Some (k) => k,
-            None => return false
+            None => return false,
         };
         let collection_first: &mut HashSet<U> = self.map_first.get_mut (key_first)
                 .expect (&format! ("Collection not found for key {:?}", key_first));
         let is_removed_first: bool = collection_first.remove (key_second);
-        let original_second: Option<T> = self.map_second.remove (key_second);
+        let is_removed_second: bool = self.map_second.remove (key_second).is_some ();
 
-        assert_eq! (is_removed_first, original_second.is_some ());
+        assert_eq! (is_removed_first, is_removed_second);
 
-        is_removed_first
+        is_removed_first && is_removed_second
     }
 
     pub fn replace (&mut self, value: U, destination: T) -> Option<T> {
@@ -79,7 +79,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
         if collection_first.remove (&value) {
             if self.map_first.contains_key (&destination) {
                 let collection_first: &mut HashSet<U> = self.map_first.get_mut (&destination)
-                    .expect (&format! ("Collection not found for key {:?}", value));
+                        .expect (&format! ("Collection not found for key {:?}", value));
 
                 collection_first.insert (value.clone ());
             } else {
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn duplicate_outer_map_insert () {
-        let mut map: DuplicateOuterMap<u8, (u8, u8)> = DuplicateOuterMap::new ();
+        let mut map: OuterJoinMap<u8, (u8, u8)> = OuterJoinMap::new ();
 
         // Test empty insert
         assert_eq! (map.insert ((0, (0, 0))), true);
@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     fn duplicate_outer_map_get () {
-        let mut map: DuplicateOuterMap<u8, (u8, u8)> = DuplicateOuterMap::new ();
+        let mut map: OuterJoinMap<u8, (u8, u8)> = OuterJoinMap::new ();
 
         // Test empty get
         assert_eq! (map.get_first (&0), None);
@@ -154,7 +154,7 @@ mod tests {
 
     #[test]
     fn duplicate_outer_map_remove () {
-        let mut map: DuplicateOuterMap<u8, (u8, u8)> = DuplicateOuterMap::new ();
+        let mut map: OuterJoinMap<u8, (u8, u8)> = OuterJoinMap::new ();
 
         // Test empty remove
         assert_eq! (map.remove (&(0, 0)), false);
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn duplicate_outer_map_replace () {
-        let mut map: DuplicateOuterMap<u8, (u8, u8)> = DuplicateOuterMap::new ();
+        let mut map: OuterJoinMap<u8, (u8, u8)> = OuterJoinMap::new ();
 
         // Test empty replace
         assert_eq! (map.replace ((0, 0), 0), None);
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn duplicate_outer_map_contains_key () {
-        let mut map: DuplicateOuterMap<u8, (u8, u8)> = DuplicateOuterMap::new ();
+        let mut map: OuterJoinMap<u8, (u8, u8)> = OuterJoinMap::new ();
 
         // Test empty contains
         assert_eq! (map.contains_key_first (&0), false);

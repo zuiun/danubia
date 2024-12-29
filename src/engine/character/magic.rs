@@ -10,6 +10,7 @@ pub struct Magic {
     target: Target,
     area: Area,
     range: u8,
+    // TODO: some kind of extra cost
 }
 
 impl Magic {

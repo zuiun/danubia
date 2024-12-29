@@ -1,0 +1,2 @@
+export LLVM_PROFILE_FILE="default-%p-%m.profraw"
+cargo llvm-cov --html

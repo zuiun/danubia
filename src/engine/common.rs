@@ -1,29 +1,39 @@
-use std::ops::Sub;
-use crate::engine::character::{UnitStatistic, WeaponStatistic};
-
-pub type ID = usize; // Due to event values, ID is assumed to be at most an u8
+pub type ID = usize;
 
 pub const ID_UNINITIALISED: ID = ID::MAX;
-pub const FACTION_NONE: ID = 0;
 pub const DURATION_PERMANENT: u16 = u16::MAX;
 
-pub fn checked_sub_or<T> (left: T, right: T, default: T, minimum: T) -> T
-        where T: Sub<Output = T> + PartialOrd + Copy {
-    let difference: T = if left < right {
-        default
-    } else {
-        left - right
-    };
+// pub fn checked_sub_or<T> (left: T, right: T, default: T, minimum: T) -> T
+//         where T: Sub<Output = T> + PartialOrd + Copy {
+//     let difference: T = if left < right {
+//         default
+//     } else {
+//         left - right
+//     };
 
-    if difference < minimum {
-        minimum
-    } else {
-        difference
-    }
-}
+//     if difference < minimum {
+//         minimum
+//     } else {
+//         difference
+//     }
+// }
 
 pub trait Timed {
+    /*
+     * Gets self's remaining duration
+     *
+     * Pre: None
+     * Post: None
+     * Return: u16 = permanent Timed -> DURATION_PERMANENT, limited Timed -> remaining duration
+     */
     fn get_duration (&self) -> u16;
+    /*
+     * Decreases self's remaining duration
+     *
+     * Pre: None
+     * Post: self's remaining duration is unchanged for permanent Timed
+     * Return: bool = false -> not expired, true -> expired
+     */
     fn dec_duration (&mut self) -> bool;
 }
 
@@ -42,9 +52,10 @@ pub enum Area {
 pub enum Target {
     This,
     Ally,
+    Allies,
     Enemy,
     Enemies,
-    Allies,
+    // All,
     Map,
 }
 

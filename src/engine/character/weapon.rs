@@ -102,7 +102,8 @@ impl Applier for Weapon {
 mod tests {
     use super::*;
     use std::rc::Rc;
-    use crate::engine::{tests::generate_lists, Lists};
+    use crate::engine::Lists;
+    use crate::engine::tests::generate_lists;
 
     fn generate_statuses () -> (Status, Status) {
         let lists: Rc<Lists> = generate_lists ();
@@ -123,6 +124,8 @@ mod tests {
         assert! (matches! (weapon.status, None));
         // Test timed status
         weapon.add_status (status_6);
+        weapon.dec_durations ();
+        assert! (matches! (weapon.status, Some { .. }));
         weapon.dec_durations ();
         assert! (matches! (weapon.status, Some { .. }));
         weapon.dec_durations ();

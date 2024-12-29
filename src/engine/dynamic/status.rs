@@ -66,7 +66,7 @@ impl Timed for Status {
     fn get_duration (&self) -> u16 {
         match self.duration {
             Capacity::Constant (_, _, _) => DURATION_PERMANENT,
-            Capacity::Quantity (d, _) => d
+            Capacity::Quantity (d, _) => d,
         }
     }
 
@@ -74,11 +74,15 @@ impl Timed for Status {
         match self.duration {
             Capacity::Constant (_, _, _) => false,
             Capacity::Quantity (d, m) => {
-                let duration: u16 = d.checked_sub (1).unwrap_or (0);
+                if d == 0 {
+                    true
+                } else {
+                    let duration: u16 = d.checked_sub (1).unwrap_or (0);
 
-                self.duration = Capacity::Quantity (duration, m);
+                    self.duration = Capacity::Quantity (duration, m);
 
-                duration == 0
+                    false
+                }
             }
         }
     }
@@ -96,9 +100,10 @@ mod tests {
         // Test timed status
         assert_eq! (status_0.dec_duration (), false);
         assert_eq! (status_0.get_duration (), 1);
-        assert_eq! (status_0.dec_duration (), true);
+        assert_eq! (status_0.dec_duration (), false);
         assert_eq! (status_0.get_duration (), 0);
         assert_eq! (status_0.dec_duration (), true);
+        assert_eq! (status_0.get_duration (), 0);
         // Test permanent status
         assert_eq! (status_1.dec_duration (), false);
         assert_eq! (status_1.get_duration (), DURATION_PERMANENT);

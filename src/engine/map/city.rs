@@ -1,6 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
 use crate::engine::common::{ID, ID_UNINITIALISED};
-use crate::engine::event::{Event, Subject, Observer, Response, RESPONSE_NOTIFICATION};
 
 pub const WORKERS_FACTORY: f32 = 4.0;
 pub const WORKERS_FARM: f32 = 1.5;
@@ -70,35 +68,13 @@ impl City {
     }
 }
 
-impl Observer for City {
-    async fn update (&mut self, event: Event) -> Response {
-        todo! ()
-    }
-
-    fn get_observer_id (&self) -> Option<ID> {
-        if self.observer_id == ID_UNINITIALISED {
-            None
-        } else {
-            Some (self.observer_id)
-        }
-    }
-
-    fn set_observer_id (&mut self, observer_id: ID) -> () {
-        self.observer_id = observer_id;
-    }
-}
-
-impl Subject for City {
-    async fn notify (&self, event: Event) -> Response {
-        RESPONSE_NOTIFICATION
-    }
-}
-
 #[cfg (test)]
 mod tests {
     use super::*;
     use std::rc::Rc;
-    use crate::engine::{Information, Lists, lists::{game, information}, tests::generate_lists};
+    use crate::engine::{Information, Lists};
+    use crate::engine::lists::{game, information};
+    use crate::engine::tests::generate_lists;
 
     #[test]
     fn city_get_manpower () {
@@ -118,7 +94,6 @@ mod tests {
         println! ("{}", manpower_2);
         println! ("{}", manpower_3);
         // assert! (false);
-        assert! (true);
     }
 
     #[test]
@@ -139,7 +114,6 @@ mod tests {
         println! ("{}", equipment_2);
         println! ("{}", equipment_3);
         // assert! (false);
-        assert! (true);
     }
 
     #[test]
@@ -158,6 +132,5 @@ mod tests {
         }
 
         // assert! (false);
-        assert! (true);
     }
 }

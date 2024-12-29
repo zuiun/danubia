@@ -7,12 +7,12 @@ use std::{collections::{HashMap, HashSet}, hash::Hash};
  * Mappings are duplicated
  */
 #[derive (Debug)]
-pub struct DuplicateInnerMap<T, U> {
+pub struct InnerJoinMap<T, U> {
     map_first: HashMap<T, U>,
     map_second: HashMap<U, T>,
 }
 
-impl<T, U> DuplicateInnerMap<T, U>
+impl<T, U> InnerJoinMap<T, U>
 where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + Hash {
     pub fn new () -> Self {
         let map_first: HashMap<T, U> = HashMap::new ();
@@ -68,7 +68,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
 
                 self.map_second.remove (&destination)
             }
-            None => None
+            None => None,
         };
 
         self.map_second.remove (&original_first);
@@ -85,7 +85,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
 
                 self.map_first.remove (&destination)
             }
-            None => None
+            None => None,
         };
 
         self.map_first.remove (&original_second);
@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn duplicate_inner_map_insert () {
-        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
+        let mut map: InnerJoinMap<u8, (u8, u8)> = InnerJoinMap::new ();
 
         // Test empty insert
         assert_eq! (map.insert ((0, (0, 0))).unwrap (), (None, None));
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn duplicate_inner_map_get () {
-        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
+        let mut map: InnerJoinMap<u8, (u8, u8)> = InnerJoinMap::new ();
 
         // Test empty get
         assert_eq! (map.get_first (&0), None);
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn duplicate_inner_map_remove () {
-        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
+        let mut map: InnerJoinMap<u8, (u8, u8)> = InnerJoinMap::new ();
 
         // Test empty remove
         assert_eq! (map.remove_first (&0), None);
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn duplicate_inner_map_replace () {
-        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
+        let mut map: InnerJoinMap<u8, (u8, u8)> = InnerJoinMap::new ();
 
         // Test empty replace
         assert_eq! (map.replace_first (0, (0, 0)), None);
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn duplicate_inner_map_contains_key () {
-        let mut map: DuplicateInnerMap<u8, (u8, u8)> = DuplicateInnerMap::new ();
+        let mut map: InnerJoinMap<u8, (u8, u8)> = InnerJoinMap::new ();
 
         // Test empty contains
         assert_eq! (map.contains_key_first (&0), false);
