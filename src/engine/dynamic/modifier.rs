@@ -111,7 +111,7 @@ mod tests {
     use crate::engine::tests::generate_lists;
 
     fn generate_modifiers () -> (Modifier, Modifier) {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let modifier_builder_0: &ModifierBuilder = lists.get_modifier_builder (&0);
         let modifier_0: Modifier = modifier_builder_0.build (2, false);
         let modifier_builder_1: &ModifierBuilder = lists.get_modifier_builder (&1);

@@ -1,6 +1,4 @@
-test targeting < at this point this stuff is complicated enough to be an integration test
-
-test appliers
+test appliers and actions
 trigger applications:
 tile (none => apply immediately modifier to cost, onoccupied => when unit ends turn on it, apply to unit)
 unit (none => apply immediately modifier to stats, onhit => when unit is attacked by other, apply to other)
@@ -16,8 +14,7 @@ ok so yeah wecan't enforce it, but we can still write an unwrapper
 but it does require a lot of logic being implemented in Handler that it really has no business knowing...
 well, it's really just "convert multiple Response into Response (Vec<primitive>) or convert one Response into Response (primitive)"
 that shouldn't be too logically distant, no?
-
-grid should store a cache of unit faction membership, because this is likely to be expensive (runs multiple times every turn)
+^ seems impossible without an insane amount of matching that should really be done by Observer
 
 start documenting functions...
 
@@ -32,7 +29,8 @@ Functions that can fail should return Option or Result
 Balancing goals:
 When in combat, morale/manpower/equipment drain should always be greater than recovery
 
-Order of initialisation:
+Initialisation:
 Create Game
 Game creates Handler, then converts it to an Rc<RefCell>
-Game creates all game objects (Grid first; Faction must come before Unit [add members]), then subscribes them to Handler
+Game creates all game objects, then subscribes them to Handler
+register all events, then call initialisation events (FactionAddMember > GridPlaceUnit) -> this should be in an initialise ()

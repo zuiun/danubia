@@ -563,7 +563,7 @@ pub mod tests {
     use crate::engine::tests::generate_lists;
 
     fn generate_tiles () -> Vec<Vec<Tile>> {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let tile_builder: TileBuilder = TileBuilder::new (Rc::clone (&lists));
 
         vec![
@@ -585,7 +585,7 @@ pub mod tests {
     }
 
     pub fn generate_grid (handler: Weak<RefCell<Handler>>) -> Rc<RefCell<Grid>> {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let tiles: Vec<Vec<Tile>> = generate_tiles ();
         let grid = Grid::new (Rc::clone (&lists), tiles, handler);
         let grid = RefCell::new (grid);
@@ -773,7 +773,7 @@ pub mod tests {
 
     #[test]
     fn grid_update_adjacency () {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let tile_builder: TileBuilder = TileBuilder::new (Rc::clone (&lists));
         let tiles_updated: Vec<Vec<Tile>> = vec![
             vec![tile_builder.build (0, 10, Some (0)) /* changed */, tile_builder.build (0, 1, None), tile_builder.build (0, 0, Some (1))],

@@ -185,7 +185,7 @@ mod tests {
     use crate::engine::tests::generate_lists;
 
     fn generate_modifiers () -> (Box<Modifier>, Box<Modifier>, Box<Modifier>) {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let modifier_builder_0: &ModifierBuilder = lists.get_modifier_builder (&0);
         let modifier_0: Modifier = modifier_builder_0.build (2, false);
         let modifier_0: Box<Modifier> = Box::new (modifier_0);
@@ -200,7 +200,7 @@ mod tests {
     }
 
     fn generate_statuses () -> (Status, Status, Status) {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let status_2: Status = lists.get_status (&2).clone ();
         let status_3: Status = lists.get_status (&3).clone ();
         let status_4: Status = lists.get_status (&4).clone ();
@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn tile_get_cost () {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let tile_0: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
         let tile_1: Tile = Tile::new (Rc::clone (&lists), 1, 0, None);
         let tile_2: Tile = Tile::new (Rc::clone (&lists), 2, 0, None);
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn tile_is_impassable () {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let tile_0: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
         let tile_2: Tile = Tile::new (Rc::clone (&lists), 2, 0, None);
 
@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn tile_try_climb () {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let tile_0: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
         let tile_1_0: Tile = Tile::new (Rc::clone (&lists), 1, 0, None);
         let tile_1_1: Tile = Tile::new (Rc::clone (&lists), 1, 1, None);
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn tile_find_cost () {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let tile_0: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
         let tile_1_0: Tile = Tile::new (Rc::clone (&lists), 1, 0, None);
         let tile_1_1: Tile = Tile::new (Rc::clone (&lists), 1, 1, None);
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn tile_add_appliable () {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let mut tile: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
         let (modifier_0, modifier_1, modifier_2): (Box<Modifier>, Box<Modifier>, Box<Modifier>) = generate_modifiers ();
 
@@ -293,7 +293,7 @@ mod tests {
     
     #[test]
     fn tile_add_status () {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let mut tile: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
         let (status_2, status_3, _): (Status, Status, _) = generate_statuses ();
 
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn tile_dec_durations () {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let mut tile: Tile = Tile::new (Rc::clone (&lists), 0, 0, None);
         let (modifier_0, modifier_1, _): (Box<Modifier>, Box<Modifier>, _) = generate_modifiers ();
         let (status_2, status_3, status_4): (Status, Status, Status) = generate_statuses ();

@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn city_get_manpower () {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
 
         for i in 0 ..= 3 {
             assert! (lists.get_city (&i).get_manpower () > 0);
@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn city_get_equipment () {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let city: City = City::new (10, 1, 1);
         let equipment_0: u16 = lists.get_city (&0).get_equipment ();
         let equipment_1: u16 = lists.get_city (&1).get_equipment ();

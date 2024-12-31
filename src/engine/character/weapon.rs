@@ -106,7 +106,7 @@ mod tests {
     use crate::engine::tests::generate_lists;
 
     fn generate_statuses () -> (Status, Status) {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let status_6: Status = lists.get_status (&6).clone ();
         let status_7: Status = lists.get_status (&7).clone ();
 
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn weapon_dec_durations () {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let mut weapon: Weapon = lists.get_weapon (&0).clone ();
         let (status_6, status_7): (Status, Status) = generate_statuses ();
 

@@ -255,10 +255,6 @@ impl Unit {
         Self { id, lists, statistics, modifiers, statuses, magic_ids, weapons, weapon_active, faction_id, handler, observer_id }
     }
 
-    pub fn initialise (&self) -> () {
-        self.notify (Message::FactionAddMember (self.faction_id, self.id));
-    }
-
     fn get_statistic (&self, statistic: UnitStatistic) -> (u16, u16) {
         self.statistics.get ().get_statistic (statistic)
     }
@@ -344,6 +340,39 @@ impl Unit {
         // TODO: ???
     }
 
+    
+    fn filter_unit_allegiance (&self, unit_ids: &Vec<ID>, is_ally: bool) -> Vec<ID> {
+        if is_ally {
+            unit_ids.iter ().filter_map (|u: &ID| {
+                let is_member: Vec<Response> = self.notify (Message::FactionIsMember (self.faction_id, *u));
+
+                if let Response::FactionIsMember (m) = Handler::reduce_responses (&is_member) {
+                    if *m {
+                        Some (*u)
+                    } else {
+                        None
+                    }
+                } else {
+                    panic! ("Invalid response")
+                }
+            }).collect::<Vec<ID>> ()
+        } else {
+            unit_ids.iter ().filter_map (|u: &ID| {
+                let is_member: Vec<Response> = self.notify (Message::FactionIsMember (self.faction_id, *u));
+
+                if let Response::FactionIsMember (m) = Handler::reduce_responses (&is_member) {
+                    if !(*m) {
+                        Some (*u)
+                    } else {
+                        None
+                    }
+                } else {
+                    panic! ("Invalid response")
+                }
+            }).collect::<Vec<ID>> ()
+        }
+    }
+
     fn choose_targets_units (&self, potential_ids: &Vec<ID>, target: Target, area: Area, range: u8) -> Vec<ID> {
         assert! (potential_ids.len () > 0);
 
@@ -382,33 +411,9 @@ impl Unit {
                         let target_ids: Vec<Response> = self.notify (Message::GridFindNearbyUnits (target_id, None, area, range));
                         let target_ids: Vec<ID> = if let Response::GridFindNearbyUnits (t) = Handler::reduce_responses (&target_ids) {
                             if let Target::Allies = target {
-                                t.iter ().filter_map (|u: &ID| {
-                                    let is_member: Vec<Response> = self.notify (Message::FactionIsMember (self.faction_id, *u));
-
-                                    if let Response::FactionIsMember (m) = Handler::reduce_responses (&is_member) {
-                                        if *m {
-                                            Some (*u)
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        panic! ("Invalid response")
-                                    }
-                                }).collect::<Vec<ID>> ()
+                                self.filter_unit_allegiance (t, true)
                             } else if let Target::Enemies = target {
-                                t.iter ().filter_map (|u: &ID| {
-                                    let is_member: Vec<Response> = self.notify (Message::FactionIsMember (self.faction_id, *u));
-
-                                    if let Response::FactionIsMember (m) = Handler::reduce_responses (&is_member) {
-                                        if !(*m) {
-                                            Some (*u)
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        panic! ("Invalid response")
-                                    }
-                                }).collect::<Vec<ID>> ()
+                                self.filter_unit_allegiance (t, false)
                             } else {
                                 panic! ("Invalid target {:?}", target)
                             }
@@ -451,41 +456,18 @@ impl Unit {
             };
 
             match target {
-                Target::Ally | Target::Allies => {
-                    neighbour_ids.iter ().filter_map (|u: &ID| {
-                        let is_member: Vec<Response> = self.notify (Message::FactionIsMember (self.faction_id, *u));
-
-                        if let Response::FactionIsMember (m) = Handler::reduce_responses (&is_member) {
-                            if *m {
-                                Some (*u)
-                            } else {
-                                None
-                            }
-                        } else {
-                            panic! ("Invalid response")
-                        }
-                    }).collect::<Vec<ID>> ()
-                }
-                Target::Enemy | Target::Enemies => {
-                    neighbour_ids.iter ().filter_map (|u: &ID| {
-                        let is_member: Vec<Response> = self.notify (Message::FactionIsMember (self.faction_id, *u));
-
-                        if let Response::FactionIsMember (m) = Handler::reduce_responses (&is_member) {
-                            if !(*m) {
-                                Some (*u)
-                            } else {
-                                None
-                            }
-                        } else {
-                            panic! ("Invalid response")
-                        }
-                    }).collect::<Vec<ID>> ()
-                }
+                Target::Ally | Target::Allies => self.filter_unit_allegiance (neighbour_ids, true),
+                Target::Enemy | Target::Enemies => self.filter_unit_allegiance (neighbour_ids, false),
                 _ => panic! ("Invalid target {:?}", target),
             }
         };
 
-        self.choose_targets_units (&potential_ids, target, area, range)
+        if potential_ids.len () > 0 {
+            self.choose_targets_units (&potential_ids, target, area, range)
+        } else {
+            // TODO: if there are no potential targets, then just give up but wait for the user to cancel
+            Vec::new ()
+        }
     }
 
     fn choose_targets_locations (&self, potential_locations: &Vec<Location>, area: Area, range: u8) -> Vec<Location> {
@@ -522,7 +504,7 @@ impl Unit {
 
                 // TODO: Prompt user for confirmation
                 if true {
-                    break vec![target_location]
+                    break potential_locations.clone ()
                 // TODO: User rejected choice
                 } else if 1 > 0 {
                     break Vec::new ()
@@ -532,24 +514,25 @@ impl Unit {
         }
     }
 
-    fn find_targets_locations (&self, direction: Option<Direction>, target: Target, area: Area, range: u8) -> Vec<Location> {
-        if let Target::Map = target {
-            let location: Vec<Response> = self.notify (Message::GridGetUnitLocation (self.id));
-            let location: Location = if let Response::GridGetUnitLocation (l) = Handler::reduce_responses (&location) {
-                *l
-            } else {
-                panic! ("Invalid response")
-            };
-            let neighbour_locations: Vec<Response> = self.notify (Message::GridFindNearbyLocations (location, direction, area, range));
-            let neighbour_locations: &Vec<Location> = if let Response::GridFindNearbyLocations (n) = Handler::reduce_responses (&neighbour_locations) {
-                n
-            } else {
-                panic! ("Invalid response")
-            };
-
-            self.choose_targets_locations (neighbour_locations, area, range)
+    fn find_targets_locations (&self, direction: Option<Direction>, area: Area, range: u8) -> Vec<Location> {
+        let location: Vec<Response> = self.notify (Message::GridGetUnitLocation (self.id));
+        let location: Location = if let Response::GridGetUnitLocation (l) = Handler::reduce_responses (&location) {
+            *l
         } else {
-            panic! ("Invalid target {:?}", target)
+            panic! ("Invalid response")
+        };
+        let neighbour_locations: Vec<Response> = self.notify (Message::GridFindNearbyLocations (location, direction, area, range));
+        let potential_locations: &Vec<Location> = if let Response::GridFindNearbyLocations (n) = Handler::reduce_responses (&neighbour_locations) {
+            n
+        } else {
+            panic! ("Invalid response")
+        };
+
+        if potential_locations.len () > 0 {
+            self.choose_targets_locations (potential_locations, area, range)
+        } else {
+            // TODO: if there are no potential targets, then just give up but wait for the user to cancel
+            Vec::new ()
         }
     }
 
@@ -875,13 +858,13 @@ impl UnitBuilder {
 pub mod tests {
     use super::*;
     use crate::engine::common::DURATION_PERMANENT;
-    use crate::engine::event::{EVENT_FACTION_ADD_MEMBER, EVENT_FACTION_IS_MEMBER, EVENT_GRID_FIND_NEARBY_UNITS, EVENT_UNIT_GET_FACTION_ID};
+    use crate::engine::event::{EVENT_FACTION_ADD_MEMBER, EVENT_FACTION_IS_MEMBER, EVENT_GRID_FIND_NEARBY_LOCATIONS, EVENT_GRID_FIND_NEARBY_UNITS, EVENT_GRID_GET_UNIT_LOCATION, EVENT_UNIT_GET_FACTION_ID};
     use crate::engine::map::grid::tests::generate_grid;
     use crate::engine::tests::generate_lists;
     use crate::engine::event::handler::tests::generate_handler;
 
     pub fn generate_units (handler: Rc<RefCell<Handler>>) -> (Rc<RefCell<Unit>>, Rc<RefCell<Unit>>, Rc<RefCell<Unit>>) {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let unit_builder_0 = lists.get_unit_builder (&0);
         let unit_0 = unit_builder_0.build (Rc::clone (&lists), Rc::downgrade (&handler));
         let unit_0 = RefCell::new (unit_0);
@@ -899,7 +882,7 @@ pub mod tests {
     }
 
     fn generate_modifiers () -> (Box<Modifier>, Box<Modifier>) {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let modifier_builder_3 = lists.get_modifier_builder (&3);
         let modifier_3 = modifier_builder_3.build (2, true);
         let modifier_3 = Box::new (modifier_3);
@@ -911,7 +894,7 @@ pub mod tests {
     }
 
     fn generate_effects () -> (Box<Effect>, Box<Effect>) {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let effect_0 = lists.get_effect (&0).clone ();
         let effect_0 = Box::new (effect_0);
         let effect_1 = lists.get_effect (&1).clone ();
@@ -921,7 +904,7 @@ pub mod tests {
     }
 
     fn generate_statuses () -> (Status, Status, Status) {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let status_0 = lists.get_status (&0).clone ();
         let status_1 = lists.get_status (&1).clone ();
         let status_5 = lists.get_status (&5).clone ();
@@ -930,7 +913,7 @@ pub mod tests {
     }
 
     fn generate_factions (handler: Rc<RefCell<Handler>>) -> (Rc<RefCell<Faction>>, Rc<RefCell<Faction>>) {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let faction_builder_0 = lists.get_faction_builder (&0);
         let faction_0 = faction_builder_0.build (Rc::downgrade (&handler));
         let faction_0 = RefCell::new (faction_0);
@@ -994,6 +977,37 @@ pub mod tests {
     }
 
     #[test]
+    fn unit_filter_unit_allegiance () {
+        let handler = generate_handler ();
+        let (unit_0, unit_1, unit_2) = generate_units (Rc::clone (&handler));
+        let (faction_0, faction_1) = generate_factions (Rc::clone (&handler));
+        let unit_0_id = handler.borrow_mut ().register (Rc::clone (&unit_0) as Rc<RefCell<dyn Observer>>);
+        let unit_1_id = handler.borrow_mut ().register (Rc::clone (&unit_1) as Rc<RefCell<dyn Observer>>);
+        let unit_2_id = handler.borrow_mut ().register (Rc::clone (&unit_2) as Rc<RefCell<dyn Observer>>);
+        let faction_0_id = handler.borrow_mut ().register (Rc::clone (&faction_0) as Rc<RefCell<dyn Observer>>);
+        let faction_1_id = handler.borrow_mut ().register (Rc::clone (&faction_1) as Rc<RefCell<dyn Observer>>);
+
+        handler.borrow_mut ().subscribe (unit_0_id, EVENT_UNIT_GET_FACTION_ID);
+        handler.borrow_mut ().subscribe (unit_1_id, EVENT_UNIT_GET_FACTION_ID);
+        handler.borrow_mut ().subscribe (unit_2_id, EVENT_UNIT_GET_FACTION_ID);
+        handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_IS_MEMBER);
+        handler.borrow_mut ().subscribe (faction_1_id, EVENT_FACTION_IS_MEMBER);
+        handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_ADD_MEMBER);
+        handler.borrow_mut ().subscribe (faction_1_id, EVENT_FACTION_ADD_MEMBER);
+        handler.borrow ().notify (Message::FactionAddMember (0, 0));
+        handler.borrow ().notify (Message::FactionAddMember (0, 1));
+        handler.borrow ().notify (Message::FactionAddMember (1, 2));
+
+        let response = unit_0.borrow ().filter_unit_allegiance (&vec![0, 1, 2], true);
+        assert_eq! (response.len (), 2);
+        assert_eq! (response.contains (&0), true);
+        assert_eq! (response.contains (&1), true);
+        let response = unit_0.borrow ().filter_unit_allegiance (&vec![0, 1, 2], false);
+        assert_eq! (response.len (), 1);
+        assert_eq! (response.contains (&2), true);
+    }
+
+    #[test]
     fn unit_choose_targets_units () {
         let handler = generate_handler ();
         let (unit_0, unit_1, unit_2) = generate_units (Rc::clone (&handler));
@@ -1015,7 +1029,7 @@ pub mod tests {
         handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_ADD_MEMBER);
         handler.borrow_mut ().subscribe (faction_1_id, EVENT_FACTION_ADD_MEMBER);
         grid.borrow_mut ().place_unit (0, (0, 0));
-        grid.borrow_mut ().place_unit (1, (0, 1));
+        grid.borrow_mut ().place_unit (1, (1, 1));
         grid.borrow_mut ().place_unit (2, (1, 0));
         handler.borrow ().notify (Message::FactionAddMember (0, 0));
         handler.borrow ().notify (Message::FactionAddMember (0, 1));
@@ -1023,20 +1037,23 @@ pub mod tests {
 
         let results: Vec<ID> = unit_0.borrow ().choose_targets_units (&vec![0], Target::This, Area::Single, 1);
         assert_eq! (results.len (), 1);
-        assert_eq! (results[0], 0);
+        assert_eq! (results.contains (&0), true);
         let results: Vec<ID> = unit_0.borrow ().choose_targets_units (&vec![1], Target::Ally, Area::Single, 1);
         assert_eq! (results.len (), 1);
-        assert_eq! (results[0], 1);
+        assert_eq! (results.contains (&1), true);
         let results: Vec<ID> = unit_0.borrow ().choose_targets_units (&vec![0, 1], Target::Allies, Area::Radial (1), 0);
+        assert_eq! (results.len (), 1);
+        assert_eq! (results.contains (&0), true);
+        let results: Vec<ID> = unit_0.borrow ().choose_targets_units (&vec![0, 1], Target::Allies, Area::Radial (2), 0);
         assert_eq! (results.len (), 2);
         assert_eq! (results.contains (&0), true);
         assert_eq! (results.contains (&1), true);
-        let results: Vec<ID> = unit_0.borrow ().choose_targets_units (&vec![2], Target::Enemy, Area::Single, 1);
+        let results: Vec<ID> = unit_0.borrow ().choose_targets_units (&vec![2], Target::Enemy, Area::Radial (1), 0);
         assert_eq! (results.len (), 1);
-        assert_eq! (results[0], 2);
+        assert_eq! (results.contains (&2), true);
         let results: Vec<ID> = unit_0.borrow ().choose_targets_units (&vec![2], Target::Enemies, Area::Path (0), 1);
         assert_eq! (results.len (), 1);
-        assert_eq! (results[0], 2);
+        assert_eq! (results.contains (&2), true);
     }
 
     #[test]
@@ -1044,30 +1061,142 @@ pub mod tests {
         let handler = generate_handler ();
         let (unit_0, unit_1, unit_2) = generate_units (Rc::clone (&handler));
         let grid = generate_grid (Rc::downgrade (&handler));
-        let potential_ids: Vec<ID> = vec![1, 2];
+        let (faction_0, faction_1) = generate_factions (Rc::clone (&handler));
+        let grid_id = handler.borrow_mut ().register (Rc::clone (&grid) as Rc<RefCell<dyn Observer>>);
+        let unit_0_id = handler.borrow_mut ().register (Rc::clone (&unit_0) as Rc<RefCell<dyn Observer>>);
+        let unit_1_id = handler.borrow_mut ().register (Rc::clone (&unit_1) as Rc<RefCell<dyn Observer>>);
+        let unit_2_id = handler.borrow_mut ().register (Rc::clone (&unit_2) as Rc<RefCell<dyn Observer>>);
+        let faction_0_id = handler.borrow_mut ().register (Rc::clone (&faction_0) as Rc<RefCell<dyn Observer>>);
+        let faction_1_id = handler.borrow_mut ().register (Rc::clone (&faction_1) as Rc<RefCell<dyn Observer>>);
 
-        // unit_0.find_targets_units (potential_ids, target, area, range);
-        todo! ();
+        handler.borrow_mut ().subscribe (grid_id, EVENT_GRID_FIND_NEARBY_UNITS);
+        handler.borrow_mut ().subscribe (unit_0_id, EVENT_UNIT_GET_FACTION_ID);
+        handler.borrow_mut ().subscribe (unit_1_id, EVENT_UNIT_GET_FACTION_ID);
+        handler.borrow_mut ().subscribe (unit_2_id, EVENT_UNIT_GET_FACTION_ID);
+        handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_IS_MEMBER);
+        handler.borrow_mut ().subscribe (faction_1_id, EVENT_FACTION_IS_MEMBER);
+        handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_ADD_MEMBER);
+        handler.borrow_mut ().subscribe (faction_1_id, EVENT_FACTION_ADD_MEMBER);
+        handler.borrow ().notify (Message::FactionAddMember (0, 0));
+        handler.borrow ().notify (Message::FactionAddMember (0, 1));
+        handler.borrow ().notify (Message::FactionAddMember (1, 2));
+        grid.borrow_mut ().place_unit (0, (0, 0));
+        grid.borrow_mut ().place_unit (1, (1, 1));
+        grid.borrow_mut ().place_unit (2, (1, 0));
+
+        let results: Vec<ID> = unit_0.borrow ().find_targets_units (None, Target::This, Area::Single, 1);
+        assert_eq! (results.len (), 1);
+        assert_eq! (results.contains (&0), true);
+        let results: Vec<ID> = unit_0.borrow ().find_targets_units (None, Target::Ally, Area::Single, 1);
+        assert_eq! (results.len (), 1);
+        assert_eq! (results.contains (&0), true);
+        let results: Vec<ID> = unit_0.borrow ().find_targets_units (None, Target::Allies, Area::Radial (1), 0);
+        assert_eq! (results.len (), 1);
+        assert_eq! (results.contains (&0), true);
+        let results: Vec<ID> = unit_0.borrow ().find_targets_units (None, Target::Allies, Area::Radial (2), 0);
+        assert_eq! (results.len (), 2);
+        assert_eq! (results.contains (&0), true);
+        assert_eq! (results.contains (&1), true);
+        let results: Vec<ID> = unit_0.borrow ().find_targets_units (None, Target::Enemy, Area::Radial (1), 0);
+        assert_eq! (results.len (), 1);
+        assert_eq! (results.contains (&2), true);
+        let results: Vec<ID> = unit_0.borrow ().find_targets_units (Some (Direction::Down), Target::Enemies, Area::Path (0), 1);
+        assert_eq! (results.len (), 1);
+        assert_eq! (results.contains (&2), true);
+        let results: Vec<ID> = unit_0.borrow ().find_targets_units (Some (Direction::Right), Target::Enemies, Area::Path (0), 1); // Test empty find
+        assert_eq! (results.len (), 0);
     }
 
     #[test]
     fn unit_choose_targets_locations () {
         let handler = generate_handler ();
-        let (unit_0, unit_1, unit_2) = generate_units (Rc::clone (&handler));
+        let (unit_0, _, _) = generate_units (Rc::clone (&handler));
         let grid = generate_grid (Rc::downgrade (&handler));
+        let grid_id = handler.borrow_mut ().register (Rc::clone (&grid) as Rc<RefCell<dyn Observer>>);
 
-        // unit_0.choose_targets_locations (potential_ids, target, area, range);
-        todo! ();
+        handler.borrow_mut ().subscribe (grid_id, EVENT_GRID_FIND_NEARBY_LOCATIONS);
+
+        let results: Vec<Location> = unit_0.borrow ().choose_targets_locations (&vec![(0, 0)], Area::Single, 1);
+        assert_eq! (results.len (), 1);
+        assert_eq! (results.contains (&(0, 0)), true);
+        let results: Vec<Location> = unit_0.borrow ().choose_targets_locations (&vec![(0, 0), (0, 1)], Area::Path (0), 1);
+        assert_eq! (results.len (), 2);
+        assert_eq! (results.contains (&(0, 0)), true);
+        assert_eq! (results.contains (&(0, 1)), true);
+        let results: Vec<Location> = unit_0.borrow ().choose_targets_locations (&vec![(0, 0), (0, 1), (1, 0)], Area::Radial (1), 0);
+        assert_eq! (results.len (), 3);
+        assert_eq! (results.contains (&(0, 0)), true);
+        assert_eq! (results.contains (&(0, 1)), true);
+        assert_eq! (results.contains (&(1, 0)), true);
+        let results: Vec<Location> = unit_0.borrow ().choose_targets_locations (&vec![(1, 0), (0, 1), (0, 0)], Area::Radial (1), 0);
+        assert_eq! (results.len (), 3);
+        assert_eq! (results.contains (&(1, 0)), true);
+        assert_eq! (results.contains (&(0, 0)), true);
+        assert_eq! (results.contains (&(1, 1)), true);
     }
 
     #[test]
     fn unit_find_targets_locations () {
         let handler = generate_handler ();
-        let (unit_0, unit_1, unit_2) = generate_units (Rc::clone (&handler));
+        let (unit_0, _, _) = generate_units (Rc::clone (&handler));
         let grid = generate_grid (Rc::downgrade (&handler));
+        let grid_id = handler.borrow_mut ().register (Rc::clone (&grid) as Rc<RefCell<dyn Observer>>);
+        let unit_0_id = handler.borrow_mut ().register (Rc::clone (&unit_0) as Rc<RefCell<dyn Observer>>);
 
-        // unit_0.find_targets_locations (potential_ids, target, area, range);
-        todo! ();
+        handler.borrow_mut ().subscribe (grid_id, EVENT_GRID_GET_UNIT_LOCATION);
+        handler.borrow_mut ().subscribe (grid_id, EVENT_GRID_FIND_NEARBY_LOCATIONS);
+        handler.borrow_mut ().subscribe (unit_0_id, EVENT_UNIT_GET_FACTION_ID);
+        grid.borrow_mut ().place_unit (0, (0, 0));
+ 
+        let results: Vec<Location> = unit_0.borrow ().find_targets_locations (None, Area::Single, 1);
+        assert_eq! (results.len (), 1);
+        assert_eq! (results.contains (&(0, 0)), true);
+        let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Some (Direction::Right), Area::Path (0), 1);
+        assert_eq! (results.len (), 1);
+        assert_eq! (results.contains (&(0, 1)), true);
+        let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Some (Direction::Right), Area::Path (0), 2);
+        assert_eq! (results.len (), 2);
+        assert_eq! (results.contains (&(0, 1)), true);
+        assert_eq! (results.contains (&(0, 2)), true);
+        let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Some (Direction::Right), Area::Path (1), 1);
+        assert_eq! (results.len (), 2);
+        assert_eq! (results.contains (&(0, 1)), true);
+        assert_eq! (results.contains (&(1, 1)), true);
+        let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Some (Direction::Right), Area::Path (2), 2);
+        assert_eq! (results.len (), 4);
+        assert_eq! (results.contains (&(0, 1)), true);
+        assert_eq! (results.contains (&(0, 2)), true);
+        assert_eq! (results.contains (&(1, 1)), true);
+        assert_eq! (results.contains (&(1, 2)), true);
+        let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Some (Direction::Down), Area::Path (0), 1);
+        assert_eq! (results.len (), 1);
+        assert_eq! (results.contains (&(1, 0)), true);
+        let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Some (Direction::Down), Area::Path (1), 1);
+        assert_eq! (results.len (), 2);
+        assert_eq! (results.contains (&(1, 0)), true);
+        assert_eq! (results.contains (&(1, 1)), true);
+        // Test empty find
+        let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Some (Direction::Left), Area::Path (0), 1);
+        assert_eq! (results.len (), 0);
+        let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Some (Direction::Up), Area::Path (0), 1);
+        assert_eq! (results.len (), 0);
+
+        // Radial is non-deterministic (any target could be picked to search)
+        for _ in 0 .. 100 {
+            let results: Vec<Location> = unit_0.borrow ().find_targets_locations (None, Area::Radial (1), 0);  
+
+            if results.contains (&(0, 2)) {
+                assert_eq! (results.len (), 4);    
+                assert_eq! (results.contains (&(0, 1)), true);
+                assert_eq! (results.contains (&(1, 1)), true);
+            } else {
+                assert_eq! (results.len (), 3);
+                assert_eq! (results.contains (&(1, 0)), true);
+                assert! (results.contains (&(0, 1)) || results.contains (&(1, 1)));
+            }
+
+            assert_eq! (results.contains (&(0, 0)), true);
+        }
     }
 
     #[test]
@@ -1139,7 +1268,7 @@ pub mod tests {
     #[test]
     fn unit_add_status () {
         let handler = generate_handler ();
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let (unit_0, _, _) = generate_units (Rc::clone (&handler));
         let (status_0, _, status_5) = generate_statuses ();
         let status_6 = lists.get_status (&6).clone ();

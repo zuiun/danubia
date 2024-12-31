@@ -115,7 +115,7 @@ pub mod tests {
     use crate::engine::tests::generate_lists;
 
     pub fn generate_skills () -> (Skill, Skill) {
-        let lists: Rc<Lists> = generate_lists ();
+        let lists = generate_lists ();
         let skill_0: Skill = lists.get_skill (&0).clone ();
         let skill_1: Skill = lists.get_skill (&1).clone ();
 
