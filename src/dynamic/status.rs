@@ -1,5 +1,7 @@
-use crate::engine::common::{Capacity, DURATION_PERMANENT, ID, Target, Timed};
-use super::{Appliable, Applier, Change, Effect, Modifier, ModifierBuilder, Trigger};
+use std::rc::Rc;
+
+use crate::common::{Capacity, DURATION_PERMANENT, ID, Target, Timed};
+use super::{Appliable, Applier, Change, Trigger};
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
@@ -41,38 +43,28 @@ impl Status {
 }
 
 impl Applier for Status {
-    fn try_yield_appliable (&self, lists: std::rc::Rc<crate::engine::Lists>) -> Option<Box<dyn Appliable>> {
-        match self.change {
-            Change::Modifier (m, s) => {
-                let modifier_builder: &ModifierBuilder = lists.get_modifier_builder (&m);
-                let modifier: Modifier = modifier_builder.build (self.get_duration (), s);
+    fn try_yield_appliable (&self, lists: Rc<crate::Lists>) -> Option<Box<dyn Appliable>> {
+        let appliable: Box<dyn Appliable> = self.change.appliable (lists);
 
-                Some (Box::new (modifier))
-            }
-            Change::Effect (e) => {
-                let effect: &Effect = lists.get_effect (&e);
-
-                Some (Box::new (effect.clone ()))
-            }
-        }
+        Some (appliable)
     }
 
-    fn get_target (&self) -> Option<Target> {
-        Some (self.target)
+    fn get_target (&self) -> Target {
+        self.target
     }
 }
 
 impl Timed for Status {
     fn get_duration (&self) -> u16 {
         match self.duration {
-            Capacity::Constant (_, _, _) => DURATION_PERMANENT,
+            Capacity::Constant ( .. ) => DURATION_PERMANENT,
             Capacity::Quantity (d, _) => d,
         }
     }
 
     fn dec_duration (&mut self) -> bool {
         match self.duration {
-            Capacity::Constant (_, _, _) => false,
+            Capacity::Constant ( .. ) => false,
             Capacity::Quantity (d, m) => {
                 if d == 0 {
                     true
@@ -94,8 +86,8 @@ mod tests {
 
     #[test]
     fn status_dec_duration () {
-        let mut status_0: Status = Status::new (Change::Modifier (0, false), Trigger::None, 2, Target::This, None);
-        let mut status_1: Status = Status::new (Change::Modifier (0, false), Trigger::None, DURATION_PERMANENT, Target::This, None);
+        let mut status_0 = Status::new (Change::Modifier (0, false), Trigger::None, 2, Target::This, None);
+        let mut status_1 = Status::new (Change::Modifier (0, false), Trigger::None, DURATION_PERMANENT, Target::This, None);
 
         // Test timed status
         assert_eq! (status_0.dec_duration (), false);

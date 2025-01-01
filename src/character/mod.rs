@@ -18,3 +18,11 @@ pub use self::unit::UnitBuilder;
 mod weapon;
 pub use self::weapon::WeaponStatistic;
 pub use self::weapon::Weapon;
+
+use crate::dynamic::Applier;
+use crate::map::Area;
+
+pub trait Tool : Applier {
+    fn get_area (&self) -> Area;
+    fn get_range (&self) -> u8;
+}

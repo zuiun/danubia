@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use crate::engine::join_map::CrossJoinMap;
+use crate::join_map::CrossJoinMap;
 use super::*;
 
 // Handler needs to own all observers
@@ -73,7 +73,7 @@ pub mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
     use std::rc::{Rc, Weak};
-    use crate::engine::common::ID_UNINITIALISED;
+    use crate::common::ID_UNINITIALISED;
 
     #[derive (Debug)]
     struct Thing {

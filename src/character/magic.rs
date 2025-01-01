@@ -1,7 +1,9 @@
 use std::rc::Rc;
-use crate::engine::Lists;
-use crate::engine::common::{Area, ID, Target};
-use crate::engine::dynamic::{Appliable, Applier, Change, Effect, Modifier, Status};
+use crate::Lists;
+use crate::common::{ID, Target};
+use crate::dynamic::{Appliable, Applier, Status};
+use crate::map::Area;
+use super::Tool;
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
@@ -11,6 +13,7 @@ pub struct Magic {
     area: Area,
     range: u8,
     // TODO: some kind of extra cost
+    // cost: u16
 }
 
 impl Magic {
@@ -21,7 +24,9 @@ impl Magic {
     pub fn get_status_id (&self) -> ID {
         self.status_id
     }
+}
 
+impl Tool for Magic {
     fn get_area (&self) -> Area {
         self.area
     }
@@ -38,7 +43,7 @@ impl Applier for Magic {
         status.try_yield_appliable (lists)
     }
 
-    fn get_target (&self) -> Option<Target> {
-        Some (self.target)
+    fn get_target (&self) -> Target {
+        self.target
     }
 }

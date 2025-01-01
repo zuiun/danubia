@@ -1,8 +1,8 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::rc::Weak;
-use crate::engine::common::{ID, ID_UNINITIALISED};
-use crate::engine::event::{Handler, Message, Observer, Response, Subject};
+use crate::common::{ID, ID_UNINITIALISED};
+use crate::event::{Handler, Message, Observer, Response, Subject};
 
 #[derive (Debug)]
 pub struct Faction {

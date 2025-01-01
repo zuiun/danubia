@@ -1,5 +1,5 @@
 use std::fmt;
-use crate::engine::dynamic::Modifier;
+use crate::dynamic::Modifier;
 
 #[derive (Debug)]
 pub struct Terrain {

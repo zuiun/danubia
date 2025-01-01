@@ -1,4 +1,4 @@
-use crate::engine::common::{Capacity, DURATION_PERMANENT, ID, Timed};
+use crate::common::{Capacity, DURATION_PERMANENT, ID, Timed};
 use super::{Adjustments, Appliable, Change, Effect};
 
 #[derive (Debug)]
@@ -33,7 +33,7 @@ impl Appliable for Modifier {
         Modifier::new (self.id, self.adjustments, self.duration, self.can_stack)
     }
 
-    fn get_change (&self) -> Change {
+    fn change (&self) -> Change {
         Change::Modifier (self.id, self.can_stack)
     }
 
@@ -49,14 +49,14 @@ impl Appliable for Modifier {
 impl Timed for Modifier {
     fn get_duration (&self) -> u16 {
         match self.duration {
-            Capacity::Constant (_, _, _) => DURATION_PERMANENT,
+            Capacity::Constant ( .. ) => DURATION_PERMANENT,
             Capacity::Quantity (d, _) => d,
         }
     }
 
     fn dec_duration (&mut self) -> bool {
         match self.duration {
-            Capacity::Constant (_, _, _) => false,
+            Capacity::Constant ( .. ) => false,
             Capacity::Quantity (d, m) => {
                 if d == 0 {
                     true
@@ -83,18 +83,19 @@ impl PartialEq for Modifier {
 pub struct ModifierBuilder {
     id: ID,
     adjustments: Adjustments,
+    duration: u16,
 }
 
 impl ModifierBuilder {
-    pub const fn new (id: ID, adjustments: Adjustments) -> Self {
-        Self { id, adjustments }
-    }
-
-    pub fn build (&self, duration: u16, can_stack: bool) -> Modifier {
+    pub const fn new (id: ID, adjustments: Adjustments, duration: u16) -> Self {
         assert! (duration > 0);
 
-        let duration: Capacity = if duration < DURATION_PERMANENT {
-            Capacity::Quantity (duration, duration)
+        Self { id, adjustments, duration }
+    }
+
+    pub fn build (&self, can_stack: bool) -> Modifier {
+        let duration: Capacity = if self.duration < DURATION_PERMANENT {
+            Capacity::Quantity (self.duration, self.duration)
         } else {
             Capacity::Constant (DURATION_PERMANENT, DURATION_PERMANENT, DURATION_PERMANENT)
         };
@@ -106,23 +107,21 @@ impl ModifierBuilder {
 #[cfg (test)]
 mod tests {    
     use super::*;
-    use std::rc::Rc;
-    use crate::engine::Lists;
-    use crate::engine::tests::generate_lists;
+    use crate::tests::generate_lists;
 
     fn generate_modifiers () -> (Modifier, Modifier) {
         let lists = generate_lists ();
-        let modifier_builder_0: &ModifierBuilder = lists.get_modifier_builder (&0);
-        let modifier_0: Modifier = modifier_builder_0.build (2, false);
-        let modifier_builder_1: &ModifierBuilder = lists.get_modifier_builder (&1);
-        let modifier_1: Modifier = modifier_builder_1.build (DURATION_PERMANENT, false);
+        let modifier_builder_0 = lists.get_modifier_builder (&0);
+        let modifier_0 = modifier_builder_0.build (false);
+        let modifier_builder_1 = lists.get_modifier_builder (&1);
+        let modifier_1 = modifier_builder_1.build (false);
 
         (modifier_0, modifier_1)
     }
 
     #[test]
     fn modifier_dec_duration () {
-        let (mut modifier_0, mut modifier_1): (Modifier, Modifier) = generate_modifiers ();
+        let (mut modifier_0, mut modifier_1) = generate_modifiers ();
 
         // Test timed modifier
         assert_eq! (modifier_0.dec_duration (), false);

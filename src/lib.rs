@@ -5,8 +5,7 @@ pub mod event;
 pub mod map;
 pub mod character;
 
-mod information;
-pub use information::Information;
+mod lists;
 
 use std::rc::Rc;
 use common::ID;
@@ -14,7 +13,6 @@ use character::{FactionBuilder, Magic, Skill, UnitBuilder, Weapon};
 use dynamic::{Effect, ModifierBuilder, Status};
 use event::Handler;
 use map::{City, Terrain};
-use super::lists;
 
 // TODO: Anything that has an ID also has an Information mapped to it
 

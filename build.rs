@@ -12,12 +12,12 @@ use std::path::{Path, PathBuf};
  */
 fn main () -> () {
     let out_dir: String = env::var ("OUT_DIR").unwrap ();
-    let dest_path: PathBuf = Path::new (&out_dir).join ("delays.rs");
+    let dest_path: PathBuf = Path::new (&out_dir).join ("const.rs");
     let mut file: File = File::create (&dest_path).unwrap ();
 
     write! (file, "const DELAYS: [u8; 101] = [").unwrap ();
 
-    for i in 0 .. 101 {
+    for i in 0 ..= 100 {
         write! (file, "{}", 1 + ((20 as f32 / f32::exp (0.03 * (i as f32))) as u8)).unwrap ();
 
         if i < 100 {

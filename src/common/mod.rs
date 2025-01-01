@@ -1,3 +1,6 @@
+mod information;
+pub use self::information::Information;
+
 pub type ID = usize;
 
 pub const ID_UNINITIALISED: ID = ID::MAX;
@@ -35,14 +38,6 @@ pub trait Timed {
      * Return: bool = false -> not expired, true -> expired
      */
     fn dec_duration (&mut self) -> bool;
-}
-
-#[derive (Debug)]
-#[derive (Clone, Copy)]
-pub enum Area {
-    Single,
-    Radial (u8), // radius
-    Path (u8), // width
 }
 
 // Full range of targets only allowed for skills and magics

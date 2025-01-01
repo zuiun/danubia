@@ -2,12 +2,12 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashSet, VecDeque};
 use std::fmt;
 use std::rc::{Rc, Weak};
-use crate::engine::Lists;
-use crate::engine::common::{Area, ID, ID_UNINITIALISED, Target};
-use crate::engine::join_map::{InnerJoinMap, OuterJoinMap};
-use crate::engine::event::{Handler, Message, Subject, Observer, Response};
-use crate::engine::dynamic::{Changeable, Modifier};
-use super::{COST_IMPASSABLE, Tile};
+use crate::Lists;
+use crate::common::{ID, ID_UNINITIALISED, Target};
+use crate::join_map::{InnerJoinMap, OuterJoinMap};
+use crate::event::{Handler, Message, Subject, Observer, Response};
+use crate::dynamic::{Appliable, Applier, Change, Changeable, Status};
+use super::{COST_IMPASSABLE, Search, Tile};
 
 pub type Location = (usize, usize); // row, column
 type Adjacency = [u8; Direction::Length as usize]; // cost, climb
@@ -49,10 +49,11 @@ pub struct Grid {
     adjacencies: Vec<Vec<Adjacency>>,
     unit_locations: InnerJoinMap<ID, Location>,
     faction_locations: OuterJoinMap<ID, Location>,
-    faction_units: OuterJoinMap<ID, ID>, // Used as a cache
     // Safety guarantee: Grid will never borrow_mut Handler
     handler: Weak<RefCell<Handler>>,
     observer_id: Cell<ID>,
+    // Cache
+    faction_units: OuterJoinMap<ID, ID>,
 }
 
 impl Grid {
@@ -282,7 +283,7 @@ impl Grid {
         true
     }
 
-    pub fn find_unit_cities (&self, unit_id: &ID, faction_id: &ID) -> Vec<ID> {
+    fn find_unit_cities (&self, unit_id: &ID, faction_id: &ID) -> Vec<ID> {
         assert! (is_rectangular (&self.tiles));
 
         let location: Location = self.get_unit_location (unit_id)
@@ -321,24 +322,35 @@ impl Grid {
         city_ids
     }
 
-    pub fn find_nearby_locations (&self, location: Location, direction: Option<Direction>, area: Area, range: u8) -> Vec<Location> {
+    fn find_locations (&self, location: &Location, search: Search) -> Vec<Location> {
         assert! (is_rectangular (&self.tiles));
-        assert! (is_in_bounds (&self.tiles, &location));
+        assert! (is_in_bounds (&self.tiles, location));
 
         let mut locations: HashSet<Location> = HashSet::new ();
+        let location: Location = *location;
 
-        match area {
-            Area::Single => { locations.insert (location); }
-            Area::Path (w) => {
-                let direction: Direction = direction
-                        .expect (&format! ("Direction not found for area {:?}", area));
+        match search {
+            Search::Single => { locations.insert (location); }
+            Search::Radial (r) => {
+                let range: usize = r as usize;
+
+                for i in location.0.checked_sub (range).unwrap_or (0) ..= (location.0 + range) {
+                    for j in location.1.checked_sub (range).unwrap_or (0) ..= (location.1 + range) {
+                        let distance: usize = location.0.abs_diff (i) + location.1.abs_diff (j);
+
+                        if distance <= range {
+                            locations.insert ((i, j));
+                        }
+                    }
+                }
+            }
+            Search::Path (w, r, d) => {
                 let mut starts: HashSet<Location> = HashSet::new ();
 
                 for i in 0 ..= w {
-                    let i: usize = i as usize;
-                    let j: usize = i;
+                    let (i, j): (usize, usize) = (i as usize, i as usize);
 
-                    match direction {
+                    match d {
                         Direction::Up => {
                             let left: Location = (location.0.checked_sub (1).unwrap_or (0), location.1 + j);
                             let right: Location = (location.0.checked_sub (1).unwrap_or (0), location.1.checked_sub (j).unwrap_or (0));
@@ -387,15 +399,14 @@ impl Grid {
                                 starts.insert (right);
                             }
                         }
-                        _ => panic! ("Invalid direction {:?}", direction),
+                        _ => panic! ("Invalid direction {:?}", d),
                     }
                 }
 
-                for i in 0 .. range {
-                    let i: usize = i as usize;
-                    let j: usize = i;
+                for i in 0 .. r {
+                    let (i, j): (usize, usize) = (i as usize, i as usize);
 
-                    match direction {
+                    match d {
                         Direction::Up => {
                             locations.extend (starts.iter ().map (|l: &Location|
                                 (l.0.checked_sub (i).unwrap_or (0), l.1)
@@ -416,20 +427,7 @@ impl Grid {
                                 (l.0 + i, l.1)
                             ));
                         }
-                        _ => panic! ("Invalid direction {:?}", direction),
-                    }
-                }
-            }
-            Area::Radial (r) => {
-                let r: usize = r as usize;
-
-                for i in location.0.checked_sub (r).unwrap_or (0) ..= (location.0 + r) {
-                    for j in location.1.checked_sub (r).unwrap_or (0) ..= (location.1 + r) {
-                        let distance: usize = location.0.abs_diff (i) + location.1.abs_diff (j);
-
-                        if distance <= r {
-                            locations.insert ((i, j));
-                        }
+                        _ => panic! ("Invalid direction {:?}", d),
                     }
                 }
             }
@@ -440,16 +438,30 @@ impl Grid {
         locations.into_iter ().collect::<Vec<Location>> ()
     }
 
-    pub fn find_nearby_units (&self, location: Location, direction: Option<Direction>, area: Area, range: u8) -> Vec<ID> {
+    fn find_units (&self, location: &Location, search: Search) -> Vec<ID> {
         assert! (is_rectangular (&self.tiles));
-        assert! (is_in_bounds (&self.tiles, &location));
+        assert! (is_in_bounds (&self.tiles, location));
 
-        let locations: Vec<Location> = self.find_nearby_locations (location, direction, area, range);
+        let locations: Vec<Location> = self.find_locations (location, search);
 
         locations.iter ().filter_map (|l: &Location|
             self.unit_locations.get_second (l)
             .map (|u: &ID| u.clone ())
         ).collect::<Vec<ID>> ()
+    }
+
+    fn add_status (&self, location: &Location, status: Status) -> bool {
+        assert! (is_rectangular (&self.tiles));
+        assert! (is_in_bounds (&self.tiles, location));
+
+        self.tiles[location.0][location.1].add_status (status)
+    }
+
+    fn try_yield_appliable (&self, location: &Location) -> Option<Box<dyn Appliable>> {
+        assert! (is_rectangular (&self.tiles));
+        assert! (is_in_bounds (&self.tiles, location));
+
+        self.tiles[location.0][location.1].try_yield_appliable (Rc::clone (&self.lists))
     }
 
     pub fn get_unit_location (&self, unit_id: &ID) -> Option<&Location> {
@@ -476,17 +488,17 @@ impl Grid {
 impl Observer for Grid {
     fn respond (&self, message: Message) -> Option<Response> {
         match message {
-            Message::GridFindNearbyUnits (u, d, a, r) => {
+            Message::GridFindUnits (u, s) => {
                 let location: &Location = self.get_unit_location (&u)
                         .expect (&format! ("Location not found for unit {}", u));
-                let unit_ids: Vec<ID> = self.find_nearby_units (*location, d, a, r);
+                let unit_ids: Vec<ID> = self.find_units (location, s);
 
-                Some (Response::GridFindNearbyUnits (unit_ids))
+                Some (Response::GridFindUnits (unit_ids))
             }
-            Message::GridFindNearbyLocations (l, d, a, r) => {
-                let locations: Vec<Location> = self.find_nearby_locations (l, d, a, r);
+            Message::GridFindLocations (l, s) => {
+                let locations: Vec<Location> = self.find_locations (&l, s);
 
-                Some (Response::GridFindNearbyLocations (locations))
+                Some (Response::GridFindLocations (locations))
             }
             Message::GridGetUnitLocation (u) => {
                 let location: &Location = self.get_unit_location (&u)
@@ -505,6 +517,22 @@ impl Observer for Grid {
                 let city_ids: Vec<ID> = self.find_unit_cities (&u, &f);
 
                 Some (Response::GridFindUnitCities (city_ids))
+            }
+            Message::GridAddStatus (l, s) => {
+                let status: Status = self.lists.get_status (&s).clone ();
+
+                self.add_status (&l, status);
+
+                Some (Response::GridAddStatus)
+            }
+            Message::GridTryYieldAppliable (u) => {
+                let location: &Location = self.get_unit_location (&u)
+                        .expect (&format! ("Location not found for unit {}", u));
+                let change: Option<Change> = self.try_yield_appliable (location).map (|a: Box<dyn Appliable>|
+                    a.change ()
+                );
+
+                Some (Response::GridTryYieldAppliable (change))
             }
             _ => None,
         }
@@ -558,13 +586,13 @@ impl fmt::Display for Grid {
 #[cfg (test)]
 pub mod tests {
     use super::*;
-    use crate::engine::map::TileBuilder;
-    use crate::engine::event::handler::tests::generate_handler;
-    use crate::engine::tests::generate_lists;
+    use crate::map::TileBuilder;
+    use crate::event::handler::tests::generate_handler;
+    use crate::tests::generate_lists;
 
     fn generate_tiles () -> Vec<Vec<Tile>> {
         let lists = generate_lists ();
-        let tile_builder: TileBuilder = TileBuilder::new (Rc::clone (&lists));
+        let tile_builder = TileBuilder::new (Rc::clone (&lists));
 
         vec![
             vec![tile_builder.build (0, 0, Some (0)), tile_builder.build (0, 1, None), tile_builder.build (0, 0, Some (1))],
@@ -865,86 +893,86 @@ pub mod tests {
     }
 
     #[test]
-    fn grid_find_nearby_locations () {
+    fn grid_find_locations () {
         let handler = generate_handler ();
         let grid = generate_grid (Rc::downgrade (&handler));
 
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 0), None, Area::Single, 0).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 1), None, Area::Single, 0).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 2), None, Area::Single, 0).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 0), None, Area::Single, 0).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 1), None, Area::Single, 0).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 2), None, Area::Single, 0).len (), 1);
+        assert_eq! (grid.borrow ().find_locations (&(0, 0), Search::Single).len (), 1);
+        assert_eq! (grid.borrow ().find_locations (&(0, 1), Search::Single).len (), 1);
+        assert_eq! (grid.borrow ().find_locations (&(0, 2), Search::Single).len (), 1);
+        assert_eq! (grid.borrow ().find_locations (&(1, 0), Search::Single).len (), 1);
+        assert_eq! (grid.borrow ().find_locations (&(1, 1), Search::Single).len (), 1);
+        assert_eq! (grid.borrow ().find_locations (&(1, 2), Search::Single).len (), 1);
 
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 0), Some (Direction::Right), Area::Path (1), 1).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 1), Some (Direction::Down), Area::Path (1), 1).len (), 3);
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 2), Some (Direction::Left), Area::Path (1), 1).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 0), Some (Direction::Right), Area::Path (1), 1).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 1), Some (Direction::Up), Area::Path (1), 1).len (), 3);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 2), Some (Direction::Left), Area::Path (1), 1).len (), 2);
+        assert_eq! (grid.borrow ().find_locations (&(0, 0), Search::Path (1, 1, Direction::Right)).len (), 2);
+        assert_eq! (grid.borrow ().find_locations (&(0, 1), Search::Path (1, 1, Direction::Down)).len (), 3);
+        assert_eq! (grid.borrow ().find_locations (&(0, 2), Search::Path (1, 1, Direction::Left)).len (), 2);
+        assert_eq! (grid.borrow ().find_locations (&(1, 0), Search::Path (1, 1, Direction::Right)).len (), 2);
+        assert_eq! (grid.borrow ().find_locations (&(1, 1), Search::Path (1, 1, Direction::Up)).len (), 3);
+        assert_eq! (grid.borrow ().find_locations (&(1, 2), Search::Path (1, 1, Direction::Left)).len (), 2);
 
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 0), Some (Direction::Right), Area::Path (0), 2).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 1), Some (Direction::Down), Area::Path (0), 2).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 2), Some (Direction::Left), Area::Path (0), 2).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 0), Some (Direction::Right), Area::Path (0), 2).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 1), Some (Direction::Up), Area::Path (0), 2).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 2), Some (Direction::Left), Area::Path (0), 2).len (), 2);
+        assert_eq! (grid.borrow ().find_locations (&(0, 0), Search::Path (0, 2, Direction::Right)).len (), 2);
+        assert_eq! (grid.borrow ().find_locations (&(0, 1), Search::Path (0, 2, Direction::Down)).len (), 1);
+        assert_eq! (grid.borrow ().find_locations (&(0, 2), Search::Path (0, 2, Direction::Left)).len (), 2);
+        assert_eq! (grid.borrow ().find_locations (&(1, 0), Search::Path (0, 2, Direction::Right)).len (), 2);
+        assert_eq! (grid.borrow ().find_locations (&(1, 1), Search::Path (0, 2, Direction::Up)).len (), 1);
+        assert_eq! (grid.borrow ().find_locations (&(1, 2), Search::Path (0, 2, Direction::Left)).len (), 2);
 
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 0), None, Area::Radial (1), 0).len (), 3);
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 1), None, Area::Radial (1), 0).len (), 4);
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 2), None, Area::Radial (1), 0).len (), 3);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 0), None, Area::Radial (1), 0).len (), 3);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 1), None, Area::Radial (1), 0).len (), 4);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 2), None, Area::Radial (1), 0).len (), 3);
+        assert_eq! (grid.borrow ().find_locations (&(0, 0), Search::Radial (1)).len (), 3);
+        assert_eq! (grid.borrow ().find_locations (&(0, 1), Search::Radial (1)).len (), 4);
+        assert_eq! (grid.borrow ().find_locations (&(0, 2), Search::Radial (1)).len (), 3);
+        assert_eq! (grid.borrow ().find_locations (&(1, 0), Search::Radial (1)).len (), 3);
+        assert_eq! (grid.borrow ().find_locations (&(1, 1), Search::Radial (1)).len (), 4);
+        assert_eq! (grid.borrow ().find_locations (&(1, 2), Search::Radial (1)).len (), 3);
 
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 0), None, Area::Radial (2), 0).len (), 5);
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 1), None, Area::Radial (2), 0).len (), 6);
-        assert_eq! (grid.borrow ().find_nearby_locations ((0, 2), None, Area::Radial (2), 0).len (), 5);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 0), None, Area::Radial (2), 0).len (), 5);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 1), None, Area::Radial (2), 0).len (), 6);
-        assert_eq! (grid.borrow ().find_nearby_locations ((1, 2), None, Area::Radial (2), 0).len (), 5);
+        assert_eq! (grid.borrow ().find_locations (&(0, 0), Search::Radial (2)).len (), 5);
+        assert_eq! (grid.borrow ().find_locations (&(0, 1), Search::Radial (2)).len (), 6);
+        assert_eq! (grid.borrow ().find_locations (&(0, 2), Search::Radial (2)).len (), 5);
+        assert_eq! (grid.borrow ().find_locations (&(1, 0), Search::Radial (2)).len (), 5);
+        assert_eq! (grid.borrow ().find_locations (&(1, 1), Search::Radial (2)).len (), 6);
+        assert_eq! (grid.borrow ().find_locations (&(1, 2), Search::Radial (2)).len (), 5);
     }
 
     #[test]
-    fn grid_find_nearby_units () {
+    fn grid_find_units () {
         let handler = generate_handler ();
         let grid = generate_grid (Rc::downgrade (&handler));
 
         // Test empty find
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 0), None, Area::Single, 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 1), None, Area::Single, 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 2), None, Area::Single, 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 0), None, Area::Single, 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 1), None, Area::Single, 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 2), None, Area::Single, 0).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 0), Search::Single).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 1), Search::Single).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 2), Search::Single).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 0), Search::Single).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 1), Search::Single).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 2), Search::Single).len (), 0);
 
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 0), Some (Direction::Right), Area::Path (1), 1).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 1), Some (Direction::Down), Area::Path (1), 1).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 2), Some (Direction::Left), Area::Path (1), 1).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 0), Some (Direction::Right), Area::Path (1), 1).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 1), Some (Direction::Up), Area::Path (1), 1).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 2), Some (Direction::Left), Area::Path (1), 1).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 0), Search::Path (1, 1, Direction::Right)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 1), Search::Path (1, 1, Direction::Down)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 2), Search::Path (1, 1, Direction::Left)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 0), Search::Path (1, 1, Direction::Right)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 1), Search::Path (1, 1, Direction::Up)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 2), Search::Path (1, 1, Direction::Left)).len (), 0);
 
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 0), Some (Direction::Right), Area::Path (0), 2).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 1), Some (Direction::Down), Area::Path (0), 2).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 2), Some (Direction::Left), Area::Path (0), 2).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 0), Some (Direction::Right), Area::Path (0), 2).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 1), Some (Direction::Up), Area::Path (0), 2).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 2), Some (Direction::Left), Area::Path (0), 2).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 0), Search::Path (0, 2, Direction::Right)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 1), Search::Path (0, 2, Direction::Down)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 2), Search::Path (0, 2, Direction::Left)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 0), Search::Path (0, 2, Direction::Right)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 1), Search::Path (0, 2, Direction::Up)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 2), Search::Path (0, 2, Direction::Left)).len (), 0);
 
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 0), None, Area::Radial (1), 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 1), None, Area::Radial (1), 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 2), None, Area::Radial (1), 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 0), None, Area::Radial (1), 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 1), None, Area::Radial (1), 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 2), None, Area::Radial (1), 0).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 0), Search::Radial (1)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 1), Search::Radial (1)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 2), Search::Radial (1)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 0), Search::Radial (1)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 1), Search::Radial (1)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 2), Search::Radial (1)).len (), 0);
 
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 0), None, Area::Radial (2), 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 1), None, Area::Radial (2), 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 2), None, Area::Radial (2), 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 0), None, Area::Radial (2), 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 1), None, Area::Radial (2), 0).len (), 0);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 2), None, Area::Radial (2), 0).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 0), Search::Radial (2)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 1), Search::Radial (2)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 2), Search::Radial (2)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 0), Search::Radial (2)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 1), Search::Radial (2)).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(1, 2), Search::Radial (2)).len (), 0);
         // Test non-empty find
         grid.borrow_mut ().faction_units = generate_faction_units ();
         grid.borrow_mut ().place_unit (0, (0, 0));
@@ -952,39 +980,53 @@ pub mod tests {
         grid.borrow_mut ().place_unit (2, (0, 2));
         grid.borrow_mut ().place_unit (3, (1, 0));
         grid.borrow_mut ().place_unit (4, (1, 1));
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 0), None, Area::Single, 0).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 1), None, Area::Single, 0).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 2), None, Area::Single, 0).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 0), None, Area::Single, 0).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 1), None, Area::Single, 0).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 2), None, Area::Single, 0).len (), 0);
+        assert_eq! (grid.borrow ().find_units (&(0, 0), Search::Single).len (), 1);
+        assert_eq! (grid.borrow ().find_units (&(0, 1), Search::Single).len (), 1);
+        assert_eq! (grid.borrow ().find_units (&(0, 2), Search::Single).len (), 1);
+        assert_eq! (grid.borrow ().find_units (&(1, 0), Search::Single).len (), 1);
+        assert_eq! (grid.borrow ().find_units (&(1, 1), Search::Single).len (), 1);
+        assert_eq! (grid.borrow ().find_units (&(1, 2), Search::Single).len (), 0);
 
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 0), Some (Direction::Right), Area::Path (1), 1).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 1), Some (Direction::Down), Area::Path (1), 1).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 2), Some (Direction::Left), Area::Path (1), 1).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 0), Some (Direction::Right), Area::Path (1), 1).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 1), Some (Direction::Up), Area::Path (1), 1).len (), 3);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 2), Some (Direction::Left), Area::Path (1), 1).len (), 2);
+        assert_eq! (grid.borrow ().find_units (&(0, 0), Search::Path (1, 1, Direction::Right)).len (), 2);
+        assert_eq! (grid.borrow ().find_units (&(0, 1), Search::Path (1, 1, Direction::Down)).len (), 2);
+        assert_eq! (grid.borrow ().find_units (&(0, 2), Search::Path (1, 1, Direction::Left)).len (), 2);
+        assert_eq! (grid.borrow ().find_units (&(1, 0), Search::Path (1, 1, Direction::Right)).len (), 2);
+        assert_eq! (grid.borrow ().find_units (&(1, 1), Search::Path (1, 1, Direction::Up)).len (), 3);
+        assert_eq! (grid.borrow ().find_units (&(1, 2), Search::Path (1, 1, Direction::Left)).len (), 2);
 
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 0), Some (Direction::Right), Area::Path (0), 2).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 1), Some (Direction::Down), Area::Path (0), 2).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 2), Some (Direction::Left), Area::Path (0), 2).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 0), Some (Direction::Right), Area::Path (0), 2).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 1), Some (Direction::Up), Area::Path (0), 2).len (), 1);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 2), Some (Direction::Left), Area::Path (0), 2).len (), 2);
+        assert_eq! (grid.borrow ().find_units (&(0, 0), Search::Path (0, 2, Direction::Right)).len (), 2);
+        assert_eq! (grid.borrow ().find_units (&(0, 1), Search::Path (0, 2, Direction::Down)).len (), 1);
+        assert_eq! (grid.borrow ().find_units (&(0, 2), Search::Path (0, 2, Direction::Left)).len (), 2);
+        assert_eq! (grid.borrow ().find_units (&(1, 0), Search::Path (0, 2, Direction::Right)).len (), 1);
+        assert_eq! (grid.borrow ().find_units (&(1, 1), Search::Path (0, 2, Direction::Up)).len (), 1);
+        assert_eq! (grid.borrow ().find_units (&(1, 2), Search::Path (0, 2, Direction::Left)).len (), 2);
 
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 0), None, Area::Radial (1), 0).len (), 3);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 1), None, Area::Radial (1), 0).len (), 4);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 2), None, Area::Radial (1), 0).len (), 2);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 0), None, Area::Radial (1), 0).len (), 3);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 1), None, Area::Radial (1), 0).len (), 3);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 2), None, Area::Radial (1), 0).len (), 2);
+        assert_eq! (grid.borrow ().find_units (&(0, 0), Search::Radial (1)).len (), 3);
+        assert_eq! (grid.borrow ().find_units (&(0, 1), Search::Radial (1)).len (), 4);
+        assert_eq! (grid.borrow ().find_units (&(0, 2), Search::Radial (1)).len (), 2);
+        assert_eq! (grid.borrow ().find_units (&(1, 0), Search::Radial (1)).len (), 3);
+        assert_eq! (grid.borrow ().find_units (&(1, 1), Search::Radial (1)).len (), 3);
+        assert_eq! (grid.borrow ().find_units (&(1, 2), Search::Radial (1)).len (), 2);
 
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 0), None, Area::Radial (2), 0).len (), 5);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 1), None, Area::Radial (2), 0).len (), 5);
-        assert_eq! (grid.borrow ().find_nearby_units ((0, 2), None, Area::Radial (2), 0).len (), 4);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 0), None, Area::Radial (2), 0).len (), 4);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 1), None, Area::Radial (2), 0).len (), 5);
-        assert_eq! (grid.borrow ().find_nearby_units ((1, 2), None, Area::Radial (2), 0).len (), 4);
+        assert_eq! (grid.borrow ().find_units (&(0, 0), Search::Radial (2)).len (), 5);
+        assert_eq! (grid.borrow ().find_units (&(0, 1), Search::Radial (2)).len (), 5);
+        assert_eq! (grid.borrow ().find_units (&(0, 2), Search::Radial (2)).len (), 4);
+        assert_eq! (grid.borrow ().find_units (&(1, 0), Search::Radial (2)).len (), 4);
+        assert_eq! (grid.borrow ().find_units (&(1, 1), Search::Radial (2)).len (), 5);
+        assert_eq! (grid.borrow ().find_units (&(1, 2), Search::Radial (2)).len (), 4);
+    }
+
+    #[test]
+    fn grid_add_status () {
+        let lists = generate_lists ();
+        let handler = generate_handler ();
+        let grid = generate_grid (Rc::downgrade (&handler));
+        let status_0 = lists.get_status (&0).clone ();
+        let status_2 = lists.get_status (&2).clone ();
+        let status_3 = lists.get_status (&3).clone ();
+
+        assert_eq! (grid.borrow ().add_status (&(0, 0), status_0), false);
+        assert_eq! (grid.borrow ().add_status (&(0, 0), status_2), true);
+        assert_eq! (grid.borrow ().add_status (&(0, 0), status_3), true);
     }
 }

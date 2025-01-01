@@ -1,4 +1,4 @@
-use crate::engine::common::{ID, ID_UNINITIALISED};
+use crate::common::{ID, ID_UNINITIALISED};
 
 pub const WORKERS_FACTORY: f32 = 4.0;
 pub const WORKERS_FARM: f32 = 1.5;
@@ -11,7 +11,6 @@ pub struct City {
     population: u16, // (thousands)
     factories: u16,
     farms: u16,
-    observer_id: ID,
 }
 
 impl City {
@@ -20,9 +19,7 @@ impl City {
         assert! (factories > 0);
         assert! (farms > 0);
 
-        let observer_id: ID = ID_UNINITIALISED;
-
-        Self { population, factories, farms, observer_id }
+        Self { population, factories, farms }
     }
 
     pub const fn get_workers (&self) -> u16 {
@@ -71,10 +68,9 @@ impl City {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use std::rc::Rc;
-    use crate::engine::{Information, Lists};
-    use crate::engine::lists::{game, information};
-    use crate::engine::tests::generate_lists;
+    use crate::common::Information;
+    use crate::lists::{game, information};
+    use crate::tests::generate_lists;
 
     #[test]
     fn city_get_manpower () {
@@ -99,7 +95,6 @@ mod tests {
     #[test]
     fn city_get_equipment () {
         let lists = generate_lists ();
-        let city: City = City::new (10, 1, 1);
         let equipment_0: u16 = lists.get_city (&0).get_equipment ();
         let equipment_1: u16 = lists.get_city (&1).get_equipment ();
         let equipment_2: u16 = lists.get_city (&2).get_equipment ();

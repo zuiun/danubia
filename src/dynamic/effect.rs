@@ -1,4 +1,4 @@
-use crate::engine::common::ID;
+use crate::common::ID;
 use super::{Adjustments, Appliable, Change, Modifier};
 
 #[derive (Debug)]
@@ -13,6 +13,10 @@ impl Effect {
     pub const fn new (id: ID, adjustments: Adjustments, is_flat: bool) -> Self {
         Self { id, adjustments, is_flat }
     }
+
+    pub fn get_id (&self) -> ID {
+        self.id
+    }
 }
 
 impl Appliable for Effect {
@@ -24,7 +28,7 @@ impl Appliable for Effect {
         unimplemented! ()
     }
 
-    fn get_change (&self) -> Change {
+    fn change (&self) -> Change {
         Change::Effect (self.id)   
     }
 

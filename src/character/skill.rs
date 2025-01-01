@@ -1,8 +1,10 @@
 use std::matches;
 use std::rc::Rc;
-use crate::engine::Lists;
-use crate::engine::common::{Area, Capacity, DURATION_PERMANENT, Target, Timed, ID};
-use crate::engine::dynamic::{Appliable, Applier, Status};
+use crate::Lists;
+use crate::common::{Capacity, DURATION_PERMANENT, Target, Timed, ID};
+use crate::dynamic::{Appliable, Applier, Status};
+use crate::map::Area;
+use super::Tool;
 
 const STATUS_0: usize = 0;
 const STATUS_1: usize = 1;
@@ -22,14 +24,17 @@ pub struct Skill {
 
 impl Skill {
     pub const fn new (status_ids: [ID; 2], target: Target, area: Area, range: u8, duration: Capacity) -> Self {
-        assert! (matches! (duration, Capacity::Constant (1, 0, 0)) || matches! (duration, Capacity::Constant (0, _, _)) || matches! (duration, Capacity::Quantity { .. }));
-
+        assert! (matches! (duration, Capacity::Constant (TOGGLE_ON, TOGGLE_OFF, TOGGLE_OFF))
+                || matches! (duration, Capacity::Constant (TOGGLE_OFF, TOGGLE_ON, TOGGLE_OFF))
+                || matches! (duration, Capacity::Constant (TOGGLE_OFF, TOGGLE_OFF, TOGGLE_ON))
+                || matches! (duration, Capacity::Quantity { .. }));
+// TODO: more comprehensive assertion
         let status_active: usize = STATUS_0;
 
         Self { status_ids, status_active, target, area, range, cooldown: duration }
     }
 
-    pub fn switch_status (&mut self) -> bool {
+    pub fn switch_status (&mut self) -> ID {
         match self.cooldown {
             Capacity::Constant (TOGGLE_OFF, t1, t2) => {
                 let mut toggle_first: u16 = TOGGLE_OFF;
@@ -51,17 +56,19 @@ impl Skill {
                     STATUS_0
                 };
                 self.cooldown = Capacity::Constant (0, toggle_first, toggle_second);
-
-                true
             }
-            _ => false,
+            _ => (),
         }
+
+        self.status_active
     }
 
-    pub fn get_status_ids (&self) -> &[ID; 2] {
-        &self.status_ids
+    pub fn get_status_id (&self) -> ID {
+        self.status_ids[self.status_active]
     }
+}
 
+impl Tool for Skill {
     fn get_area (&self) -> Area {
         self.area
     }
@@ -78,22 +85,22 @@ impl Applier for Skill {
         status.try_yield_appliable (lists)
     }
 
-    fn get_target (&self) -> Option<Target> {
-        Some (self.target)
+    fn get_target (&self) -> Target {
+        self.target
     }
 }
 
 impl Timed for Skill {
     fn get_duration (&self) -> u16 {
         match self.cooldown {
-            Capacity::Constant (_, _, _) => DURATION_PERMANENT,
+            Capacity::Constant ( .. ) => DURATION_PERMANENT,
             Capacity::Quantity (d, _) => d,
         }
     }
 
     fn dec_duration (&mut self) -> bool {
         match self.cooldown {
-            Capacity::Constant (_, _, _) => false,
+            Capacity::Constant ( .. ) => false,
             Capacity::Quantity (d, m) => {
                 if d == 0 {
                     true
@@ -112,12 +119,12 @@ impl Timed for Skill {
 #[cfg (test)]
 pub mod tests {
     use super::*;
-    use crate::engine::tests::generate_lists;
+    use crate::tests::generate_lists;
 
     pub fn generate_skills () -> (Skill, Skill) {
         let lists = generate_lists ();
-        let skill_0: Skill = lists.get_skill (&0).clone ();
-        let skill_1: Skill = lists.get_skill (&1).clone ();
+        let skill_0 = lists.get_skill (&0).clone ();
+        let skill_1 = lists.get_skill (&1).clone ();
 
         (skill_0, skill_1)
     }

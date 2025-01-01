@@ -1,3 +1,6 @@
+mod change;
+pub use self::change::Change;
+
 mod effect;
 pub use self::effect::Effect;
 
@@ -9,9 +12,9 @@ mod status;
 pub use self::status::Status;
 
 use std::rc::Rc;
-use crate::engine::Lists;
-use crate::engine::character::UnitStatistic;
-use crate::engine::common::{ID, Target};
+use crate::Lists;
+use crate::character::UnitStatistic;
+use crate::common::Target;
 
 pub type Adjustment = (StatisticType, u16, bool); // statistic, change (value depends on context), is add
 pub type Adjustments = [Option<Adjustment>; 4]; // Any more than 4 is probably excessive
@@ -36,13 +39,13 @@ pub trait Appliable {
      */
     fn modifier (&self) -> Modifier;
     /*
-     * Gets self's Appliable type
+     * Creates a Change representation of self
      *
      * Pre: None
      * Post: None
      * Return: Change = self's type
      */
-    fn get_change (&self) -> Change;
+    fn change (&self) -> Change;
     /*
      * Gets self's statistic adjustments
      *
@@ -74,13 +77,22 @@ pub trait Applier {
      * Return: Option<Box<dyn Appliable>> = None -> change unavailable, Some (change) -> change available
      */
     fn try_yield_appliable (&self, lists: Rc<Lists>) -> Option<Box<dyn Appliable>>;
-    fn get_target (&self) -> Option<Target>;
+    /*
+     * Gets self's target
+     *
+     * Pre: None
+     * Post: None
+     * Return: Target
+     */
+    fn get_target (&self) -> Target;
 }
 
 pub trait Changeable {
     /*
      * Adds appliable to self
      * Fails if appliable isn't applicable to self
+     * This mutates internal state with a Cell or RefCell
+     * Targeted Status should use this
      *
      * appliable: Box<dyn Appliable> = appliable to add
      *
@@ -88,10 +100,12 @@ pub trait Changeable {
      * Post: None
      * Return: bool = false -> add failed, true -> add succeeded
      */
-    fn add_appliable (&mut self, appliable: Box<dyn Appliable>) -> bool;
+    fn add_appliable (&self, appliable: Box<dyn Appliable>) -> bool;
     /*
      * Adds status to self
      * Fails if status isn't applicable to self
+     * This mutates internal state with a Cell or RefCell
+     * Non-targeted Status should use this
      *
      * status: Status = status to add
      *
@@ -99,14 +113,15 @@ pub trait Changeable {
      * Post: None
      * Return: bool = false -> add failed, true -> add succeeded
      */
-    fn add_status (&mut self, status: Status) -> bool;
+    fn add_status (&self, status: Status) -> bool;
     /*
      * Decreases all of self's Timed's remaining durations
+     * This mutates internal state with a Cell or RefCell
      *
      * Pre: None
      * Post: Timed's remaining duration is unchanged for permanent Timed
      */
-    fn dec_durations (&mut self) -> ();
+    fn dec_durations (&self) -> ();
 }
 
 #[derive (Debug)]
@@ -124,11 +139,4 @@ pub enum Trigger {
     OnAttack, // units (weapons) only
     OnOccupy, // tiles only
     None,
-}
-
-#[derive (Debug)]
-#[derive (Clone, Copy)]
-pub enum Change {
-    Modifier (ID, bool), // modifier, is flat
-    Effect (ID), // effect
 }

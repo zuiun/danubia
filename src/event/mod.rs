@@ -5,9 +5,9 @@ mod message_response;
 pub use self::message_response::EVENT_GAME_UNIT_DIE;
 pub use self::message_response::EVENT_UNIT_TAKE_DAMAGE;
 pub use self::message_response::EVENT_UNIT_ADD_STATUS;
-pub use self::message_response::EVENT_UNIT_REUSE_LATER;
-pub use self::message_response::EVENT_GRID_FIND_NEARBY_UNITS;
-pub use self::message_response::EVENT_GRID_FIND_NEARBY_LOCATIONS;
+pub use self::message_response::EVENT_UNIT_ADD_APPLIABLE;
+pub use self::message_response::EVENT_GRID_FIND_UNITS;
+pub use self::message_response::EVENT_GRID_FIND_LOCATIONS;
 pub use self::message_response::EVENT_GRID_GET_UNIT_LOCATION;
 pub use self::message_response::EVENT_GRID_IS_UNIT_ON_IMPASSABLE;
 pub use self::message_response::EVENT_GRID_FIND_UNIT_CITIES;
@@ -15,11 +15,13 @@ pub use self::message_response::EVENT_UNIT_GET_STATISTICS;
 pub use self::message_response::EVENT_FACTION_IS_MEMBER;
 pub use self::message_response::EVENT_UNIT_GET_FACTION_ID;
 pub use self::message_response::EVENT_FACTION_ADD_MEMBER;
+pub use self::message_response::EVENT_GRID_ADD_STATUS;
+pub use self::message_response::EVENT_GRID_TRY_YIELD_APPLIABLE;
 pub use self::message_response::Message;
 pub use self::message_response::Response;
 
 use core::fmt::Debug;
-use crate::engine::common::ID;
+use crate::common::ID;
 
 pub trait Observer: Debug {
     /*
