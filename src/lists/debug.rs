@@ -46,14 +46,14 @@ pub const EFFECTS: [Effect; 2] = [
     ], false), // atk_+5_def_-5
 ];
 pub const STATUSES: [Status; 8] = [
-    Status::new (Change::Modifier (3, true), Trigger::None, DURATION_PERMANENT, Target::This, None), // atk_stack_up
-    Status::new (Change::Modifier (5, false), Trigger::None, 2, Target::This, None), // atk_down
-    Status::new (Change::Modifier (6, false), Trigger::OnOccupy, 2, Target::Map, None), // poison_2
-    Status::new (Change::Modifier (1, false), Trigger::None, DURATION_PERMANENT, Target::Map, None), // terrain_cost_down_permanent
-    Status::new (Change::Modifier (6, false), Trigger::OnOccupy, 2, Target::Map, Some (3)), // poison_2
-    Status::new (Change::Modifier (6, false), Trigger::OnHit, 2, Target::Enemy, Some (0)), // poison_2
-    Status::new (Change::Modifier (6, false), Trigger::OnAttack, 2, Target::Enemy, None), // poison_2
-    Status::new (Change::Modifier (6, false), Trigger::OnAttack, DURATION_PERMANENT, Target::Enemy, None), // poison_permanent
+    Status::new (0, Change::Modifier (3, true), Trigger::None, DURATION_PERMANENT, Target::This, false, None), // atk_stack_up
+    Status::new (1, Change::Modifier (5, false), Trigger::None, 2, Target::This, false, None), // atk_down
+    Status::new (2, Change::Modifier (6, false), Trigger::OnOccupy, 2, Target::Map, false, None), // poison_2
+    Status::new (3, Change::Modifier (1, false), Trigger::None, DURATION_PERMANENT, Target::Map, false, None), // terrain_cost_down_permanent
+    Status::new (4, Change::Modifier (6, false), Trigger::OnOccupy, 2, Target::Map, false, Some (3)), // poison_2
+    Status::new (5, Change::Modifier (6, false), Trigger::OnHit, 2, Target::Enemy, false, Some (0)), // poison_2
+    Status::new (6, Change::Modifier (6, false), Trigger::OnAttack, 2, Target::Enemy, false, None), // poison_2
+    Status::new (7, Change::Modifier (6, false), Trigger::OnAttack, DURATION_PERMANENT, Target::Enemy, false, None), // poison_permanent
 ];
 pub const TERRAINS: [Terrain; 3] = [
     Terrain::new (Vec::new (), 1), // passable_1
@@ -72,16 +72,16 @@ pub const WEAPONS: [Weapon; 3] = [
     Weapon::new ([1, 1, 0, 1], Area::Radial (2), 2), // radial
 ];
 pub const MAGICS: [Magic; 4] = [
-    Magic::new (0, Target::Ally, Area::Radial (2), 0), // atk_others
-    Magic::new (0, Target::This, Area::Single, 0), // atk_self
-    Magic::new (6, Target::This, Area::Single, 0), // poison_target_others
-    Magic::new (2, Target::Map, Area::Single, 0), // terrain_cost_down
+    Magic::new (0, Target::Ally, Area::Radial (2), 0, 10), // atk_others
+    Magic::new (0, Target::This, Area::Single, 0, 10), // atk_self
+    Magic::new (6, Target::This, Area::Single, 0, 10), // poison_target_others
+    Magic::new (2, Target::Map, Area::Single, 0, 10), // terrain_cost_down
 ];
 pub const SKILLS: [Skill; 4] = [
-    Skill::new ([5, 5], Target::This, Area::Single, 0, Capacity::Quantity (2, 2)),
-    Skill::new ([0, 1], Target::Ally, Area::Single, 0, Capacity::Constant (1, 0, 0)),
-    Skill::new ([0, 1], Target::Allies, Area::Radial (2), 0, Capacity::Constant (0, 1, 0)),
-    Skill::new ([2, 2], Target::Map, Area::Radial (2), 0, Capacity::Constant (0, 1, 0)),
+    Skill::new (0, [5, 5], Target::This, Area::Single, 0, Capacity::Quantity (2, 2)),
+    Skill::new (1, [1, 1], Target::This, Area::Single, 0, Capacity::Constant (1, 0, 0)),
+    Skill::new (2, [0, 1], Target::This, Area::Radial (2), 0, Capacity::Constant (0, 1, 0)),
+    Skill::new (3, [2, 2], Target::Map, Area::Radial (2), 0, Capacity::Quantity (1, 1)),
 ];
 pub const FACTION_BUILDERS: [FactionBuilder; 3] = [
     FactionBuilder::new (0),
@@ -91,17 +91,17 @@ pub const FACTION_BUILDERS: [FactionBuilder; 3] = [
 pub const UNIT_BUILDERS: [UnitBuilder; 5] = [
     UnitBuilder::new (0,
             UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-            [false, false, false], [0, 0], 0),
+            [false, false, false], [0, 2, 3], [0, 0], 0),
     UnitBuilder::new (1,
             UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-            [false, false, false], [0, 0], 0),
+            [false, false, false], [0, 1, 2], [0, 0], 0),
     UnitBuilder::new (2,
             UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-            [false, false, false], [1, 2], 1),
+            [false, false, false], [0, 2, 3], [1, 2], 1),
     UnitBuilder::new (3,
             UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-            [false, false, false], [0, 0], 0),
+            [false, false, false], [0, 2, 3], [0, 0], 0),
     UnitBuilder::new (4,
             UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-            [false, false, false], [0, 0], 2),
+            [false, false, false], [0, 2, 3], [0, 0], 2),
 ];

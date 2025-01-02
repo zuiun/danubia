@@ -41,9 +41,9 @@ pub const CITIES: [City; 17] = [
 pub const WEAPONS: [Weapon; 9] = [
     Weapon::new ([0, 2, 1, 0], Area::Single, 1), // Sabre
     Weapon::new ([0, 0, 3, 0], Area::Path (0), 2), // Lance
-    Weapon::new ([0, 0, 2, 0], Area::Path (0), 2), // Pike
+    Weapon::new ([0, 0, 2, 0], Area::Single, 2), // Pike
     Weapon::new ([0, 1, 2, 0], Area::Path (1), 1), // Glaive
-    Weapon::new ([0, 1, 1, 1], Area::Path (1), 4), // Pistol
+    Weapon::new ([0, 1, 1, 1], Area::Single, 4), // Pistol
     Weapon::new ([0, 0, 2, 1], Area::Path (1), 8), // Musket
     Weapon::new ([0, 0, 3, 1], Area::Path (2), 12), // Rifle
     Weapon::new ([0, 0, 1, 0], Area::Single, 1), // Bayonet

@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 use crate::Lists;
-use crate::common::{Target, Timed};
+use crate::common::{ID, Target, Timed};
 use crate::dynamic::{Appliable, Applier, Change, Changeable, Status, Trigger};
 use crate::map::Area;
 use super::Tool;
@@ -59,7 +59,7 @@ impl Tool for Weapon {
 
 impl Changeable for Weapon {
     fn add_appliable (&self, _appliable: Box<dyn Appliable>) -> bool {
-        unimplemented! ();
+        unimplemented! ()
     }
 
     fn add_status (&self, status: Status) -> bool {
@@ -84,8 +84,26 @@ impl Changeable for Weapon {
         }
     }
 
+    fn remove_modifier (&self, _modifier_id: &ID) -> bool {
+        unimplemented! () 
+    }
+
+    fn remove_status (&self, status_id: &ID) -> bool {
+        if let Some (s) = self.status.get () {
+            if s.get_id () == *status_id {
+                self.status.replace (None);
+
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
     fn dec_durations (&self) -> () {
-        if let Some (mut s) = self.status.take () {
+        if let Some (mut s) = self.status.get () {
             let status: Option<Status> = if s.dec_duration () {
                 None
             } else {
@@ -118,6 +136,21 @@ mod tests {
         let status_7 = lists.get_status (&7).clone ();
 
         (status_6, status_7)
+    }
+
+    #[test]
+    fn weapon_remove_status () {
+        let lists = generate_lists ();
+        let weapon = lists.get_weapon (&0).clone ();
+        let (status_6, _) = generate_statuses ();
+    
+        // Test empty remove
+        assert_eq! (weapon.remove_status (&6), false);
+        assert_eq! (weapon.status.get (), None);
+        // Test non-empty remove
+        weapon.add_status (status_6);
+        assert_eq! (weapon.remove_status (&6), true);
+        assert_eq! (weapon.status.get (), None);
     }
 
     #[test]

@@ -1,8 +1,4 @@
-test appliers and actions
-trigger applications:
-tile (onoccupy => when unit ends turn on it, apply to unit)
-
-there needs to be some way to tie a modifier to a skill/status, or else switching won't also change the modifier
+i'm starting to get concerned with the RefCell abuse, even though i know it's safe
 
 move all test generation functions out of their modules - it clutters crate visibility
 
@@ -34,7 +30,8 @@ Initialisation:
 Create Game
 Game creates Handler, then converts it to an Rc<RefCell>
 Game creates all game objects, then subscribes them to Handler
-register all events, then call initialisation events (FactionAddMember > GridPlaceUnit) -> this should be in an initialise ()
+register all events, then call initialisation functions
+Initialiser registers events (FactionAddMember > GridPlaceUnit), applies passives
 
 Ideas for optimisations:
 Several interactions could be limited with a cache:

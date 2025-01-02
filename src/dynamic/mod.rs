@@ -12,6 +12,7 @@ mod status;
 pub use self::status::Status;
 
 use std::rc::Rc;
+use crate::common::ID;
 use crate::Lists;
 use crate::character::UnitStatistic;
 use crate::common::Target;
@@ -114,6 +115,32 @@ pub trait Changeable {
      * Return: bool = false -> add failed, true -> add succeeded
      */
     fn add_status (&self, status: Status) -> bool;
+    /*
+     * Removes modifier_id from self
+     * Fails if modifier_id isn't applied to self
+     * This mutates internal state with a Cell or RefCell
+     * Status should use this
+     *
+     * modifier_id: ID = modifier to remove
+     *
+     * Pre: None
+     * Post: None
+     * Return: bool = false -> remove failed, true -> remove succeeded
+     */
+    fn remove_modifier (&self, modifier_id: &ID) -> bool;
+    /*
+     * Removes status_id from self
+     * Fails if status_id isn't applied to self
+     * This mutates internal state with a Cell or RefCell
+     * Changeable should use this
+     *
+     * status_id: ID = status to remove
+     *
+     * Pre: None
+     * Post: None
+     * Return: bool = false -> remove failed, true -> remove succeeded
+     */
+    fn remove_status (&self, status_id: &ID) -> bool;
     /*
      * Decreases all of self's Timed's remaining durations
      * This mutates internal state with a Cell or RefCell

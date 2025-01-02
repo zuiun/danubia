@@ -95,7 +95,7 @@ pub mod tests {
         fn respond (&self, message: Message) -> Option<Response> {
             match message {
                 Message::TestAdd => {
-                    let mut data: u8 = self.data.take ();
+                    let mut data: u8 = self.data.get ();
 
                     data += 1;
                     self.data.replace (data);
@@ -103,7 +103,7 @@ pub mod tests {
                     Some (Response::TestAdd (data))
                 }
                 Message::TestSubtract => {
-                    let mut data: u8 = self.data.take ();
+                    let mut data: u8 = self.data.get ();
 
                     data -= 1;
                     self.data.replace (data);

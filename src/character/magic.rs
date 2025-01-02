@@ -12,17 +12,20 @@ pub struct Magic {
     target: Target,
     area: Area,
     range: u8,
-    // TODO: some kind of extra cost
-    // cost: u16
+    cost: u16,
 }
 
 impl Magic {
-    pub const fn new (status_id: ID, target: Target, area: Area, range: u8) -> Self {
-        Self { status_id, target, area, range }
+    pub const fn new (status_id: ID, target: Target, area: Area, range: u8, cost: u16) -> Self {
+        Self { status_id, target, area, range, cost }
     }
 
     pub fn get_status_id (&self) -> ID {
         self.status_id
+    }
+
+    pub fn get_cost (&self) -> u16 {
+        self.cost
     }
 }
 

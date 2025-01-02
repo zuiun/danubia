@@ -134,8 +134,44 @@ impl Changeable for Tile {
         }
     }
 
+    fn remove_modifier (&self, modifier_id: &ID) -> bool {
+        let modifier: Option<Modifier> = self.modifier.get ();
+
+        if let Some (m) = modifier {
+            if m.get_id () == *modifier_id {
+                self.modifier.replace (None);
+    
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
+    fn remove_status (&self, status_id: &ID) -> bool {
+        let status: Option<Status> = self.status.get ();
+
+        if let Some (s) = status {
+            if s.get_id () == *status_id {
+                if let Change::Modifier (m, _) = s.get_change () {
+                    self.remove_modifier (&m);
+                }
+
+                self.status.replace (None);
+    
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
     fn dec_durations (&self) -> () {
-        if let Some (mut m) = self.modifier.take () {
+        if let Some (mut m) = self.modifier.get () {
             let modifier: Option<Modifier> = if m.dec_duration () {
                 None
             } else {
@@ -145,7 +181,7 @@ impl Changeable for Tile {
             self.modifier.replace (modifier);
         }
 
-        if let Some (mut s) = self.status.take () {
+        if let Some (mut s) = self.status.get () {
             let status: Option<Status> = if s.dec_duration () {
                 s.get_next_id ().and_then (|n: ID|
                     Some (self.lists.get_status (&n).clone ())
@@ -319,6 +355,43 @@ mod tests {
         assert! (matches! (tile.status.get (), Some { .. }));
         assert_eq! (tile.get_cost (), 2);
         assert! (matches! (tile.try_yield_appliable (Rc::clone (&lists)), Some { .. }));
+    }
+
+    #[test]
+    fn tile_remove_modifier () {
+        let lists = generate_lists ();
+        let tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let (modifier_0, _, _) = generate_modifiers ();
+
+        // Test empty remove
+        assert_eq! (tile.remove_modifier (&0), false);
+        assert_eq! (tile.modifier.get (), None);
+        // Test non-empty remove
+        tile.add_appliable (modifier_0);
+        assert_eq! (tile.remove_modifier (&0), true);
+        assert_eq! (tile.modifier.get (), None);
+    }
+
+    #[test]
+    fn tile_remove_status () {
+        let lists = generate_lists ();
+        let tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let (status_2, status_3, _) = generate_statuses ();
+
+        // Test empty remove
+        assert_eq! (tile.remove_status (&0), false);
+        assert_eq! (tile.status.get (), None);
+        assert_eq! (tile.modifier.get (), None);
+        // Test non-empty remove
+        tile.add_status (status_3);
+        assert_eq! (tile.remove_status (&3), true);
+        assert_eq! (tile.status.get (), None);
+        assert_eq! (tile.modifier.get (), None);
+        // Test applier remove
+        tile.add_status (status_2);
+        assert_eq! (tile.remove_status (&2), true);
+        assert_eq! (tile.status.get (), None);
+        assert_eq! (tile.modifier.get (), None);
     }
 
     #[test]
