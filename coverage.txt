@@ -1,0 +1,8 @@
+Good:
+character/*
+dynamic/*
+event/*
+join_map/*
+map/*
+
+Bad:

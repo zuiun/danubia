@@ -1,19 +1,20 @@
 use std::fmt;
-use crate::dynamic::Modifier;
+use crate::common::ID;
 
 #[derive (Debug)]
+#[derive (Clone, Copy)]
 pub struct Terrain {
-    modifiers: Vec<Modifier>,
+    modifier_id: ID,
     cost: u8,
 }
 
 impl Terrain {
-    pub const fn new (modifiers: Vec<Modifier>, cost: u8 ) -> Self {
-        Self { modifiers, cost }
+    pub const fn new (modifier_id: ID, cost: u8 ) -> Self {
+        Self { modifier_id, cost }
     }
 
-    pub fn get_modifiers (&self) -> &Vec<Modifier> {
-        &self.modifiers
+    pub fn get_modifier_id (&self) -> ID {
+        self.modifier_id
     }
 
     pub fn get_cost (&self) -> u8 {

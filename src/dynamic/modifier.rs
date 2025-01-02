@@ -1,4 +1,4 @@
-use crate::common::{Capacity, DURATION_PERMANENT, ID, Timed};
+use crate::common::{Capacity, Timed, DURATION_PERMANENT, ID, ID_UNINITIALISED};
 use super::{Adjustments, Appliable, Change, Effect};
 
 #[derive (Debug)]
@@ -75,6 +75,17 @@ impl Timed for Modifier {
 impl PartialEq for Modifier {
     fn eq (&self, other: &Self) -> bool {
         self.id == other.id
+    }
+}
+
+impl Default for Modifier {
+    fn default () -> Self {
+        let id: ID = ID_UNINITIALISED;
+        let adjustments: Adjustments = [None, None, None, None];
+        let duration: Capacity = Capacity::Constant (1, 0, 0);
+        let can_stack: bool = false;
+
+        Self { id, adjustments, duration, can_stack }
     }
 }
 

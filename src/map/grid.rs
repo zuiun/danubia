@@ -3,11 +3,11 @@ use std::collections::{HashSet, VecDeque};
 use std::fmt;
 use std::rc::{Rc, Weak};
 use crate::Lists;
-use crate::common::{ID, ID_UNINITIALISED, Target};
+use crate::common::{ID, ID_UNINITIALISED};
 use crate::join_map::{InnerJoinMap, OuterJoinMap};
 use crate::event::{Handler, Message, Subject, Observer, Response};
-use crate::dynamic::{Appliable, Applier, Change, Changeable, Status};
-use super::{COST_IMPASSABLE, Search, Tile};
+use crate::dynamic::{Appliable, Applier, Change, Changeable, Status, Trigger};
+use super::{City, Search, Terrain, Tile, COST_IMPASSABLE};
 
 pub type Location = (usize, usize); // row, column
 type Adjacency = [u8; Direction::Length as usize]; // cost, climb
@@ -46,13 +46,14 @@ pub enum Direction {
 pub struct Grid {
     lists: Rc<Lists>,
     tiles: Vec<Vec<Tile>>,
-    adjacencies: Vec<Vec<Adjacency>>,
     unit_locations: InnerJoinMap<ID, Location>,
     faction_locations: OuterJoinMap<ID, Location>,
     // Safety guarantee: Grid will never borrow_mut Handler
     handler: Weak<RefCell<Handler>>,
     observer_id: Cell<ID>,
     // Cache
+    // Safety guarantee: Only Grid can reference its own adjacencies
+    adjacencies: RefCell<Vec<Vec<Adjacency>>>,
     faction_units: OuterJoinMap<ID, ID>,
 }
 
@@ -61,10 +62,11 @@ impl Grid {
         assert! (is_rectangular (&tiles));
 
         let mut faction_locations: OuterJoinMap<ID, Location> = OuterJoinMap::new ();
-        let adjacencies: Vec<Vec<Adjacency>> = Grid::build_adjacencies (&tiles);
         let unit_locations: InnerJoinMap<ID, Location> = InnerJoinMap::new ();
-        let faction_units: OuterJoinMap<ID, ID> = OuterJoinMap::new ();
         let observer_id: Cell<ID> = Cell::new (ID_UNINITIALISED);
+        let adjacencies: Vec<Vec<Adjacency>> = Grid::build_adjacencies (&tiles);
+        let adjacencies: RefCell<Vec<Vec<Adjacency>>> = RefCell::new (adjacencies);
+        let faction_units: OuterJoinMap<ID, ID> = OuterJoinMap::new ();
 
         for i in 0 .. tiles.len () {
             for j in 0 .. tiles[i].len () {
@@ -72,7 +74,7 @@ impl Grid {
             }
         }
 
-        Self { lists, tiles, adjacencies, unit_locations, faction_locations, faction_units, handler, observer_id }
+        Self { lists, tiles, unit_locations, faction_locations, handler, observer_id, adjacencies, faction_units }
     }
 
     fn build_adjacencies (tiles: &Vec<Vec<Tile>>) -> Vec<Vec<Adjacency>> {
@@ -137,10 +139,10 @@ impl Grid {
     }
 
     pub fn get_cost (&self, location: &Location, direction: Direction) -> u8 {
-        assert! (is_rectangular (&self.adjacencies));
-        assert! (is_in_bounds (&self.adjacencies, location));
+        assert! (is_rectangular (&self.adjacencies.borrow ()));
+        assert! (is_in_bounds (&self.adjacencies.borrow (), location));
 
-        self.adjacencies[location.0][location.1][direction as usize]
+        self.adjacencies.borrow ()[location.0][location.1][direction as usize]
     }
 
     pub fn is_impassable (&self, location: &Location) -> bool {
@@ -162,9 +164,71 @@ impl Grid {
         !self.is_impassable(location) && !self.is_occupied (location)
     }
 
+    fn find_nearest_placeable (&self, location: &Location) -> Location {
+        assert! (is_rectangular (&self.tiles));
+        assert! (is_in_bounds (&self.tiles, location));
+
+        let mut is_visited: Vec<Vec<bool>> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
+        let mut locations: VecDeque<Location> = VecDeque::new ();
+
+        locations.push_back (*location);
+        is_visited[location.0][location.1] = true;
+
+        while locations.len () > 0 {
+            let location: Location = locations.pop_front ()
+                    .expect ("Location not found");
+
+            if self.is_placeable (&location) {
+                return location
+            }
+
+            for direction in DIRECTIONS {
+                if let Some (n) = self.try_connect (&location, direction) {
+                    if !is_visited[n.0][n.1] {
+                        locations.push_back (n);
+                        is_visited[n.0][n.1] = true;
+                    }
+                }
+            }
+        }
+
+        panic! ("Placeable not found")
+    }
+
+    fn find_distance_between (&self, unit_id_first: &ID, unit_id_second: &ID) -> usize {
+        let location_first: &Location = self.get_unit_location (unit_id_first)
+                .expect (&format! ("Location not found for unit {}", unit_id_first));
+        let location_second: &Location = self.get_unit_location (unit_id_second)
+                .expect (&format! ("Location not found for unit {}", unit_id_second));
+
+        location_first.0.abs_diff (location_second.0) + location_first.1.abs_diff (location_second.1)
+    }
+
+    fn try_spawn_recruit (&mut self, location: &Location, unit_id: &ID) -> () {
+        let tile: &Tile = &self.tiles[location.0][location.1];
+
+        if let Some (c) = tile.get_city_id () {
+            if !tile.is_recruited () {
+                let city: &City = self.lists.get_city (&c);
+                let recruit_id: ID = city.get_recruit_id ();
+
+                if recruit_id < ID_UNINITIALISED {
+                    let spawn: Location = self.find_nearest_placeable (&location);
+                    let faction_id: ID = self.get_unit_faction (unit_id);
+
+                    self.notify (Message::FactionAddMember (faction_id, recruit_id));
+                    self.notify (Message::FactionAddFollower (faction_id, recruit_id, *unit_id));
+                    self.notify (Message::UnitSetLeader (recruit_id, *unit_id));
+                    self.notify (Message::UnitSendPassive (*unit_id));
+                    self.place_unit (recruit_id, spawn);
+                }
+            }
+        }
+    }
+
     pub fn try_connect (&self, start: &Location, direction: Direction) -> Option<Location> {
-        assert! (is_rectangular (&self.adjacencies));
-        assert! (is_in_bounds (&self.adjacencies, start));
+        assert! (is_rectangular (&self.adjacencies.borrow ()));
+        assert! (is_in_bounds (&self.adjacencies.borrow (), start));
 
         let mut end: Location = start.clone ();
 
@@ -176,7 +240,7 @@ impl Grid {
             _ => panic! ("Invalid direction {:?}", direction),
         }
 
-        if is_in_bounds (&self.adjacencies, &end) {
+        if is_in_bounds (&self.adjacencies.borrow (), &end) {
             Some (end)
         } else {
             None
@@ -184,10 +248,10 @@ impl Grid {
     }
 
     pub fn try_move (&self, start: &Location, direction: Direction) -> Option<(Location, u8)> {
-        assert! (is_rectangular (&self.adjacencies));
-        assert! (is_in_bounds (&self.adjacencies, start));
+        assert! (is_rectangular (&self.adjacencies.borrow ()));
+        assert! (is_in_bounds (&self.adjacencies.borrow (), start));
 
-        let cost: u8 = self.adjacencies[start.0][start.1][direction as usize];
+        let cost: u8 = self.adjacencies.borrow ()[start.0][start.1][direction as usize];
 
         if cost > COST_IMPASSABLE {
             let mut end: Location = start.clone ();
@@ -200,7 +264,7 @@ impl Grid {
                 _ => panic! ("Invalid direction {:?}", direction),
             }
 
-            if is_in_bounds (&self.adjacencies, &end) {
+            if is_in_bounds (&self.adjacencies.borrow (), &end) {
                 if self.is_placeable (&end) {
                     Some ((end, cost))
                 } else {
@@ -214,11 +278,11 @@ impl Grid {
         }
     }
 
-    pub fn update_adjacency (&mut self, location: &Location) -> () {
+    pub fn update_adjacency (&self, location: &Location) -> () {
         assert! (is_rectangular (&self.tiles));
         assert! (is_in_bounds (&self.tiles, location));
-        assert! (is_rectangular (&self.adjacencies));
-        assert! (is_in_bounds (&self.adjacencies, location));
+        assert! (is_rectangular (&self.adjacencies.borrow ()));
+        assert! (is_in_bounds (&self.adjacencies.borrow (), location));
 
         let tile: &Tile = &self.tiles[location.0][location.1];
 
@@ -228,7 +292,7 @@ impl Grid {
                     let neighbour: &Tile = &self.tiles[n.0][n.1];
                     let cost: u8 = neighbour.find_cost (tile);
 
-                    self.adjacencies[n.0][n.1][switch_direction (direction) as usize] = cost;
+                    self.adjacencies.borrow_mut ()[n.0][n.1][switch_direction (direction) as usize] = cost;
                 }
                 None => (),
             }
@@ -240,10 +304,13 @@ impl Grid {
         assert! (!self.unit_locations.contains_key_first (&unit_id));
 
         let faction_id: ID = self.get_unit_faction (&unit_id);
+        let terrain_id: ID = self.tiles[location.0][location.1].get_terrain_id ();
+        let terrain: Terrain = self.lists.get_terrain (&terrain_id).clone ();
 
         if self.is_placeable (&location) {
             self.unit_locations.insert ((unit_id, location));
             self.faction_locations.replace (location, faction_id);
+            self.notify (Message::UnitChangeModifierTerrain (unit_id, terrain.get_modifier_id ()));
 
             true
         } else {
@@ -278,9 +345,26 @@ impl Grid {
             self.faction_locations.replace (location, faction_id);
         }
 
+        let terrain_id: ID = self.tiles[end.0][end.1].get_terrain_id ();
+        let terrain: Terrain = self.lists.get_terrain (&terrain_id).clone ();
+        // TODO: These can't be in here
+        // let leader_id: Vec<Response> = self.notify (Message::FactionGetLeader (faction_id, unit_id));
+        // let leader_id: ID = if let Response::FactionGetLeader (l) = Handler::reduce_responses (&leader_id) {
+        //     *l
+        // } else {
+        //     panic! ("Invalid response");
+        // };
+
+        self.notify (Message::UnitChangeModifierTerrain (unit_id, terrain.get_modifier_id ()));
         self.unit_locations.insert ((unit_id, end));
+        self.try_spawn_recruit (&end, &unit_id);
+        // self.notify (Message::UnitSendPassive (unit_id));
 
         true
+    }
+
+    fn find_unit_movable (&self, unit_id: &ID) -> Vec<ID> {
+        todo! ()
     }
 
     fn find_unit_cities (&self, unit_id: &ID, faction_id: &ID) -> Vec<ID> {
@@ -304,17 +388,14 @@ impl Grid {
             }
 
             for direction in DIRECTIONS {
-                match self.try_connect (&location, direction) {
-                    Some (n) => {
-                        let controller_id: &ID = self.faction_locations.get_second (&n)
-                                .expect (&format! ("Faction not found for location {:?}", n));
+                if let Some (n) = self.try_connect (&location, direction) {
+                    let controller_id: &ID = self.faction_locations.get_second (&n)
+                            .expect (&format! ("Faction not found for location {:?}", n));
 
-                        if !is_visited[n.0][n.1] && controller_id == faction_id {
-                            locations.push_back (n);
-                            is_visited[n.0][n.1] = true;
-                        }
+                    if !is_visited[n.0][n.1] && controller_id == faction_id {
+                        locations.push_back (n);
+                        is_visited[n.0][n.1] = true;
                     }
-                    None => (),
                 }
             }
         }
@@ -454,7 +535,13 @@ impl Grid {
         assert! (is_rectangular (&self.tiles));
         assert! (is_in_bounds (&self.tiles, location));
 
-        self.tiles[location.0][location.1].add_status (status)
+        let is_added: bool = self.tiles[location.0][location.1].add_status (status);
+
+        if let Trigger::None = status.get_trigger () {
+            self.update_adjacency (location);
+        }
+
+        is_added
     }
 
     fn try_yield_appliable (&self, location: &Location) -> Option<Box<dyn Appliable>> {
@@ -534,6 +621,11 @@ impl Observer for Grid {
 
                 Some (Response::GridTryYieldAppliable (change))
             }
+            Message::GridFindDistanceBetween (u0, u1) => {
+                let distance: usize = self.find_distance_between (&u0, &u1);
+
+                Some (Response::GridFindDistanceBetween (distance))
+            }
             _ => None,
         }
     }
@@ -586,6 +678,8 @@ impl fmt::Display for Grid {
 #[cfg (test)]
 pub mod tests {
     use super::*;
+    use crate::character::unit::tests::{generate_factions, generate_units};
+    use crate::event::{EVENT_FACTION_ADD_FOLLOWER, EVENT_FACTION_ADD_MEMBER, EVENT_FACTION_GET_FOLLOWERS, EVENT_FACTION_GET_LEADER, EVENT_FACTION_IS_MEMBER, EVENT_GRID_FIND_DISTANCE_BETWEEN, EVENT_UNIT_GET_FACTION_ID, EVENT_UNIT_TRY_ADD_PASSIVE};
     use crate::map::TileBuilder;
     use crate::event::handler::tests::generate_handler;
     use crate::tests::generate_lists;
@@ -696,36 +790,69 @@ pub mod tests {
     }
 
     #[test]
-    fn grid_is_movable () {
+    fn grid_find_nearest_placeable () {
         let handler = generate_handler ();
         let grid = generate_grid (Rc::downgrade (&handler));
 
-        assert_eq! (grid.borrow ().try_move (&(0, 0), Direction::Up), None);
-        assert_eq! (grid.borrow ().try_move (&(0, 0), Direction::Right).unwrap (), ((0, 1), 2));
-        assert_eq! (grid.borrow ().try_move (&(0, 0), Direction::Left), None);
-        assert_eq! (grid.borrow ().try_move (&(0, 0), Direction::Down), None); // Test not climbable
-        assert_eq! (grid.borrow ().try_move (&(0, 1), Direction::Up), None);
-        assert_eq! (grid.borrow ().try_move (&(0, 1), Direction::Right).unwrap (), ((0, 2), 2));
-        assert_eq! (grid.borrow ().try_move (&(0, 1), Direction::Left).unwrap (), ((0, 0), 2));
-        assert_eq! (grid.borrow ().try_move (&(0, 1), Direction::Down).unwrap (), ((1, 1), 2));
-        assert_eq! (grid.borrow ().try_move (&(0, 2), Direction::Up), None);
-        assert_eq! (grid.borrow ().try_move (&(0, 2), Direction::Right), None);
-        assert_eq! (grid.borrow ().try_move (&(0, 2), Direction::Left).unwrap (), ((0, 1), 2));
-        assert_eq! (grid.borrow ().try_move (&(0, 2), Direction::Down), None); // Test impassable
+        grid.borrow_mut ().faction_units = generate_faction_units ();
+        // Test empty find
+        assert_eq! (grid.borrow ().find_nearest_placeable (&(0, 0)), (0, 0));
+        // Test non-empty find
+        grid.borrow_mut ().place_unit (0, (0, 0));
+        assert! (grid.borrow ().find_nearest_placeable (&(0, 0)) == (0, 1)
+            || grid.borrow ().find_nearest_placeable (&(0, 0)) == (1, 0)
+        );
+    }
 
-        assert_eq! (grid.borrow ().try_move (&(1, 0), Direction::Up), None); // Test not climbable
-        assert_eq! (grid.borrow ().try_move (&(1, 0), Direction::Right).unwrap (), ((1, 1), 3));
-        assert_eq! (grid.borrow ().try_move (&(1, 0), Direction::Left), None);
-        assert_eq! (grid.borrow ().try_move (&(1, 0), Direction::Down), None);
-        assert_eq! (grid.borrow ().try_move (&(1, 1), Direction::Up).unwrap (), ((0, 1), 1));
-        assert_eq! (grid.borrow ().try_move (&(1, 1), Direction::Right), None); // Test impassable
-        assert_eq! (grid.borrow ().try_move (&(1, 1), Direction::Left).unwrap (), ((1, 0), 3));
-        assert_eq! (grid.borrow ().try_move (&(1, 1), Direction::Down), None);
-        // Test impassable
-        assert_eq! (grid.borrow ().try_move (&(1, 2), Direction::Up), None);
-        assert_eq! (grid.borrow ().try_move (&(1, 2), Direction::Right), None);
-        assert_eq! (grid.borrow ().try_move (&(1, 2), Direction::Left), None);
-        assert_eq! (grid.borrow ().try_move (&(1, 2), Direction::Down), None);
+    #[test]
+    fn grid_find_distance_between () {
+        let handler = generate_handler ();
+        let grid = generate_grid (Rc::downgrade (&handler));
+
+        grid.borrow_mut ().faction_units = generate_faction_units ();
+        grid.borrow_mut ().place_unit (0, (0, 0));
+        grid.borrow_mut ().place_unit (1, (0, 1));
+        grid.borrow_mut ().place_unit (2, (1, 1));
+        assert_eq! (grid.borrow ().find_distance_between (&0, &1), 1);
+        assert_eq! (grid.borrow ().find_distance_between (&1, &0), 1);
+        assert_eq! (grid.borrow ().find_distance_between (&0, &2), 2);
+        assert_eq! (grid.borrow ().find_distance_between (&2, &0), 2);
+        assert_eq! (grid.borrow ().find_distance_between (&1, &2), 1);
+        assert_eq! (grid.borrow ().find_distance_between (&2, &1), 1);
+    }
+
+    #[test]
+    fn grid_try_spawn_recruit () {
+        let handler = generate_handler ();
+        let (unit_0, unit_1, _) = generate_units (Rc::clone (&handler));
+        let grid = generate_grid (Rc::downgrade (&handler));
+        let (faction_0, _) = generate_factions (Rc::clone (&handler));
+        let grid_id = handler.borrow_mut ().register (Rc::clone (&grid) as Rc<RefCell<dyn Observer>>);
+        let unit_0_id = handler.borrow_mut ().register (Rc::clone (&unit_0) as Rc<RefCell<dyn Observer>>);
+        let unit_1_id = handler.borrow_mut ().register (Rc::clone (&unit_1) as Rc<RefCell<dyn Observer>>);
+        let faction_0_id = handler.borrow_mut ().register (Rc::clone (&faction_0) as Rc<RefCell<dyn Observer>>);
+
+        handler.borrow_mut ().subscribe (grid_id, EVENT_GRID_FIND_DISTANCE_BETWEEN);
+        handler.borrow_mut ().subscribe (unit_0_id, EVENT_UNIT_GET_FACTION_ID);
+        handler.borrow_mut ().subscribe (unit_1_id, EVENT_UNIT_GET_FACTION_ID);
+        handler.borrow_mut ().subscribe (unit_1_id, EVENT_UNIT_TRY_ADD_PASSIVE);
+        handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_IS_MEMBER);
+        handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_ADD_MEMBER);
+        handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_ADD_FOLLOWER);
+        handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_GET_LEADER);
+        handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_GET_FOLLOWERS);
+        grid.borrow_mut ().place_unit (0, (0, 1));
+        faction_0.borrow ().add_follower (0, 0);
+
+        grid.borrow_mut ().move_unit (0, vec![Direction::Left]);
+        assert! (grid.borrow ().get_unit_location (&1).unwrap () == &(0, 1)
+            || grid.borrow ().get_unit_location (&1).unwrap () == &(1, 0)
+        );
+        assert_eq! (faction_0.borrow ().is_member (&1), true);
+        assert_eq! (faction_0.borrow ().get_leader (&1), 0);
+        assert_eq! (faction_0.borrow ().get_followers (&0).len (), 2);
+        assert_eq! (faction_0.borrow ().get_followers (&0).contains (&0), true);
+        assert_eq! (faction_0.borrow ().get_followers (&0).contains (&1), true);
     }
 
     #[test]
@@ -812,11 +939,11 @@ pub mod tests {
 
         grid.borrow_mut ().tiles = tiles_updated;
         // Test impassable update
-        grid.borrow_mut ().update_adjacency (&(0, 0));
+        grid.borrow ().update_adjacency (&(0, 0));
         assert_eq! (grid.borrow ().try_move (&(0, 1), Direction::Left), None);
         assert_eq! (grid.borrow ().try_move (&(1, 0), Direction::Up), None);
         // Test passable update
-        grid.borrow_mut ().update_adjacency (&(1, 2));
+        grid.borrow ().update_adjacency (&(1, 2));
         assert_eq! (grid.borrow ().try_move (&(0, 2), Direction::Down).unwrap (), ((1, 2), 1));
         assert_eq! (grid.borrow ().try_move (&(1, 1), Direction::Right).unwrap (), ((1, 2), 2));
     }
@@ -1027,6 +1154,13 @@ pub mod tests {
 
         assert_eq! (grid.borrow ().add_status (&(0, 0), status_0), false);
         assert_eq! (grid.borrow ().add_status (&(0, 0), status_2), true);
-        assert_eq! (grid.borrow ().add_status (&(0, 0), status_3), true);
+        let cost_down_0: u8 = grid.borrow ().adjacencies.borrow ()[0][0][Direction::Down as usize];
+        let cost_left_0: u8 = grid.borrow ().adjacencies.borrow ()[1][1][Direction::Left as usize];
+        assert_eq! (grid.borrow ().add_status (&(1, 0), status_3), true);
+        let cost_down_1: u8 = grid.borrow ().adjacencies.borrow ()[0][0][Direction::Down as usize];
+        let cost_left_1: u8 = grid.borrow ().adjacencies.borrow ()[1][1][Direction::Left as usize];
+        assert_eq! (cost_down_0, 0);
+        assert_eq! (cost_down_1, 0);
+        assert! (cost_left_0 > cost_left_1);
     }
 }

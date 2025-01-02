@@ -16,6 +16,7 @@ pub struct Tile {
     terrain_id: ID,
     height: u8,
     city_id: Option<ID>,
+    is_recruited: bool,
 }
 
 impl Tile {
@@ -24,8 +25,9 @@ impl Tile {
         let modifier: Cell<Option<Modifier>> = Cell::new (modifier);
         let status: Option<Status> = None;
         let status: Cell<Option<Status>> = Cell::new (status);
+        let is_recruited: bool = false;
 
-        Self { lists, modifier, status, terrain_id, height, city_id }
+        Self { lists, modifier, status, terrain_id, height, city_id, is_recruited }
     }
 
     pub fn get_cost (&self) -> u8 {
@@ -89,6 +91,14 @@ impl Tile {
 
     pub fn get_city_id (&self) -> Option<ID> {
         self.city_id
+    }
+
+    pub fn is_recruited (&self) -> bool {
+        self.is_recruited
+    }
+
+    pub fn set_recruited (&mut self, is_recruited: bool) -> () {
+        self.is_recruited = is_recruited;
     }
 }
 

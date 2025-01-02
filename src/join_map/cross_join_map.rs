@@ -1,4 +1,5 @@
-use std::{collections::{HashMap, HashSet}, hash::Hash};
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
 /*
  * Map that behaves like a cross join:

@@ -9,7 +9,6 @@ mod skill;
 pub use self::skill::Skill;
 
 pub mod unit;
-pub use self::unit::Action;
 pub use self::unit::UnitStatistic;
 pub use self::unit::UnitStatistics;
 pub use self::unit::Unit;

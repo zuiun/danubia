@@ -8,7 +8,7 @@ pub mod character;
 mod lists;
 
 use std::rc::Rc;
-use common::ID;
+use common::{ID, ID_UNINITIALISED};
 use character::{FactionBuilder, Magic, Skill, UnitBuilder, Weapon};
 use dynamic::{Effect, ModifierBuilder, Status};
 use event::Handler;

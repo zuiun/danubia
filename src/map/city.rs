@@ -1,4 +1,4 @@
-use crate::common::{ID, ID_UNINITIALISED};
+use crate::common::ID;
 
 pub const WORKERS_FACTORY: f32 = 4.0;
 pub const WORKERS_FARM: f32 = 1.5;
@@ -11,15 +11,16 @@ pub struct City {
     population: u16, // (thousands)
     factories: u16,
     farms: u16,
+    recruit_id: ID,
 }
 
 impl City {
-    pub const fn new (population: u16, factories: u16, farms: u16) -> Self {
+    pub const fn new (population: u16, factories: u16, farms: u16, recruit_id: ID) -> Self {
         assert! (population > 0);
         assert! (factories > 0);
         assert! (farms > 0);
 
-        Self { population, factories, farms }
+        Self { population, factories, farms, recruit_id }
     }
 
     pub const fn get_workers (&self) -> u16 {
@@ -62,6 +63,10 @@ impl City {
 
     pub fn get_farms (&self) -> u16 {
         self.farms
+    }
+
+    pub fn get_recruit_id (&self) -> ID {
+        self.recruit_id
     }
 }
 

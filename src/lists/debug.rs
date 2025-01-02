@@ -1,5 +1,6 @@
+use crate::character::unit::Rank;
 use crate::character::{FactionBuilder, Magic, Skill, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
-use crate::common::{Capacity, DURATION_PERMANENT, Target};
+use crate::common::{Capacity, Target, DURATION_PERMANENT, ID_UNINITIALISED};
 use crate::dynamic::{Change, Effect, ModifierBuilder, StatisticType, Status, Trigger};
 use crate::map::{Area, City, Terrain};
 
@@ -56,15 +57,15 @@ pub const STATUSES: [Status; 8] = [
     Status::new (7, Change::Modifier (6, false), Trigger::OnAttack, DURATION_PERMANENT, Target::Enemy, false, None), // poison_permanent
 ];
 pub const TERRAINS: [Terrain; 3] = [
-    Terrain::new (Vec::new (), 1), // passable_1
-    Terrain::new (Vec::new (), 2), // passable_2
-    Terrain::new (Vec::new (), 0), // impassable
+    Terrain::new (ID_UNINITIALISED, 1), // passable_1
+    Terrain::new (3, 2), // passable_2
+    Terrain::new (ID_UNINITIALISED, 0), // impassable
 ];
 pub const CITIES: [City; 4] = [
-    City::new (100, 1, 1),
-    City::new (100, 2, 1), // recover_spl
-    City::new (100, 1, 2), // recover_hlt
-    City::new (100, 2, 2),
+    City::new (100, 1, 1, 1),
+    City::new (100, 2, 1, ID_UNINITIALISED), // recover_spl
+    City::new (100, 1, 2, ID_UNINITIALISED), // recover_hlt
+    City::new (100, 2, 2, ID_UNINITIALISED),
 ];
 pub const WEAPONS: [Weapon; 3] = [
     Weapon::new ([2, 1, 1, 0], Area::Single, 1), // single
@@ -90,18 +91,23 @@ pub const FACTION_BUILDERS: [FactionBuilder; 3] = [
 ];
 pub const UNIT_BUILDERS: [UnitBuilder; 5] = [
     UnitBuilder::new (0,
-            UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-            [false, false, false], [0, 2, 3], [0, 0], 0),
+        UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
+        [0, 0], 1, [0, 2, 3], [false, false, false], 0, Rank::Leader
+    ),
     UnitBuilder::new (1,
-            UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-            [false, false, false], [0, 1, 2], [0, 0], 0),
+        UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
+        [0, 0], ID_UNINITIALISED, [0, 2, 3], [false, false, false], 0, Rank::Follower (ID_UNINITIALISED)
+    ),
     UnitBuilder::new (2,
-            UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-            [false, false, false], [0, 2, 3], [1, 2], 1),
+        UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
+        [1, 2], 1, [0, 2, 3], [false, false, false], 1, Rank::Leader
+    ),
     UnitBuilder::new (3,
-            UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-            [false, false, false], [0, 2, 3], [0, 0], 0),
+        UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
+        [0, 0], 1, [0, 2, 3], [false, false, false], 0, Rank::Leader
+    ),
     UnitBuilder::new (4,
-            UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-            [false, false, false], [0, 2, 3], [0, 0], 2),
+        UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
+        [0, 0], 1, [0, 2, 3], [false, false, false], 2, Rank::Leader
+    ),
 ];

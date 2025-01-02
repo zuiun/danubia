@@ -1,4 +1,5 @@
-use std::{collections::{HashMap, HashSet}, hash::Hash};
+use std::collections::HashMap;
+use std::hash::Hash;
 
 /*
  * Map that behaves like an inner join:
