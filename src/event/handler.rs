@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use crate::join_map::CrossJoinMap;
 use super::*;
+use crate::collections::CrossJoinMap;
 
 // Handler needs to own all observers
 #[derive (Debug)]
@@ -14,6 +14,7 @@ pub struct Handler {
 }
 
 impl Handler {
+    #[allow (clippy::new_without_default)]
     pub fn new () -> Self {
         let id_observers: HashMap<ID, Rc<RefCell<dyn Observer>>> = HashMap::new ();
         let message_observers: CrossJoinMap<ID, ID> = CrossJoinMap::new ();
@@ -51,7 +52,7 @@ impl Handler {
             Some (c) => {
                 c.iter ().filter_map (|o: &ID|
                     self.id_observers.get (o)
-                            .expect (&format! ("Observer not found for ID {:?}", o))
+                            .unwrap_or_else (|| panic! ("Observer not found for ID {:?}", o))
                             .borrow ()
                             .respond (message)
                 ).collect::<Vec<Response>> ()
@@ -60,19 +61,19 @@ impl Handler {
         }
     }
 
-    pub fn reduce_responses (responses: &Vec<Response>) -> &Response {
+    pub fn reduce_responses (responses: &[Response]) -> &Response {
         assert! (responses.len () == 1);
 
-        responses.get (0)
+        responses.first ()
                 .expect ("Response not found")
     }
 }
 
 #[cfg (test)]
 pub mod tests {
-    use super::*;
     use std::cell::{Cell, RefCell};
     use std::rc::{Rc, Weak};
+    use super::*;
     use crate::common::ID_UNINITIALISED;
 
     #[derive (Debug)]
@@ -134,11 +135,11 @@ pub mod tests {
     pub fn generate_handler () -> Rc<RefCell<Handler>> {
         let handler = Handler::new ();
         let handler = RefCell::new (handler);
-        let handler = Rc::new (handler);
 
-        handler
+        Rc::new (handler)
     }
 
+    #[allow (clippy::type_complexity)]
     fn generate_things (handler: Rc<RefCell<Handler>>) -> (Rc<RefCell<dyn Observer>>, Rc<RefCell<dyn Observer>>) {
         let thing_0 = Thing::new (Rc::downgrade (&handler));
         let thing_0 = RefCell::new (thing_0);
@@ -157,10 +158,10 @@ pub mod tests {
 
         // Test empty register
         assert_eq! (handler.borrow_mut ().register (thing_0), 0);
-        assert! (matches! (handler.borrow ().id_observers.get (&0), Some { .. }));
+        assert! (handler.borrow ().id_observers.contains_key (&0));
         // Test non-empty register
         assert_eq! (handler.borrow_mut ().register (thing_1), 1);
-        assert! (matches! (handler.borrow ().id_observers.get (&1), Some { .. }));
+        assert! (handler.borrow ().id_observers.contains_key (&1));
         assert_eq! (handler.borrow ().id, 2);
     }
 
@@ -170,11 +171,11 @@ pub mod tests {
         let (thing_0, _) = generate_things (Rc::clone (&handler));
 
         // Test empty deregister
-        assert_eq! (handler.borrow_mut ().deregister (&0), false);
+        assert! (!handler.borrow_mut ().deregister (&0));
         // Test non-empty deregister
         handler.borrow_mut ().register (thing_0);
-        assert_eq! (handler.borrow_mut ().deregister (&0), true);
-        assert! (matches! (handler.borrow ().id_observers.get (&0), None));
+        assert! (handler.borrow_mut ().deregister (&0));
+        assert! (!handler.borrow ().id_observers.contains_key (&0));
     }
 
     #[test]
@@ -185,16 +186,16 @@ pub mod tests {
         handler.borrow_mut ().register (thing_0);
         handler.borrow_mut ().register (thing_1);
         // Test empty subscribe
-        assert_eq! (handler.borrow_mut ().subscribe (0, 0), true);
+        assert! (handler.borrow_mut ().subscribe (0, 0));
         assert_eq! (handler.borrow ().message_observers.get_first (&0).unwrap ().len (), 1);
         // Test non-empty subscribe
-        assert_eq! (handler.borrow_mut ().subscribe (1, 0), true);
+        assert! (handler.borrow_mut ().subscribe (1, 0));
         assert_eq! (handler.borrow ().message_observers.get_first (&0).unwrap ().len (), 2);
         // Test conflicting subscribe
-        assert_eq! (handler.borrow_mut ().subscribe (1, 0), false);
+        assert! (!handler.borrow_mut ().subscribe (1, 0));
         assert_eq! (handler.borrow ().message_observers.get_first (&0).unwrap ().len (), 2);
         // Test multiple subscribe
-        assert_eq! (handler.borrow_mut ().subscribe (1, 1), true);
+        assert! (handler.borrow_mut ().subscribe (1, 1));
         assert_eq! (handler.borrow ().message_observers.get_first (&0).unwrap ().len (), 2);
         assert_eq! (handler.borrow ().message_observers.get_first (&1).unwrap ().len (), 1);
     }
@@ -207,20 +208,20 @@ pub mod tests {
         handler.borrow_mut ().register (thing_0);
         handler.borrow_mut ().register (thing_1);
         // Test empty unsubscribe
-        assert_eq! (handler.borrow_mut ().unsubscribe (&0, &0), false);
+        assert! (!handler.borrow_mut ().unsubscribe (&0, &0));
         // Test non-empty unsubscribe
         handler.borrow_mut ().subscribe (0, 0);
-        assert_eq! (handler.borrow_mut ().unsubscribe (&0, &0), true);
+        assert! (handler.borrow_mut ().unsubscribe (&0, &0));
         assert_eq! (handler.borrow ().message_observers.get_first (&0).unwrap ().len (), 0);
         // Test conflicting unsubscribe
         handler.borrow_mut ().subscribe (0, 0);
         handler.borrow_mut ().subscribe (1, 0);
-        assert_eq! (handler.borrow_mut ().unsubscribe (&0, &0), true);
+        assert! (handler.borrow_mut ().unsubscribe (&0, &0));
         assert_eq! (handler.borrow ().message_observers.get_first (&0).unwrap ().len (), 1);
         // Test multiple unsubscribe
         handler.borrow_mut ().subscribe (0, 0);
         handler.borrow_mut ().subscribe (0, 1);
-        assert_eq! (handler.borrow_mut ().unsubscribe (&0, &0), true);
+        assert! (handler.borrow_mut ().unsubscribe (&0, &0));
         assert_eq! (handler.borrow ().message_observers.get_first (&0).unwrap ().len (), 1);
         assert_eq! (handler.borrow ().message_observers.get_first (&1).unwrap ().len (), 1);
     }
@@ -239,18 +240,18 @@ pub mod tests {
         handler.borrow_mut ().subscribe (0, 0);
         let responses: Vec<Response> = handler.borrow ().notify (Message::TestAdd);
         assert_eq! (responses.len (), 1);
-        assert_eq! (responses.contains (&Response::TestAdd (1)), true);
+        assert! (responses.contains (&Response::TestAdd (1)));
         assert! (matches! (responses[0], Response::TestAdd (1)));
         // Test conflicting notify
         handler.borrow_mut ().subscribe (0, 1);
         let responses: Vec<Response> = handler.borrow ().notify (Message::TestSubtract);
         assert_eq! (responses.len (), 1);
-        assert_eq! (responses.contains (&Response::TestSubtract (0)), true);
+        assert! (responses.contains (&Response::TestSubtract (0)));
         // Test multiple notify
         handler.borrow_mut ().subscribe (1, 0);
         let responses: Vec<Response> = handler.borrow ().notify (Message::TestAdd);
         assert_eq! (responses.len (), 2);
-        assert_eq! (responses.contains (&Response::TestAdd (2)), true);
-        assert_eq! (responses.contains (&Response::TestAdd (1)), true);
+        assert! (responses.contains (&Response::TestAdd (2)));
+        assert! (responses.contains (&Response::TestAdd (1)));
     }
 }

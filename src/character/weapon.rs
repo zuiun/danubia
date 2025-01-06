@@ -1,10 +1,9 @@
-use std::cell::Cell;
 use std::rc::Rc;
+use super::Tool;
 use crate::Lists;
 use crate::common::{ID, Target, Timed};
 use crate::dynamic::{Appliable, Applier, Change, Changeable, Status, Trigger};
 use crate::map::Area;
-use super::Tool;
 
 type WeaponStatistics = [u8; WeaponStatistic::Length as usize];
 
@@ -19,18 +18,17 @@ pub enum WeaponStatistic {
 }
 
 #[derive (Debug)]
-#[derive (Clone)]
+#[derive (Clone, Copy)]
 pub struct Weapon {
     statistics: WeaponStatistics,
     area: Area,
     range: u8,
-    status: Cell<Option<Status>>,
+    status: Option<Status>,
 }
 
 impl Weapon {
     pub const fn new (statistics: WeaponStatistics, area: Area, range: u8) -> Self {
         let status: Option<Status> = None;
-        let status: Cell<Option<Status>> = Cell::new (status);
 
         Self { statistics, area, range, status }
     }
@@ -58,19 +56,17 @@ impl Tool for Weapon {
 }
 
 impl Changeable for Weapon {
-    fn add_appliable (&self, _appliable: Box<dyn Appliable>) -> bool {
+    fn add_appliable (&mut self, _appliable: Box<dyn Appliable>) -> bool {
         unimplemented! ()
     }
 
-    fn add_status (&self, status: Status) -> bool {
+    fn add_status (&mut self, status: Status) -> bool {
         assert! (status.get_next_id ().is_none ()); // Weapons don't support linked statuses
 
         if let Change::Modifier ( .. ) = status.get_change () {
-            let target: Target = status.get_target ();
-
-            if let Target::Enemy = target {
+            if let Target::Enemy = status.get_target () {
                 if let Trigger::OnAttack = status.get_trigger () {
-                    self.status.replace (Some (status));
+                    self.status = Some (status);
 
                     true
                 } else {
@@ -84,14 +80,14 @@ impl Changeable for Weapon {
         }
     }
 
-    fn remove_modifier (&self, _modifier_id: &ID) -> bool {
+    fn remove_modifier (&mut self, _modifier_id: &ID) -> bool {
         unimplemented! () 
     }
 
-    fn remove_status (&self, status_id: &ID) -> bool {
-        if let Some (s) = self.status.get () {
+    fn remove_status (&mut self, status_id: &ID) -> bool {
+        if let Some (s) = self.status {
             if s.get_id () == *status_id {
-                self.status.replace (None);
+                self.status = None;
 
                 true
             } else {
@@ -102,22 +98,22 @@ impl Changeable for Weapon {
         }
     }
 
-    fn dec_durations (&self) -> () {
-        if let Some (mut s) = self.status.get () {
-            let status: Option<Status> = if s.dec_duration () {
+    fn decrement_durations (&mut self) {
+        if let Some (mut s) = self.status {
+            let status: Option<Status> = if s.decrement_duration () {
                 None
             } else {
                 Some (s)
             };
 
-            self.status.replace (status);
+            self.status = status;
         }
     }
 }
 
 impl Applier for Weapon {
     fn try_yield_appliable (&self, lists: Rc<Lists>) -> Option<Box<dyn Appliable>> {
-        self.status.get ().and_then (|s: Status| s.try_yield_appliable (lists))
+        self.status.and_then (|s: Status| s.try_yield_appliable (lists))
     }
 
     fn get_target (&self) -> Target {
@@ -132,49 +128,59 @@ mod tests {
 
     fn generate_statuses () -> (Status, Status) {
         let lists = generate_lists ();
-        let status_6 = lists.get_status (&6).clone ();
-        let status_7 = lists.get_status (&7).clone ();
+        let status_6 = *lists.get_status (&6);
+        let status_7 = *lists.get_status (&7);
 
         (status_6, status_7)
     }
 
     #[test]
-    fn weapon_remove_status () {
+    fn weapon_add_status () {
         let lists = generate_lists ();
-        let weapon = lists.get_weapon (&0).clone ();
+        let mut weapon = *lists.get_weapon (&0);
         let (status_6, _) = generate_statuses ();
-    
-        // Test empty remove
-        assert_eq! (weapon.remove_status (&6), false);
-        assert_eq! (weapon.status.get (), None);
-        // Test non-empty remove
-        weapon.add_status (status_6);
-        assert_eq! (weapon.remove_status (&6), true);
-        assert_eq! (weapon.status.get (), None);
+
+        assert! (weapon.add_status (status_6));
+        assert! (weapon.status.is_some ());
     }
 
     #[test]
-    fn weapon_dec_durations () {
+    fn weapon_remove_status () {
         let lists = generate_lists ();
-        let weapon = lists.get_weapon (&0).clone ();
+        let mut weapon = *lists.get_weapon (&0);
+        let (status_6, _) = generate_statuses ();
+    
+        // Test empty remove
+        assert! (!weapon.remove_status (&6));
+        assert! (weapon.status.is_none ());
+        // Test non-empty remove
+        weapon.add_status (status_6);
+        assert! (weapon.remove_status (&6));
+        assert! (weapon.status.is_none ());
+    }
+
+    #[test]
+    fn weapon_decrement_durations () {
+        let lists = generate_lists ();
+        let mut weapon = *lists.get_weapon (&0);
         let (status_6, status_7) = generate_statuses ();
 
         // Test empty status
-        weapon.dec_durations ();
-        assert! (matches! (weapon.status.get (), None));
+        weapon.decrement_durations ();
+        assert! (weapon.status.is_none ());
         // Test timed status
         weapon.add_status (status_6);
-        weapon.dec_durations ();
-        assert! (matches! (weapon.status.get (), Some { .. }));
-        weapon.dec_durations ();
-        assert! (matches! (weapon.status.get (), Some { .. }));
-        weapon.dec_durations ();
-        assert! (matches! (weapon.status.get (), None));
+        weapon.decrement_durations ();
+        assert! (weapon.status.is_some ());
+        weapon.decrement_durations ();
+        assert! (weapon.status.is_some ());
+        weapon.decrement_durations ();
+        assert! (weapon.status.is_none ());
         // Test permanent status
         weapon.add_status (status_7);
-        weapon.dec_durations ();
-        assert! (matches! (weapon.status.get (), Some { .. }));
-        weapon.dec_durations ();
-        assert! (matches! (weapon.status.get (), Some { .. }));
+        weapon.decrement_durations ();
+        assert! (weapon.status.is_some ());
+        weapon.decrement_durations ();
+        assert! (weapon.status.is_some ());
     }
 }

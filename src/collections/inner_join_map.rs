@@ -14,7 +14,7 @@ pub struct InnerJoinMap<T, U> {
 }
 
 impl<T, U> InnerJoinMap<T, U>
-where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + Hash {
+where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
     pub fn new () -> Self {
         let map_first: HashMap<T, U> = HashMap::new ();
         let map_second: HashMap<U, T> = HashMap::new ();
@@ -65,7 +65,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
         let original_first: U = self.map_first.remove (&value)?;
         let original_second: Option<T> = match self.map_second.get (&destination) {
             Some (k) => {
-                self.map_first.remove (&k);
+                self.map_first.remove (k);
 
                 self.map_second.remove (&destination)
             }
@@ -82,7 +82,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
         let original_second: T = self.map_second.remove (&value)?;
         let original_first: Option<U> = match self.map_first.get (&destination) {
             Some (k) => {
-                self.map_second.remove (&k);
+                self.map_second.remove (k);
 
                 self.map_first.remove (&destination)
             }
@@ -104,12 +104,19 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     }
 }
 
+impl<T, U> Default for InnerJoinMap<T, U>
+where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
+    fn default () -> Self {
+        Self::new ()
+    }
+}
+
 #[cfg (test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn duplicate_inner_map_insert () {
+    fn inner_join_map_insert () {
         let mut map: InnerJoinMap<u8, (u8, u8)> = InnerJoinMap::new ();
 
         // Test empty insert
@@ -117,17 +124,17 @@ mod tests {
         // Test non-colliding insert
         assert_eq! (map.insert ((1, (1, 1))).unwrap (), (None, None));
         // Test colliding insert
-        assert_eq! (map.insert ((0, (1, 1))), None);
-        assert_eq! (map.insert ((1, (0, 0))), None);
+        assert! (map.insert ((0, (1, 1))).is_none ());
+        assert! (map.insert ((1, (0, 0))).is_none ());
     }
 
     #[test]
-    fn duplicate_inner_map_get () {
+    fn inner_join_map_get () {
         let mut map: InnerJoinMap<u8, (u8, u8)> = InnerJoinMap::new ();
 
         // Test empty get
-        assert_eq! (map.get_first (&0), None);
-        assert_eq! (map.get_second (&(0, 0)), None);
+        assert! (map.get_first (&0).is_none ());
+        assert! (map.get_second (&(0, 0)).is_none ());
         // Test non-empty get
         map.insert ((0, (0, 0)));
         assert_eq! (map.get_first (&0).unwrap (), &(0, 0));
@@ -141,67 +148,67 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_inner_map_remove () {
+    fn inner_join_map_remove () {
         let mut map: InnerJoinMap<u8, (u8, u8)> = InnerJoinMap::new ();
 
         // Test empty remove
-        assert_eq! (map.remove_first (&0), None);
-        assert_eq! (map.remove_second (&(0, 0)), None);
+        assert! (map.remove_first (&0).is_none ());
+        assert! (map.remove_second (&(0, 0)).is_none ());
         // Test non-empty remove
         map.insert ((0, (0, 0)));
         assert_eq! (map.remove_first (&0).unwrap (), (0, 0));
-        assert_eq! (map.get_first (&0), None);
-        assert_eq! (map.get_second (&(0, 0)), None);
+        assert! (map.get_first (&0).is_none ());
+        assert! (map.get_second (&(0, 0)).is_none ());
         map.insert ((1, (1, 1)));
         assert_eq! (map.remove_second (&(1, 1)).unwrap (), 1);
-        assert_eq! (map.get_first (&1), None);
-        assert_eq! (map.get_second (&(1, 1)), None);
+        assert! (map.get_first (&1).is_none ());
+        assert! (map.get_second (&(1, 1)).is_none ());
     }
 
     #[test]
-    fn duplicate_inner_map_replace () {
+    fn inner_join_map_replace () {
         let mut map: InnerJoinMap<u8, (u8, u8)> = InnerJoinMap::new ();
 
         // Test empty replace
-        assert_eq! (map.replace_first (0, (0, 0)), None);
-        assert_eq! (map.replace_second ((0, 0), 0), None);
+        assert! (map.replace_first (0, (0, 0)).is_none ());
+        assert! (map.replace_second ((0, 0), 0).is_none ());
         // Test partial replace
         map.insert ((1, (0, 0)));
         assert_eq! (map.replace_first (1, (1, 1)).unwrap (), ((0, 0), None));
         assert_eq! (map.get_first (&1).unwrap (), &(1, 1));
         assert_eq! (map.get_second (&(1, 1)).unwrap (), &1);
-        assert_eq! (map.get_second (&(0, 0)), None);
+        assert! (map.get_second (&(0, 0)).is_none ());
         map.insert ((0, (2, 2)));
         assert_eq! (map.replace_second ((2, 2), 2).unwrap (), (0, None));
         assert_eq! (map.get_first (&2).unwrap (), &(2, 2));
         assert_eq! (map.get_second (&(2, 2)).unwrap (), &2);
-        assert_eq! (map.get_first (&0), None);
+        assert! (map.get_first (&0).is_none ());
         // Test complete replace
         assert_eq! (map.replace_first (1, (2, 2)).unwrap (), ((1, 1), Some (2)));
         assert_eq! (map.get_first (&1).unwrap (), &(2, 2));
         assert_eq! (map.get_second (&(2, 2)).unwrap (), &1);
-        assert_eq! (map.get_first (&2), None);
-        assert_eq! (map.get_second (&(1, 1)), None);
+        assert! (map.get_first (&2).is_none ());
+        assert! (map.get_second (&(1, 1)).is_none ());
         map.insert ((3, (3, 3)));
         assert_eq! (map.replace_second ((2, 2), 3).unwrap (), (1, Some ((3, 3))));
         assert_eq! (map.get_first (&3).unwrap (), &(2, 2));
         assert_eq! (map.get_second (&(2, 2)).unwrap (), &3);
-        assert_eq! (map.get_first (&1), None);
-        assert_eq! (map.get_second (&(3, 3)), None);
+        assert! (map.get_first (&1).is_none ());
+        assert! (map.get_second (&(3, 3)).is_none ());
     }
 
     #[test]
-    fn duplicate_inner_map_contains_key () {
+    fn inner_join_map_contains_key () {
         let mut map: InnerJoinMap<u8, (u8, u8)> = InnerJoinMap::new ();
 
         // Test empty contains
-        assert_eq! (map.contains_key_first (&0), false);
-        assert_eq! (map.contains_key_second (&(0, 0)), false);
+        assert! (!map.contains_key_first (&0));
+        assert! (!map.contains_key_second (&(0, 0)));
         // Test non-empty contains
         map.insert ((0, (0, 0)));
-        assert_eq! (map.contains_key_first (&0), true);
-        assert_eq! (map.contains_key_second (&(0, 0)), true);
-        assert_eq! (map.contains_key_first (&1), false);
-        assert_eq! (map.contains_key_second (&(1, 1)), false);
+        assert! (map.contains_key_first (&0));
+        assert! (map.contains_key_second (&(0, 0)));
+        assert! (!map.contains_key_first (&1));
+        assert! (!map.contains_key_second (&(1, 1)));
     }
 }

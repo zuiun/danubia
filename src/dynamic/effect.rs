@@ -1,5 +1,5 @@
-use crate::common::ID;
 use super::{Adjustments, Appliable, Change, Modifier};
+use crate::common::ID;
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]

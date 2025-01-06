@@ -11,11 +11,11 @@ pub struct City {
     population: u16, // (thousands)
     factories: u16,
     farms: u16,
-    recruit_id: ID,
+    recruit_id: Option<ID>,
 }
 
 impl City {
-    pub const fn new (population: u16, factories: u16, farms: u16, recruit_id: ID) -> Self {
+    pub const fn new (population: u16, factories: u16, farms: u16, recruit_id: Option<ID>) -> Self {
         assert! (population > 0);
         assert! (factories > 0);
         assert! (farms > 0);
@@ -65,7 +65,7 @@ impl City {
         self.farms
     }
 
-    pub fn get_recruit_id (&self) -> ID {
+    pub fn get_recruit_id (&self) -> Option<ID> {
         self.recruit_id
     }
 }
@@ -121,7 +121,7 @@ mod tests {
         for i in 0 .. game::CITIES.len () {
             let city: &City = &game::CITIES[i];
             let information: &Information = &information::CITIES[i];
-            let name: &str = &information.get_name();
+            let name: &str = information.get_name ();
             let population: u16 = city.get_population ();
             let workers: u16 = city.get_workers ();
             let manpower: u16 = city.get_manpower ();

@@ -1,7 +1,7 @@
 use std::rc::Rc;
+use super::{Appliable, Effect, Modifier, ModifierBuilder};
 use crate::Lists;
 use crate::common::ID;
-use super::{Appliable, Effect, Modifier, ModifierBuilder};
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
@@ -14,7 +14,7 @@ impl Change {
     pub fn modifier (&self, lists: Rc<Lists>) -> Modifier {
         match self {
             Change::Modifier (m, s) => {
-                let modifier_builder: &ModifierBuilder = lists.get_modifier_builder (&m);
+                let modifier_builder: &ModifierBuilder = lists.get_modifier_builder (m);
 
                 modifier_builder.build (*s)
             }
@@ -26,7 +26,7 @@ impl Change {
         match self {
             Change::Modifier ( .. ) => unimplemented! (),
             Change::Effect (e) => {
-                lists.get_effect (&e).clone ()
+                *lists.get_effect (e)
             }
         }
     }

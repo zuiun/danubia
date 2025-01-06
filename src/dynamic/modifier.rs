@@ -1,5 +1,7 @@
-use crate::common::{Capacity, Timed, DURATION_PERMANENT, ID, ID_UNINITIALISED};
 use super::{Adjustments, Appliable, Change, Effect};
+use crate::common::{Capacity, Timed, DURATION_PERMANENT, ID, ID_UNINITIALISED};
+
+pub const MODIFIER_EMPTY: ID = ID_UNINITIALISED;
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
@@ -54,14 +56,14 @@ impl Timed for Modifier {
         }
     }
 
-    fn dec_duration (&mut self) -> bool {
+    fn decrement_duration (&mut self) -> bool {
         match self.duration {
             Capacity::Constant ( .. ) => false,
             Capacity::Quantity (d, m) => {
                 if d == 0 {
                     true
                 } else {
-                    let duration: u16 = d.checked_sub (1).unwrap_or (0);
+                    let duration: u16 = d.saturating_sub (1);
 
                     self.duration = Capacity::Quantity (duration, m);
 
@@ -80,7 +82,7 @@ impl PartialEq for Modifier {
 
 impl Default for Modifier {
     fn default () -> Self {
-        let id: ID = ID_UNINITIALISED;
+        let id: ID = MODIFIER_EMPTY;
         let adjustments: Adjustments = [None, None, None, None];
         let duration: Capacity = Capacity::Constant (1, 0, 0);
         let can_stack: bool = false;
@@ -131,20 +133,20 @@ mod tests {
     }
 
     #[test]
-    fn modifier_dec_duration () {
+    fn modifier_decrement_duration () {
         let (mut modifier_0, mut modifier_1) = generate_modifiers ();
 
         // Test timed modifier
-        assert_eq! (modifier_0.dec_duration (), false);
+        assert! (!modifier_0.decrement_duration ());
         assert_eq! (modifier_0.get_duration (), 1);
-        assert_eq! (modifier_0.dec_duration (), false);
+        assert! (!modifier_0.decrement_duration ());
         assert_eq! (modifier_0.get_duration (), 0);
-        assert_eq! (modifier_0.dec_duration (), true);
+        assert! (modifier_0.decrement_duration ());
         assert_eq! (modifier_0.get_duration (), 0);
         // Test permanent modifier
-        assert_eq! (modifier_1.dec_duration (), false);
+        assert! (!modifier_1.decrement_duration ());
         assert_eq! (modifier_1.get_duration (), DURATION_PERMANENT);
-        assert_eq! (modifier_1.dec_duration (), false);
+        assert! (!modifier_1.decrement_duration ());
         assert_eq! (modifier_1.get_duration (), DURATION_PERMANENT);
     }
 }

@@ -3,9 +3,11 @@ pub use self::faction::Faction;
 pub use self::faction::FactionBuilder;
 
 mod magic;
+pub use self::magic::Element;
 pub use self::magic::Magic;
 
 mod skill;
+pub use self::skill::Activity;
 pub use self::skill::Skill;
 
 pub mod unit;

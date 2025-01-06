@@ -14,7 +14,7 @@ pub struct CrossJoinMap<T, U> {
 }
 
 impl<T, U> CrossJoinMap<T, U>
-where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + Hash {
+where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
     pub fn new () -> Self {
         let map_first: HashMap<T, HashSet<U>> = HashMap::new ();
         let map_second: HashMap<U, HashSet<T>> = HashMap::new ();
@@ -23,32 +23,12 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     }
 
     pub fn insert (&mut self, values: (T, U)) -> bool {
-        let is_inserted_first: bool = if self.map_first.contains_key (&values.0) {
-            let collection_first: &mut HashSet<U> = match self.map_first.get_mut (&values.0) {
-                Some (c) => c,
-                None => return false,
-            };
-
-            collection_first.insert (values.1.clone ())
-        } else {
-            let mut collection_first: HashSet<U> = HashSet::new ();
-
-            collection_first.insert (values.1.clone ());
-            self.map_first.insert (values.0.clone (), collection_first).is_none ()
-        };
-        let is_inserted_second: bool = if self.map_second.contains_key (&values.1) {
-            let collection_second: &mut HashSet<T> = match self.map_second.get_mut (&values.1) {
-                Some (c) => c,
-                None => return false,
-            };
-
-            collection_second.insert (values.0)
-        } else {
-            let mut collection_second: HashSet<T> = HashSet::new ();
-
-            collection_second.insert (values.0);
-            self.map_second.insert (values.1, collection_second).is_none ()
-        };
+        let is_inserted_first: bool = self.map_first.entry (values.0.clone ())
+                .or_default ()
+                .insert (values.1.clone ());
+        let is_inserted_second: bool = self.map_second.entry (values.1)
+                .or_default ()
+                .insert (values.0);
 
         is_inserted_first || is_inserted_second
     }
@@ -113,30 +93,37 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     }
 }
 
+impl<T, U> Default for CrossJoinMap<T, U>
+where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
+    fn default () -> Self {
+        Self::new ()
+    }
+}
+
 #[cfg (test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn duplicate_cross_map_insert () {
+    fn cross_join_map_insert () {
         let mut map: CrossJoinMap<u8, (u8, u8)> = CrossJoinMap::new ();
 
         // Test empty insert
-        assert_eq! (map.insert ((0, (0, 0))), true);
+        assert! (map.insert ((0, (0, 0))));
         // Test non-colliding insert
-        assert_eq! (map.insert ((1, (1, 1))), true);
+        assert! (map.insert ((1, (1, 1))));
         // Test colliding insert
-        assert_eq! (map.insert ((1, (0, 0))), true);
-        assert_eq! (map.insert ((1, (2, 2))), true);
+        assert! (map.insert ((1, (0, 0))));
+        assert! (map.insert ((1, (2, 2))));
     }
 
     #[test]
-    fn duplicate_cross_map_get () {
+    fn cross_join_map_get () {
         let mut map: CrossJoinMap<u8, (u8, u8)> = CrossJoinMap::new ();
 
         // Test empty get
-        assert_eq! (map.get_first (&0), None);
-        assert_eq! (map.get_second (&(0, 0)), None);
+        assert! (map.get_first (&0).is_none ());
+        assert! (map.get_second (&(0, 0)).is_none ());
         // Test non-empty get
         map.insert ((0, (0, 0)));
         assert_eq! (map.get_first (&0).unwrap ().len (), 1);
@@ -158,59 +145,59 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_cross_map_remove () {
+    fn cross_join_map_remove () {
         let mut map: CrossJoinMap<u8, (u8, u8)> = CrossJoinMap::new ();
 
         // Test empty remove
-        assert_eq! (map.remove (&0, &(0, 0)), false);
-        assert_eq! (map.remove_first (&0), false);
-        assert_eq! (map.remove_second (&(0, 0)), false);
+        assert! (!map.remove (&0, &(0, 0)));
+        assert! (!map.remove_first (&0));
+        assert! (!map.remove_second (&(0, 0)));
         // Test non-empty remove
         map.insert ((0, (0, 0)));
-        assert_eq! (map.remove (&0, &(0, 0)), true);
+        assert! (map.remove (&0, &(0, 0)));
         assert_eq! (map.get_first (&0).unwrap ().len (), 0);
         assert_eq! (map.get_second (&(0, 0)).unwrap ().len (), 0);
         map.insert ((0, (0, 0)));
-        assert_eq! (map.remove_first (&0), true);
-        assert_eq! (map.get_first (&0), None);
+        assert! (map.remove_first (&0));
+        assert! (map.get_first (&0).is_none ());
         assert_eq! (map.get_second (&(0, 0)).unwrap ().len (), 0);
         map.insert ((0, (0, 0)));
-        assert_eq! (map.remove_second (&(0, 0)), true);
+        assert! (map.remove_second (&(0, 0)));
         assert_eq! (map.get_first (&0).unwrap ().len (), 0);
-        assert_eq! (map.get_second (&(0, 0)), None);
+        assert! (map.get_second (&(0, 0)).is_none ());
         // Test colliding remove
         map.insert ((0, (0, 0)));
         map.insert ((1, (0, 0)));
-        assert_eq! (map.remove (&0, &(0, 0)), true);
+        assert! (map.remove (&0, &(0, 0)));
         assert_eq! (map.get_first (&0).unwrap ().len (), 0);
         assert_eq! (map.get_first (&1).unwrap ().len (), 1);
         assert_eq! (map.get_second (&(0, 0)).unwrap ().len (), 1);
         map.insert ((0, (0, 0)));
         map.insert ((1, (0, 0)));
-        assert_eq! (map.remove_first (&0), true);
-        assert_eq! (map.get_first (&0), None);
+        assert! (map.remove_first (&0));
+        assert! (map.get_first (&0).is_none ());
         assert_eq! (map.get_first (&1).unwrap ().len (), 1);
         assert_eq! (map.get_second (&(0, 0)).unwrap ().len (), 1);
         map.insert ((0, (0, 0)));
         map.insert ((0, (1, 1)));
-        assert_eq! (map.remove_second (&(0, 0)), true);
+        assert! (map.remove_second (&(0, 0)));
         assert_eq! (map.get_first (&0).unwrap ().len (), 1);
-        assert_eq! (map.get_second (&(0, 0)), None);
+        assert! (map.get_second (&(0, 0)).is_none ());
         assert_eq! (map.get_second (&(1, 1)).unwrap ().len (), 1);
     }
 
     #[test]
-    fn duplicate_cross_map_contains_key () {
+    fn cross_join_map_contains_key () {
         let mut map: CrossJoinMap<u8, (u8, u8)> = CrossJoinMap::new ();
 
         // Test empty contains
-        assert_eq! (map.contains_key_first (&0), false);
-        assert_eq! (map.contains_key_second (&(0, 0)), false);
+        assert! (!map.contains_key_first (&0));
+        assert! (!map.contains_key_second (&(0, 0)));
         // Test non-empty contains
         map.insert ((0, (0, 0)));
-        assert_eq! (map.contains_key_first (&0), true);
-        assert_eq! (map.contains_key_second (&(0, 0)), true);
-        assert_eq! (map.contains_key_first (&1), false);
-        assert_eq! (map.contains_key_second (&(1, 1)), false);
+        assert! (map.contains_key_first (&0));
+        assert! (map.contains_key_second (&(0, 0)));
+        assert! (!map.contains_key_first (&1));
+        assert! (!map.contains_key_second (&(1, 1)));
     }
 }

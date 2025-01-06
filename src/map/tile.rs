@@ -1,18 +1,18 @@
-use std::cell::Cell;
 use std::fmt;
 use std::rc::Rc;
+use super::{COST_IMPASSABLE, COST_MINIMUM};
 use crate::Lists;
 use crate::common::{Target, Timed, ID};
 use crate::dynamic::{Adjustment, Appliable, Applier, Change, Changeable, Modifier, StatisticType, Status, Trigger};
-use super::{COST_IMPASSABLE, COST_MINIMUM};
 
 const CLIMB_MAX: u8 = 2;
 
 #[derive (Debug)]
+#[derive (Clone)]
 pub struct Tile {
     lists: Rc<Lists>,
-    modifier: Cell<Option<Modifier>>,
-    status: Cell<Option<Status>>,
+    modifier: Option<Modifier>,
+    status: Option<Status>,
     terrain_id: ID,
     height: u8,
     city_id: Option<ID>,
@@ -22,9 +22,7 @@ pub struct Tile {
 impl Tile {
     pub fn new (lists: Rc<Lists>, terrain_id: ID, height: u8, city_id: Option<ID>) -> Self {
         let modifier: Option<Modifier> = None;
-        let modifier: Cell<Option<Modifier>> = Cell::new (modifier);
         let status: Option<Status> = None;
-        let status: Cell<Option<Status>> = Cell::new (status);
         let is_recruited: bool = false;
 
         Self { lists, modifier, status, terrain_id, height, city_id, is_recruited }
@@ -33,20 +31,18 @@ impl Tile {
     pub fn get_cost (&self) -> u8 {
         let cost: u8 = self.lists.get_terrain (&self.terrain_id).get_cost ();
 
-        match self.modifier.get () {
+        match self.modifier {
             Some (m) => {
                 let adjustment: Adjustment = m.get_adjustments ()[0]
-                        .expect (&format! ("Adjustment not found for modifier {:?}", m));
+                        .unwrap_or_else (|| panic! ("Adjustment not found for modifier {:?}", m));
 
                 match adjustment.0 {
                     StatisticType::Tile (f) => if f {
                         adjustment.1 as u8
+                    } else if adjustment.2 {
+                        cost + (adjustment.1 as u8)
                     } else {
-                        if adjustment.2 {
-                            cost + (adjustment.1 as u8)
-                        } else {
-                            u8::max (cost.checked_sub (adjustment.1 as u8).unwrap_or (COST_MINIMUM), COST_MINIMUM)
-                        }
+                        u8::max (cost.saturating_sub (adjustment.1 as u8), COST_MINIMUM)
                     }
                     _ => panic! ("Invalid statistic {:?}", adjustment.0),
                 }
@@ -82,7 +78,7 @@ impl Tile {
     }
 
     pub fn get_modifier (&self) -> Option<Modifier> {
-        self.modifier.get ()
+        self.modifier
     }
 
     pub fn get_height (&self) -> u8 {
@@ -97,20 +93,20 @@ impl Tile {
         self.is_recruited
     }
 
-    pub fn set_recruited (&mut self, is_recruited: bool) -> () {
+    pub fn set_recruited (&mut self, is_recruited: bool) {
         self.is_recruited = is_recruited;
     }
 }
 
 impl Changeable for Tile {
-    fn add_appliable (&self, appliable: Box<dyn Appliable>) -> bool {
+    fn add_appliable (&mut self, appliable: Box<dyn Appliable>) -> bool {
         if let Change::Modifier ( .. ) = appliable.change () {
             let modifier: Modifier = appliable.modifier ();
             let adjustment: Adjustment = modifier.get_adjustments ()[0]
-                    .expect (&format! ("Adjustment not found for modifier {:?}", modifier));
+                    .unwrap_or_else (|| panic! ("Adjustment not found for modifier {:?}", modifier));
 
             if let StatisticType::Tile ( .. ) = adjustment.0 {
-                self.modifier.replace (Some (modifier));
+                self.modifier = Some (modifier);
 
                 true
             } else {
@@ -121,19 +117,19 @@ impl Changeable for Tile {
         }
     }
 
-    fn add_status (&self, status: Status) -> bool {
+    fn add_status (&mut self, status: Status) -> bool {
         if let Change::Modifier ( .. ) = status.get_change () {
             let appliable: Box<dyn Appliable> = status.try_yield_appliable (Rc::clone (&self.lists))
-                    .expect (&format! ("Appliable not found for status {:?}", status));
+                    .unwrap_or_else (|| panic! ("Appliable not found for status {:?}", status));
 
             if let Target::Map = status.get_target () {
                 match status.get_trigger () {
-                    Trigger::OnOccupy => { self.modifier.replace (None); }
+                    Trigger::OnOccupy => { self.modifier = None; }
                     Trigger::None => { self.add_appliable (appliable); }
                     _ => return false,
                 }
 
-                self.status.replace (Some (status));
+                self.status = Some (status);
 
                 true
             } else {
@@ -144,12 +140,12 @@ impl Changeable for Tile {
         }
     }
 
-    fn remove_modifier (&self, modifier_id: &ID) -> bool {
-        let modifier: Option<Modifier> = self.modifier.get ();
+    fn remove_modifier (&mut self, modifier_id: &ID) -> bool {
+        let modifier: Option<Modifier> = self.modifier;
 
         if let Some (m) = modifier {
             if m.get_id () == *modifier_id {
-                self.modifier.replace (None);
+                self.modifier = None;
     
                 true
             } else {
@@ -160,8 +156,8 @@ impl Changeable for Tile {
         }
     }
 
-    fn remove_status (&self, status_id: &ID) -> bool {
-        let status: Option<Status> = self.status.get ();
+    fn remove_status (&mut self, status_id: &ID) -> bool {
+        let status: Option<Status> = self.status;
 
         if let Some (s) = status {
             if s.get_id () == *status_id {
@@ -169,7 +165,7 @@ impl Changeable for Tile {
                     self.remove_modifier (&m);
                 }
 
-                self.status.replace (None);
+                self.status = None;
     
                 true
             } else {
@@ -180,34 +176,33 @@ impl Changeable for Tile {
         }
     }
 
-    fn dec_durations (&self) -> () {
-        if let Some (mut m) = self.modifier.get () {
-            let modifier: Option<Modifier> = if m.dec_duration () {
+    fn decrement_durations (&mut self) {
+        if let Some (mut m) = self.modifier {
+            let modifier: Option<Modifier> = if m.decrement_duration () {
                 None
             } else {
                 Some (m)
             };
 
-            self.modifier.replace (modifier);
+            self.modifier = modifier;
         }
 
-        if let Some (mut s) = self.status.get () {
-            let status: Option<Status> = if s.dec_duration () {
-                s.get_next_id ().and_then (|n: ID|
-                    Some (self.lists.get_status (&n).clone ())
-                )
+        if let Some (mut s) = self.status {
+            let status: Option<Status> = if s.decrement_duration () {
+                s.get_next_id ()
+                        .map (|n: ID| *self.lists.get_status (&n))
             } else {
                 Some (s)
             };
 
-            self.status.replace (status);
+            self.status = status;
         }
     }
 }
 
 impl Applier for Tile {
     fn try_yield_appliable (&self, lists: Rc<Lists>) -> Option<Box<dyn Appliable>> {
-        self.status.get ().and_then (|s: Status| s.try_yield_appliable (lists))
+        self.status.and_then (|s: Status| s.try_yield_appliable (lists))
     }
 
     fn get_target (&self) -> Target {
@@ -258,9 +253,9 @@ mod tests {
 
     fn generate_statuses () -> (Status, Status, Status) {
         let lists = generate_lists ();
-        let status_2 = lists.get_status (&2).clone ();
-        let status_3 = lists.get_status (&3).clone ();
-        let status_4 = lists.get_status (&4).clone ();
+        let status_2 = *lists.get_status (&2);
+        let status_3 = *lists.get_status (&3);
+        let status_4 = *lists.get_status (&4);
 
         (status_2, status_3, status_4)
     }
@@ -298,8 +293,8 @@ mod tests {
         let tile_1_2 = Tile::new (Rc::clone (&lists), 1, 2, None);
 
         // Test impassable climb
-        assert_eq! (tile_0.try_climb (&tile_1_2), None);
-        assert_eq! (tile_1_2.try_climb (&tile_0), None);
+        assert! (tile_0.try_climb (&tile_1_2).is_none ());
+        assert! (tile_1_2.try_climb (&tile_0).is_none ());
         // Test passable climb
         assert_eq! (tile_0.try_climb (&tile_1_0).unwrap (), 0);
         assert_eq! (tile_1_0.try_climb (&tile_0).unwrap (), 0);
@@ -328,22 +323,21 @@ mod tests {
     #[test]
     fn tile_add_appliable () {
         let lists = generate_lists ();
-        let mut tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let mut tile = Tile::new (Rc::clone (&lists), 1, 0, None);
         let (modifier_0, modifier_1, modifier_2) = generate_modifiers ();
 
         // Test additive modifier
-        assert_eq! (tile.add_appliable (modifier_0), true);
-        assert! (matches! (tile.modifier.get (), Some { .. }));
         assert_eq! (tile.get_cost (), 2);
+        assert! (tile.add_appliable (modifier_0));
+        assert! (tile.modifier.is_some ());
+        assert_eq! (tile.get_cost (), 3);
         // Test subtractive modifier
-        assert_eq! (tile.add_appliable (modifier_1), true);
-        assert! (matches! (tile.modifier.get (), Some { .. }));
-        assert_eq! (tile.get_cost (), 1);
-        tile.terrain_id = 1;
+        assert! (tile.add_appliable (modifier_1));
+        assert! (tile.modifier.is_some ());
         assert_eq! (tile.get_cost (), 1);
         // Test constant modifier
-        assert_eq! (tile.add_appliable (modifier_2), true);
-        assert! (matches! (tile.modifier.get (), Some { .. }));
+        assert! (tile.add_appliable (modifier_2));
+        assert! (tile.modifier.is_some ());
         assert_eq! (tile.get_cost (), 1);
     }
 
@@ -351,111 +345,113 @@ mod tests {
     #[test]
     fn tile_add_status () {
         let lists = generate_lists ();
-        let mut tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let mut tile = Tile::new (Rc::clone (&lists), 1, 0, None);
         let (status_2, status_3, _) = generate_statuses ();
 
         // Test tile status
-        assert_eq! (tile.add_status (status_3), true);
-        assert! (matches! (tile.status.get (), Some { .. }));
-        assert_eq! (tile.get_cost (), 1);
-        tile.terrain_id = 1;
+        assert_eq! (tile.get_cost (), 2);
+        assert! (tile.add_status (status_3));
+        assert! (tile.status.is_some ());
         assert_eq! (tile.get_cost (), 1);
         // Test applier status
-        assert_eq! (tile.add_status (status_2), true);
-        assert! (matches! (tile.status.get (), Some { .. }));
-        assert_eq! (tile.get_cost (), 2);
-        assert! (matches! (tile.try_yield_appliable (Rc::clone (&lists)), Some { .. }));
+        assert! (tile.add_status (status_2));
+        assert! (tile.status.is_some ());
+        assert! (tile.try_yield_appliable (Rc::clone (&lists)).is_some ());
     }
 
     #[test]
     fn tile_remove_modifier () {
         let lists = generate_lists ();
-        let tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let mut tile = Tile::new (Rc::clone (&lists), 1, 0, None);
         let (modifier_0, _, _) = generate_modifiers ();
 
         // Test empty remove
-        assert_eq! (tile.remove_modifier (&0), false);
-        assert_eq! (tile.modifier.get (), None);
+        assert! (!tile.remove_modifier (&0));
+        assert! (tile.modifier.is_none ());
         // Test non-empty remove
         tile.add_appliable (modifier_0);
-        assert_eq! (tile.remove_modifier (&0), true);
-        assert_eq! (tile.modifier.get (), None);
+        assert_eq! (tile.get_cost (), 3);
+        assert! (tile.remove_modifier (&0));
+        assert_eq! (tile.get_cost (), 2);
+        assert! (tile.modifier.is_none ());
     }
 
     #[test]
     fn tile_remove_status () {
         let lists = generate_lists ();
-        let tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let mut tile = Tile::new (Rc::clone (&lists), 1, 0, None);
         let (status_2, status_3, _) = generate_statuses ();
 
         // Test empty remove
-        assert_eq! (tile.remove_status (&0), false);
-        assert_eq! (tile.status.get (), None);
-        assert_eq! (tile.modifier.get (), None);
+        assert! (!tile.remove_status (&0));
+        assert! (tile.status.is_none ());
+        assert! (tile.modifier.is_none ());
         // Test non-empty remove
         tile.add_status (status_3);
-        assert_eq! (tile.remove_status (&3), true);
-        assert_eq! (tile.status.get (), None);
-        assert_eq! (tile.modifier.get (), None);
+        assert_eq! (tile.get_cost (), 1);
+        assert! (tile.remove_status (&3));
+        assert_eq! (tile.get_cost (), 2);
+        assert! (tile.status.is_none ());
+        assert! (tile.modifier.is_none ());
         // Test applier remove
         tile.add_status (status_2);
-        assert_eq! (tile.remove_status (&2), true);
-        assert_eq! (tile.status.get (), None);
-        assert_eq! (tile.modifier.get (), None);
+        assert! (tile.remove_status (&2));
+        assert! (tile.status.is_none ());
+        assert! (tile.modifier.is_none ());
     }
 
     #[test]
-    fn tile_dec_durations () {
+    fn tile_decrement_durations () {
         let lists = generate_lists ();
-        let tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let mut tile = Tile::new (Rc::clone (&lists), 0, 0, None);
         let (modifier_0, modifier_1, _) = generate_modifiers ();
         let (status_2, status_3, status_4) = generate_statuses ();
 
         // Test empty modifier
-        tile.dec_durations ();
-        assert_eq! (tile.modifier.get (), None);
+        tile.decrement_durations ();
+        assert! (tile.modifier.is_none ());
         // Test timed modifier
         tile.add_appliable (modifier_0);
-        tile.dec_durations ();
-        assert! (matches! (tile.modifier.get (), Some { .. }));
-        tile.dec_durations ();
-        assert! (matches! (tile.modifier.get (), Some { .. }));
-        tile.dec_durations ();
-        assert_eq! (tile.modifier.get (), None);
+        tile.decrement_durations ();
+        assert! (tile.modifier.is_some ());
+        tile.decrement_durations ();
+        assert! (tile.modifier.is_some ());
+        tile.decrement_durations ();
+        assert! (tile.modifier.is_none ());
         // Test permanent modifier
         tile.add_appliable (modifier_1);
-        tile.dec_durations ();
-        assert! (matches! (tile.modifier.get (), Some { .. }));
-        tile.dec_durations ();
-        assert! (matches! (tile.modifier.get (), Some { .. }));
+        tile.decrement_durations ();
+        assert! (tile.modifier.is_some ());
+        tile.decrement_durations ();
+        assert! (tile.modifier.is_some ());
 
         // Test empty status
-        tile.dec_durations ();
-        assert! (matches! (tile.status.get (), None));
+        tile.decrement_durations ();
+        assert! (tile.status.is_none ());
         // Test timed status
         tile.add_status (status_2);
-        tile.dec_durations ();
-        assert! (matches! (tile.status.get (), Some { .. }));
-        tile.dec_durations ();
-        assert! (matches! (tile.status.get (), Some { .. }));
-        tile.dec_durations ();
-        assert! (matches! (tile.status.get (), None));
+        tile.decrement_durations ();
+        assert! (tile.status.is_some ());
+        tile.decrement_durations ();
+        assert! (tile.status.is_some ());
+        tile.decrement_durations ();
+        assert! (tile.status.is_none ());
         // Test permanent status
         tile.add_status (status_3);
-        tile.dec_durations ();
-        assert! (matches! (tile.status.get (), Some { .. }));
-        tile.dec_durations ();
-        assert! (matches! (tile.status.get (), Some { .. }));
+        tile.decrement_durations ();
+        assert! (tile.status.is_some ());
+        tile.decrement_durations ();
+        assert! (tile.status.is_some ());
         // Test linked status
         tile.add_status (status_4);
-        tile.dec_durations ();
-        assert! (matches! (tile.status.get (), Some { .. }));
-        assert! (matches! (tile.status.get ().unwrap ().get_next_id ().unwrap (), 3));
-        tile.dec_durations ();
-        assert! (matches! (tile.status.get (), Some { .. }));
-        assert! (matches! (tile.status.get ().unwrap ().get_next_id ().unwrap (), 3));
-        tile.dec_durations ();
-        assert! (matches! (tile.status.get (), Some { .. }));
-        assert_eq! (tile.status.get ().unwrap ().get_next_id (), None);
+        tile.decrement_durations ();
+        assert! (tile.status.is_some ());
+        assert! (matches! (tile.status.unwrap ().get_next_id ().unwrap (), 3));
+        tile.decrement_durations ();
+        assert! (tile.status.is_some ());
+        assert! (matches! (tile.status.unwrap ().get_next_id ().unwrap (), 3));
+        tile.decrement_durations ();
+        assert! (tile.status.is_some ());
+        assert! (tile.status.unwrap ().get_next_id ().is_none ());
     }
 }

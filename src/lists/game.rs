@@ -1,5 +1,5 @@
 use crate::character::{FactionBuilder, Magic, Skill, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
-use crate::common::{Capacity, Target, DURATION_PERMANENT, ID_UNINITIALISED};
+use crate::common::{Capacity, Target, DURATION_PERMANENT};
 use crate::dynamic::{Change, Effect, ModifierBuilder, StatisticType, Status, Trigger};
 use crate::map::{Area, City, Terrain};
 
@@ -13,30 +13,30 @@ pub const STATUSES: [Status; 0] = [
 
 ];
 pub const TERRAINS: [Terrain; 1] = [
-    Terrain::new (ID_UNINITIALISED, 0), // Void
+    Terrain::new (None, 0), // Void
 ];
 // TODO: recruits
 pub const CITIES: [City; 17] = [
     // Jassica
-    City::new (524, 108, 24, ID_UNINITIALISED), // Ilyvó
-    City::new (41, 2, 14, ID_UNINITIALISED), // Kismarton
-    City::new (23, 3, 5, ID_UNINITIALISED), // Újvidék
-    City::new (65, 13, 6, ID_UNINITIALISED), // Temesvár
-    City::new (88, 4, 21, ID_UNINITIALISED), // Telsze
-    City::new (156, 27, 18, ID_UNINITIALISED), // Kluż-Arad
-    City::new (32, 5, 2, ID_UNINITIALISED), // Stanisławów
-    City::new (124, 18, 22, ID_UNINITIALISED), // Jawaryn
+    City::new (524, 108, 24, None), // Ilyvó
+    City::new (41, 2, 14, None), // Kismarton
+    City::new (23, 3, 5, None), // Újvidék
+    City::new (65, 13, 6, None), // Temesvár
+    City::new (88, 4, 21, None), // Telsze
+    City::new (156, 27, 18, None), // Kluż-Arad
+    City::new (32, 5, 2, None), // Stanisławów
+    City::new (124, 18, 22, None), // Jawaryn
     // Dainava
-    City::new (109, 20, 9, ID_UNINITIALISED), // Alytus
-    City::new (37, 2, 8, ID_UNINITIALISED), // Rėzeknė
-    City::new (136, 26, 11, ID_UNINITIALISED), // Debrecenas
-    City::new (18, 1, 3, ID_UNINITIALISED), // Pėčas
-    City::new (53, 3, 16, ID_UNINITIALISED), // Cešynas
+    City::new (109, 20, 9, None), // Alytus
+    City::new (37, 2, 8, None), // Rėzeknė
+    City::new (136, 26, 11, None), // Debrecenas
+    City::new (18, 1, 3, None), // Pėčas
+    City::new (53, 3, 16, None), // Cešynas
     // Powiessern
-    City::new (203, 35, 14, ID_UNINITIALISED), // Memel
-    City::new (115, 19, 12, ID_UNINITIALISED), // Stolp
-    City::new (60, 3, 21, ID_UNINITIALISED), // Carlstadt
-    City::new (83,14, 11, ID_UNINITIALISED), // Gnesen
+    City::new (203, 35, 14, None), // Memel
+    City::new (115, 19, 12, None), // Stolp
+    City::new (60, 3, 21, None), // Carlstadt
+    City::new (83,14, 11, None), // Gnesen
 ];
 // TODO: dmg, area, range
 pub const WEAPONS: [Weapon; 9] = [

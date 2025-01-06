@@ -4,16 +4,16 @@ use crate::common::ID;
 #[derive (Debug)]
 #[derive (Clone, Copy)]
 pub struct Terrain {
-    modifier_id: ID,
+    modifier_id: Option<ID>,
     cost: u8,
 }
 
 impl Terrain {
-    pub const fn new (modifier_id: ID, cost: u8 ) -> Self {
+    pub const fn new (modifier_id: Option<ID>, cost: u8 ) -> Self {
         Self { modifier_id, cost }
     }
 
-    pub fn get_modifier_id (&self) -> ID {
+    pub fn get_modifier_id (&self) -> Option<ID> {
         self.modifier_id
     }
 

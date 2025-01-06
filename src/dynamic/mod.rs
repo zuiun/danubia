@@ -5,6 +5,7 @@ mod effect;
 pub use self::effect::Effect;
 
 mod modifier;
+pub use self::modifier::MODIFIER_EMPTY;
 pub use self::modifier::Modifier;
 pub use self::modifier::ModifierBuilder;
 
@@ -92,7 +93,6 @@ pub trait Changeable {
     /*
      * Adds appliable to self
      * Fails if appliable isn't applicable to self
-     * This mutates internal state with a Cell or RefCell
      * Targeted Status should use this
      *
      * appliable: Box<dyn Appliable> = appliable to add
@@ -101,11 +101,10 @@ pub trait Changeable {
      * Post: None
      * Return: bool = false -> add failed, true -> add succeeded
      */
-    fn add_appliable (&self, appliable: Box<dyn Appliable>) -> bool;
+    fn add_appliable (&mut self, appliable: Box<dyn Appliable>) -> bool;
     /*
      * Adds status to self
      * Fails if status isn't applicable to self
-     * This mutates internal state with a Cell or RefCell
      * Non-targeted Status should use this
      *
      * status: Status = status to add
@@ -114,11 +113,10 @@ pub trait Changeable {
      * Post: None
      * Return: bool = false -> add failed, true -> add succeeded
      */
-    fn add_status (&self, status: Status) -> bool;
+    fn add_status (&mut self, status: Status) -> bool;
     /*
      * Removes modifier_id from self
      * Fails if modifier_id isn't applied to self
-     * This mutates internal state with a Cell or RefCell
      * Status should use this
      *
      * modifier_id: ID = modifier to remove
@@ -127,11 +125,10 @@ pub trait Changeable {
      * Post: None
      * Return: bool = false -> remove failed, true -> remove succeeded
      */
-    fn remove_modifier (&self, modifier_id: &ID) -> bool;
+    fn remove_modifier (&mut self, modifier_id: &ID) -> bool;
     /*
      * Removes status_id from self
      * Fails if status_id isn't applied to self
-     * This mutates internal state with a Cell or RefCell
      * Changeable should use this
      *
      * status_id: ID = status to remove
@@ -140,15 +137,14 @@ pub trait Changeable {
      * Post: None
      * Return: bool = false -> remove failed, true -> remove succeeded
      */
-    fn remove_status (&self, status_id: &ID) -> bool;
+    fn remove_status (&mut self, status_id: &ID) -> bool;
     /*
      * Decreases all of self's Timed's remaining durations
-     * This mutates internal state with a Cell or RefCell
      *
      * Pre: None
      * Post: Timed's remaining duration is unchanged for permanent Timed
      */
-    fn dec_durations (&self) -> ();
+    fn decrement_durations (&mut self);
 }
 
 #[derive (Debug)]

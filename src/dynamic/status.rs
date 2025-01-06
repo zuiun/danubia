@@ -12,6 +12,7 @@ pub struct Status {
     duration: Capacity,
     target: Target,
     is_every_turn: bool,
+    is_expired: bool,
     next_id: Option<ID>,
 }
 
@@ -27,8 +28,19 @@ impl Status {
 
             Capacity::Constant (DURATION_PERMANENT, DURATION_PERMANENT, DURATION_PERMANENT)
         };
+        let is_expired: bool = false;
 
-        Self { id, change, trigger, duration, target, is_every_turn, next_id }
+        Self { id, change, trigger, duration, target, is_every_turn, is_expired, next_id }
+    }
+
+    pub fn replace (&mut self, other: &Self) {
+        self.id = other.id;
+        self.change = other.change;
+        self.trigger = other.trigger;
+        self.duration = other.duration;
+        self.target = other.target;
+        self.is_every_turn = other.is_every_turn;
+        self.next_id = other.next_id;
     }
 
     pub fn get_id (&self) -> ID {
@@ -45,6 +57,10 @@ impl Status {
 
     pub fn is_every_turn (&self) -> bool {
         self.is_every_turn
+    }
+
+    pub fn is_expired (&self) -> bool {
+        self.is_expired
     }
 
     pub fn get_next_id (&self) -> Option<ID> {
@@ -72,14 +88,16 @@ impl Timed for Status {
         }
     }
 
-    fn dec_duration (&mut self) -> bool {
+    fn decrement_duration (&mut self) -> bool {
         match self.duration {
             Capacity::Constant ( .. ) => false,
             Capacity::Quantity (d, m) => {
                 if d == 0 {
+                    self.is_expired = true;
+
                     true
                 } else {
-                    let duration: u16 = d.checked_sub (1).unwrap_or (0);
+                    let duration: u16 = d.saturating_sub (1);
 
                     self.duration = Capacity::Quantity (duration, m);
 
@@ -101,21 +119,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn status_dec_duration () {
+    fn status_decrement_duration () {
         let mut status_0 = Status::new (0, Change::Modifier (0, false), Trigger::None, 2, Target::This, false,  None);
         let mut status_1 = Status::new (1, Change::Modifier (0, false), Trigger::None, DURATION_PERMANENT, Target::This, false, None);
 
         // Test timed status
-        assert_eq! (status_0.dec_duration (), false);
+        assert! (!status_0.decrement_duration ());
         assert_eq! (status_0.get_duration (), 1);
-        assert_eq! (status_0.dec_duration (), false);
+        assert! (!status_0.decrement_duration ());
         assert_eq! (status_0.get_duration (), 0);
-        assert_eq! (status_0.dec_duration (), true);
+        assert! (status_0.decrement_duration ());
         assert_eq! (status_0.get_duration (), 0);
         // Test permanent status
-        assert_eq! (status_1.dec_duration (), false);
+        assert! (!status_1.decrement_duration ());
         assert_eq! (status_1.get_duration (), DURATION_PERMANENT);
-        assert_eq! (status_1.dec_duration (), false);
+        assert! (!status_1.decrement_duration ());
         assert_eq! (status_1.get_duration (), DURATION_PERMANENT);
     }
 }

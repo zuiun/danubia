@@ -13,11 +13,11 @@ impl Information {
     }
 
     pub fn get_name (&self) -> &str {
-        &self.name
+        self.name
     }
 
     pub fn get_description (&self) -> &str {
-        &self.descriptions[self.description_current]
+        self.descriptions[self.description_current]
     }
 }
 

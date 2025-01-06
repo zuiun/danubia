@@ -1,40 +1,39 @@
 Features:
 game loop
-^ integrate - should be moved out and not event-based, a lot of these tests should be integration tests
 init functions
 turns
 unit cannot attack if retreating, unit cannot do anything except move and wait if routed
 encirclements -> what are the rules?
+I/O (sync::mspc seems promising)
 
 Code:
-i'm starting to get concerned with the RefCell abuse, even though i know it's safe
-^ for extra safety, i should slowly move out of Cell and use borrow_mut for functions that shallow-modify state
 move all test generation functions out of their modules - it clutters crate visibility
 start documenting functions...
-Needs more error checking (for example, if a a fallible function is called, check that it succeeded)
-Functions that can fail should return Option or Result
+Needs more error checking (for example, if a a fallible function is called, check that it succeeded, maybe Result<Option>)
+^ Functions that can fail should return Option or Result
+^ in addition, all events should be handled even if a response is not needed (just in case)
+^ If I start writing my own error types, I can also take advantage of ?
 Go through and remove as many pubs as possible
 start_turn, act, and end_turn should probably be Game functions that just call Unit/Grid functionality
-moving functionality into Game will probably eliminate the need for most events -> this may fix the overuse of Cell by allowing borrow_mut from Game
 consistent semantics for &parameters/returns
 consistent usage of Option vs ID_UNINITIALISED and such
+converting Location to a tuple-struct would make it easier to add/subtract with consistency
+associated structs/enums should probably have their parent in their names
 
 Balancing:
 When in combat, morale/manpower/equipment drain should always be greater than recovery
 
 Initialisation:
-Create Game
-Game creates Handler, then converts it to an Rc<RefCell>
 Game creates all game objects, then subscribes them to Handler
+^ unique objects (also happen to be mutable) need to be built and stored 
 register all events, then call initialisation functions
 Initialiser registers and subscribes events, applies passives
 
 Optimisations:
 Cache:
-- For example, if a unit is searching for targets, it could request a reference to Grid.tiles and perform the search itself
 - Unit could cache its own location
 - All tiles reachable from some tile is cachable if we know all the MOV, but otherwise it takes up a huge amount of space
   ^ an alternate solution is multithreading: calculate the reachable tiles for units that move later than the current one while waiting for I/O
   ^ this also works for targeting
+- Choosing targets for Path uses a double search, which could be cached?
 Grid may or may not need to use its own helper functions (nobody else uses them it seems)
-Choosing targets for Path uses a double search, which could somehow be cached?

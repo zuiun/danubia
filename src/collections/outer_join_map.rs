@@ -1,5 +1,7 @@
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
+use std::fmt::Debug;
 
 /*
 * Map that behaves like a (left) outer join:
@@ -14,7 +16,7 @@ pub struct OuterJoinMap<T, U> {
 }
 
 impl<T, U> OuterJoinMap<T, U>
-where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + Hash {
+where T: Debug + Clone + Eq + Hash, U: Debug + Clone + Eq + Hash {
     pub fn new () -> Self {
         let map_first: HashMap<T, HashSet<U>> = HashMap::new ();
         let map_second: HashMap<U, T> = HashMap::new ();
@@ -23,24 +25,15 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     }
 
     pub fn insert (&mut self, values: (T, U)) -> bool {
-        if self.map_second.contains_key (&values.1) {
-            false
-        } else {
-            match self.map_first.get_mut (&values.0) {
-                Some (c) => {
-                    c.insert (values.1.clone ());
-                    self.map_second.insert (values.1, values.0);
-                }
-                None => {
-                    let mut collection_first: HashSet<U> = HashSet::new ();
-
-                    collection_first.insert (values.1.clone ());
-                    self.map_first.insert (values.0.clone (), collection_first);
-                    self.map_second.insert (values.1, values.0);
-                }
-            }
+        if let Entry::Vacant (e) = self.map_second.entry (values.1.clone ()) {
+            self.map_first.entry (values.0.clone ())
+                    .or_default ()
+                    .insert (values.1);
+            e.insert (values.0);
 
             true
+        } else {
+            false
         }
     }
 
@@ -64,7 +57,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
             None => return false,
         };
         let collection_first: &mut HashSet<U> = self.map_first.get_mut (key_first)
-                .expect (&format! ("Collection not found for key {:?}", key_first));
+                .unwrap_or_else (|| panic! ("Collection not found for key {:?}", key_first));
         let is_removed_first: bool = collection_first.remove (key_second);
         let is_removed_second: bool = self.map_second.remove (key_second).is_some ();
 
@@ -80,7 +73,7 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
         if collection_first.remove (&value) {
             if self.map_first.contains_key (&destination) {
                 let collection_first: &mut HashSet<U> = self.map_first.get_mut (&destination)
-                        .expect (&format! ("Collection not found for key {:?}", value));
+                        .unwrap_or_else (|| panic! ("Collection not found for key {:?}", value));
 
                 collection_first.insert (value.clone ());
             } else {
@@ -107,30 +100,37 @@ where T: Clone + std::fmt::Debug + Eq + Hash, U: Clone + std::fmt::Debug + Eq + 
     }
 }
 
+impl<T, U> Default for OuterJoinMap<T, U>
+where T: Debug + Clone + Eq + Hash, U: Debug + Clone + Eq + Hash {
+    fn default () -> Self {
+        Self::new ()
+    }
+}
+
 #[cfg (test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn duplicate_outer_map_insert () {
+    fn outer_join_map_insert () {
         let mut map: OuterJoinMap<u8, (u8, u8)> = OuterJoinMap::new ();
 
         // Test empty insert
-        assert_eq! (map.insert ((0, (0, 0))), true);
+        assert! (map.insert ((0, (0, 0))));
         // Test non-colliding insert
-        assert_eq! (map.insert ((1, (1, 1))), true);
+        assert! (map.insert ((1, (1, 1))));
         // Test colliding insert
-        assert_eq! (map.insert ((1, (0, 0))), false);
-        assert_eq! (map.insert ((1, (2, 2))), true);
+        assert! (!map.insert ((1, (0, 0))));
+        assert! (map.insert ((1, (2, 2))));
     }
 
     #[test]
-    fn duplicate_outer_map_get () {
+    fn outer_join_map_get () {
         let mut map: OuterJoinMap<u8, (u8, u8)> = OuterJoinMap::new ();
 
         // Test empty get
-        assert_eq! (map.get_first (&0), None);
-        assert_eq! (map.get_second (&(0, 0)), None);
+        assert! (map.get_first (&0).is_none ());
+        assert! (map.get_second (&(0, 0)).is_none ());
         // Test non-empty get
         map.insert ((0, (0, 0)));
         assert_eq! (map.get_first (&0).unwrap ().len (), 1);
@@ -154,25 +154,25 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_outer_map_remove () {
+    fn outer_join_map_remove () {
         let mut map: OuterJoinMap<u8, (u8, u8)> = OuterJoinMap::new ();
 
         // Test empty remove
-        assert_eq! (map.remove (&(0, 0)), false);
+        assert! (!map.remove (&(0, 0)));
         // Test non-empty remove
         map.insert ((0, (0, 0)));
-        assert_eq! (map.remove (&(0, 0)), true);
+        assert! (map.remove (&(0, 0)));
         assert_eq! (map.get_first (&0).unwrap ().len (), 0);
-        assert_eq! (map.get_second (&(0, 0)), None);
-        assert_eq! (map.get_collection_second (&(0, 0)), None);
+        assert! (map.get_second (&(0, 0)).is_none ());
+        assert! (map.get_collection_second (&(0, 0)).is_none ());
     }
 
     #[test]
-    fn duplicate_outer_map_replace () {
+    fn outer_join_map_replace () {
         let mut map: OuterJoinMap<u8, (u8, u8)> = OuterJoinMap::new ();
 
         // Test empty replace
-        assert_eq! (map.replace ((0, 0), 0), None);
+        assert! (map.replace ((0, 0), 0).is_none ());
         // Test partial replace
         map.remove (&(0, 0));
         map.insert ((0, (1, 1)));
@@ -181,7 +181,7 @@ mod tests {
         assert_eq! (map.get_second (&(1, 1)).unwrap (), &1);
         assert_eq! (map.get_collection_second (&(1, 1)).unwrap ().len (), 1);
         assert_eq! (map.get_first (&0).unwrap ().len (), 0);
-        assert_eq! (map.get_second (&(0, 0)), None);
+        assert! (map.get_second (&(0, 0)).is_none ());
         // Test complete replace
         map.insert ((1, (0, 0)));
         assert_eq! (map.replace ((0, 0), 0).unwrap (), 1);
@@ -193,17 +193,17 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_outer_map_contains_key () {
+    fn outer_join_map_contains_key () {
         let mut map: OuterJoinMap<u8, (u8, u8)> = OuterJoinMap::new ();
 
         // Test empty contains
-        assert_eq! (map.contains_key_first (&0), false);
-        assert_eq! (map.contains_key_second (&(0, 0)), false);
+        assert! (!map.contains_key_first (&0));
+        assert! (!map.contains_key_second (&(0, 0)));
         // Test non-empty contains
         map.insert ((0, (0, 0)));
-        assert_eq! (map.contains_key_first (&0), true);
-        assert_eq! (map.contains_key_second (&(0, 0)), true);
-        assert_eq! (map.contains_key_first (&1), false);
-        assert_eq! (map.contains_key_second (&(1, 1)), false);
+        assert! (map.contains_key_first (&0));
+        assert! (map.contains_key_second (&(0, 0)));
+        assert! (!map.contains_key_first (&1));
+        assert! (!map.contains_key_second (&(1, 1)));
     }
 }
