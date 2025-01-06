@@ -1,11 +1,11 @@
-pub mod debug;
-pub mod game;
-pub mod information;
-
 use crate::character::{FactionBuilder, Magic, Skill, UnitBuilder, Weapon};
 use crate::common::ID;
 use crate::dynamic::{Effect, ModifierBuilder, Status};
 use crate::map::{City, Terrain};
+
+pub mod debug;
+pub mod game;
+pub mod information;
 
 #[derive (Debug)]
 pub struct Lists {

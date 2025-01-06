@@ -1,33 +1,27 @@
 Features:
+time to read input :(
 game loop
-init functions
-turns
-unit cannot attack if retreating, unit cannot do anything except move and wait if routed
-encirclements -> what are the rules?
+rework event system into game events (weather, spawning reinforcements, etc)
 I/O (sync::mspc seems promising)
 
 Code:
 move all test generation functions out of their modules - it clutters crate visibility
 start documenting functions...
-Needs more error checking (for example, if a a fallible function is called, check that it succeeded, maybe Result<Option>)
-^ Functions that can fail should return Option or Result
-^ in addition, all events should be handled even if a response is not needed (just in case)
+Needs more error checking (for example, if a a fallible function is called, check that it succeeded)
+^ Functions that can fail should return Option or Result (maybe Result<Option>)
 ^ If I start writing my own error types, I can also take advantage of ?
 Go through and remove as many pubs as possible
-start_turn, act, and end_turn should probably be Game functions that just call Unit/Grid functionality
 consistent semantics for &parameters/returns
 consistent usage of Option vs ID_UNINITIALISED and such
-converting Location to a tuple-struct would make it easier to add/subtract with consistency
 associated structs/enums should probably have their parent in their names
+consider renaming single letter variables (used for deconstruction)
+rust seems to like using *Kind instead of *Type for enums and such
 
 Balancing:
 When in combat, morale/manpower/equipment drain should always be greater than recovery
 
 Initialisation:
-Game creates all game objects, then subscribes them to Handler
-^ unique objects (also happen to be mutable) need to be built and stored 
-register all events, then call initialisation functions
-Initialiser registers and subscribes events, applies passives
+As far as I can tell, no further initialisation than what is already written is unnecessary, at least until I add saving/loading
 
 Optimisations:
 Cache:
@@ -36,4 +30,3 @@ Cache:
   ^ an alternate solution is multithreading: calculate the reachable tiles for units that move later than the current one while waiting for I/O
   ^ this also works for targeting
 - Choosing targets for Path uses a double search, which could be cached?
-Grid may or may not need to use its own helper functions (nobody else uses them it seems)

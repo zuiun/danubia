@@ -1,22 +1,18 @@
+use crate::character::UnitStatistic;
+use crate::common::{ID, Target};
+use crate::Lists;
+use std::rc::Rc;
+
 mod change;
 pub use self::change::Change;
-
 mod effect;
 pub use self::effect::Effect;
-
 mod modifier;
 pub use self::modifier::MODIFIER_EMPTY;
 pub use self::modifier::Modifier;
 pub use self::modifier::ModifierBuilder;
-
 mod status;
 pub use self::status::Status;
-
-use std::rc::Rc;
-use crate::common::ID;
-use crate::Lists;
-use crate::character::UnitStatistic;
-use crate::common::Target;
 
 pub type Adjustment = (StatisticType, u16, bool); // statistic, change (value depends on context), is add
 pub type Adjustments = [Option<Adjustment>; 4]; // Any more than 4 is probably excessive

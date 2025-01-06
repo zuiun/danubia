@@ -1,5 +1,5 @@
-use std::cmp::Ordering;
 use super::ID;
+use std::cmp::Ordering;
 
 #[derive (Debug)]
 pub struct Turn {

@@ -1,9 +1,8 @@
-use std::fmt;
-use std::rc::Rc;
 use super::{COST_IMPASSABLE, COST_MINIMUM};
 use crate::Lists;
 use crate::common::{Target, Timed, ID};
 use crate::dynamic::{Adjustment, Appliable, Applier, Change, Changeable, Modifier, StatisticType, Status, Trigger};
+use std::rc::Rc;
 
 const CLIMB_MAX: u8 = 2;
 
@@ -207,12 +206,6 @@ impl Applier for Tile {
 
     fn get_target (&self) -> Target {
         Target::Map
-    }
-}
-
-impl fmt::Display for Tile {
-    fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write! (f, "{}.{}", self.terrain_id, self.height)
     }
 }
 

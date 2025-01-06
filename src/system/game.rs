@@ -1,12 +1,13 @@
-use std::cell::RefCell;
-use std::collections::BinaryHeap;
-use std::rc::Rc;
-use crate::Lists;
 use crate::common::{Turn, ID, MULTIPLIER_ATTACK, MULTIPLIER_MAGIC, MULTIPLIER_SKILL, MULTIPLIER_WAIT};
-use crate::character::{Faction, FactionBuilder, Magic, Skill, Unit, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
-use crate::dynamic::{Appliable, Applier, Changeable, Effect, ModifierBuilder, Status};
+use crate::character::{Faction, Magic, Skill, Unit, UnitStatistic, UnitStatistics, Weapon};
+use crate::dynamic::{Appliable, Applier, Changeable, ModifierBuilder, Status};
 use crate::event::Handler;
-use crate::map::{City, Direction, Grid, Location, Terrain, Tile};
+use crate::map::{Direction, Grid, Location};
+use crate::Lists;
+use std::cell::RefCell;
+use std::collections::{BinaryHeap, HashSet};
+use std::io::Read;
+use std::rc::Rc;
 
 /*
  * Calculated from build.rs
@@ -24,17 +25,19 @@ fn get_delay (mov: u16, delay_multiplier: f32) -> u8 {
 }
 
 #[derive (Debug)]
-pub struct Game {
+pub struct Game<R: Read> {
     lists: Rc<Lists>,
     handler: Rc<RefCell<Handler>>,
     grid: Grid,
     factions: Vec<Faction>,
     units: Vec<Unit>,
     turns: BinaryHeap<Turn>,
+    number_turns: usize,
+    reader: R,
 }
 
-impl Game {
-    pub fn new (lists: Lists, grid: Grid) -> Self {
+impl<R: Read> Game<R> {
+    pub fn new (lists: Lists, grid: Grid, reader: R) -> Self {
         let lists: Rc<Lists> = Rc::new (lists);
         let handler: Handler = Handler::new ();
         let handler: RefCell<Handler> = RefCell::new (handler);
@@ -42,15 +45,17 @@ impl Game {
         let mut factions: Vec<Faction> = Vec::new ();
         let mut units: Vec<Unit> = Vec::new ();
         let turns: BinaryHeap<Turn> = BinaryHeap::new ();
+        let number_turns: usize = 0;
+        let reader: R = reader;
 
         for faction_builder in lists.faction_builders_iter () {
-            let faction: Faction = faction_builder.build (Rc::downgrade (&handler));
+            let faction: Faction = faction_builder.build ();
 
             factions.push (faction);
         }
 
         for unit_builder in lists.unit_builders_iter () {
-            let unit: Unit = unit_builder.build (Rc::clone (&lists), Rc::downgrade (&handler));
+            let unit: Unit = unit_builder.build (Rc::clone (&lists));
             let unit_id: ID = unit.get_id ();
             let faction_id: ID = unit.get_faction_id ();
             let leader_id: ID = unit.get_leader_id ();
@@ -60,7 +65,43 @@ impl Game {
             factions[faction_id].add_follower (unit_id, leader_id);
         }
 
-        Self { lists, handler, grid, factions, units, turns }
+        Self { lists, handler, grid, factions, units, turns, number_turns, reader }
+    }
+
+    fn read_char (&mut self) -> char {
+        let mut input: [u8; 1] = [b'0'];
+    
+        self.reader.read_exact (&mut input).unwrap_or_else (|e| panic! ("{:?}", e));
+
+        char::from (input[0])
+    }
+
+    fn read_fixed (&mut self, prompt: &str, inputs_valid: &[char]) -> char {
+        print! ("{}: ", prompt);
+    
+        let mut input: char = self.read_char ();
+    
+        while !inputs_valid.contains (&input) {
+            input = self.read_char ();
+            println! ("{}", input);
+        }
+    
+        input
+    }
+
+    fn read_input<F, T> (&mut self, prompt: &str, mut validator: F) -> T
+    where F: FnMut (u8) -> Option<T> {
+        print! ("{}: ", prompt);
+
+        let mut input: u8 = self.read_char () as u8;
+        let mut result: Option<T> = validator (input);
+
+        while result.is_none () {
+            input = self.read_char () as u8;
+            result = validator (input);
+        }
+
+        result.unwrap ()
     }
 
     fn apply_terrain (&mut self, unit_id: ID, terrain_id: ID, location: Location) {
@@ -112,17 +153,17 @@ impl Game {
     fn send_passive (&mut self, unit_id: ID) {
         let leader_id: ID = self.units[unit_id].get_leader_id ();
         let faction_id: ID = self.lists.get_unit_builder (&unit_id).get_faction_id ();
-        let follower_ids: Vec<ID> = self.factions[faction_id].get_followers (&leader_id);
+        let follower_ids: &HashSet<ID> = self.factions[faction_id].get_followers (&leader_id);
         let skill_passive_id: ID = self.units[leader_id].get_skill_passive_id ()
                 .unwrap_or_else (|| panic! ("Passive not found for leader {}", leader_id));
         let status_passive_id: ID = self.lists.get_skill (&skill_passive_id)
                 .get_status_id ();
 
         for follower_id in follower_ids {
-            if follower_id != unit_id {
-                let distance: usize = self.grid.find_distance_between (&follower_id, &leader_id);
+            if *follower_id != unit_id {
+                let distance: usize = self.grid.find_distance_between (follower_id, &leader_id);
 
-                self.units[follower_id].try_add_passive (&status_passive_id, distance);
+                self.units[*follower_id].try_add_passive (&status_passive_id, distance);
             }
         }
     }
@@ -448,7 +489,11 @@ impl Game {
     // }
 
     fn start_turn (&mut self, unit_id: ID) {
-        self.units[unit_id].start_turn ();
+        let location: &Location = self.grid.get_unit_location (&unit_id);
+
+        if !self.grid.is_impassable (location) {
+            self.units[unit_id].start_turn ();
+        }
     }
 
     fn act_attack (&mut self, attacker_id: ID, defender_id: ID) -> u16 {
@@ -513,13 +558,84 @@ impl Game {
     }
 
     fn act (&mut self, unit_id: ID) -> (u16, f32) {
+        let location: Location = *self.grid.get_unit_location (&unit_id);
+        let mut end: Location = location;
+        let mut movements: Vec<Direction> = Vec::new ();
+        let mut mov: u16 = self.units[unit_id].get_statistic (UnitStatistic::MOV).0;
+
+        loop {
+            match self.read_fixed ("Choose direction (u/r/l/d) or stop (s)", &['u', 'r', 'l', 'd']) {
+                'u' => if let Some ((neighbour, cost)) = self.grid.try_move (&end, Direction::Up) {
+                    if mov >= (cost as u16) {
+                        mov -= cost as u16;
+                        movements.push (Direction::Up);
+                        end = neighbour;
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
+                'r' => if let Some ((neighbour, cost)) = self.grid.try_move (&end, Direction::Right) {
+                    if mov >= (cost as u16) {
+                        mov -= cost as u16;
+                        movements.push (Direction::Right);
+                        end = neighbour;
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
+                'l' => if let Some ((neighbour, cost)) = self.grid.try_move (&end, Direction::Left) {
+                    if mov >= (cost as u16) {
+                        mov -= cost as u16;
+                        movements.push (Direction::Left);
+                        end = neighbour;
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
+                'd' => if let Some ((neighbour, cost)) = self.grid.try_move (&end, Direction::Down) {
+                    if mov >= (cost as u16) {
+                        mov -= cost as u16;
+                        movements.push (Direction::Down);
+                        end = neighbour;
+                    } else {
+                        break
+                    }
+                } else {
+                    break
+                }
+                's' => break,
+                _ => println! ("Invalid input"),
+            }
+        };
+
+        self.move_unit (unit_id, &movements);
+
+        println!("{:?}",self.grid.get_unit_location(&unit_id));
         // loop {
-            // TODO: Choose any number of moves or switch weapon
-            // self.move_unit ();
+            // TODO: switch wepaon
             // break
         // }
 
+        let is_retreat: bool = self.units[unit_id].is_retreat ();
+        let is_rout: bool = self.units[unit_id].is_rout ();
+        let mov: u16;
+        let delay_multiplier: f32;
+
         // TODO: Choose between attack, skill, magic, wait (ends turn)
+        if !is_retreat {
+            // Can use magic or skill
+            if !is_rout {
+                // Can also attack
+            }
+        }
+        // Can always choose to wait
+
         todo! ()
     }
 
@@ -530,24 +646,30 @@ impl Game {
         let appliable: Option<Box<dyn Appliable>> = self.grid.try_yield_appliable (&location);
 
         self.units[unit_id].end_turn (&city_ids, appliable);
+        self.grid.expand_control (&faction_id);
     }
 
     fn do_turn (&mut self, unit_id: ID) {
         let mut turn: Turn = self.turns.pop ()
                 .expect ("Turn not found");
-        let location: Location = *self.grid.get_unit_location (&unit_id);
 
-        if self.grid.is_impassable (&location) {
-            // TODO: kill unit
-            self.kill_unit (unit_id);
+        self.number_turns += 1;
+        self.start_turn (unit_id);
+
+        let (mov, delay_multiplier): (u16, f32) = if self.units[unit_id].is_alive () {
+            self.act (unit_id)
         } else {
-            self.start_turn (unit_id);
-
-            let (mov, delay_multiplier): (u16, f32) = self.act (unit_id);
-            let delay: u8 = get_delay (mov, delay_multiplier);
-    
+            (u16::MAX, f32::MAX)
+        };
+        let delay: u8 = if self.units[unit_id].is_alive () {
             self.end_turn (unit_id);
-    
+
+            get_delay (mov, delay_multiplier)
+        } else {
+            u8::MAX
+        };
+
+        if self.units[unit_id].is_alive () {
             if turn.update (delay, mov) {
                 self.turns.push (turn);
             } else {
@@ -560,7 +682,9 @@ impl Game {
                     turn.reduce_delay (reduction);
                     self.turns.push (turn);
                 }
-            }   
+            }
+        } else {
+            self.kill_unit (unit_id);
         }
     }
 }
@@ -568,20 +692,18 @@ impl Game {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use crate::event::handler::tests::generate_handler;
     use crate::map::grid::tests::generate_grid;
-    use UnitStatistic::{MRL, HLT, SPL, ATK, DEF, MAG, MOV, ORG};
+    use UnitStatistic::{MRL, HLT, SPL, ATK, DEF, MAG, ORG};
 
-    fn generate_game () -> Game {
-        let handler = generate_handler ();
-        let grid = generate_grid (Rc::downgrade (&handler));
+    fn generate_game<R: Read> (reader: R) -> Game<R> {
+        let grid = generate_grid ();
 
-        Game::new (Lists::debug (), grid)
+        Game::new (Lists::debug (), grid, reader)
     }
 
     #[test]
     fn game_place_unit () {
-        let mut game = generate_game ();
+        let mut game = generate_game (&b""[..]);
 
         game.place_unit (0, (1, 0));
         assert_eq! (game.grid.get_unit_location (&0), &(1, 0));
@@ -591,7 +713,7 @@ mod tests {
 
     #[test]
     fn game_move_unit () {
-        let mut game = generate_game ();
+        let mut game = generate_game (&b""[..]);
 
         game.place_unit (0, (0, 0));
         assert_eq! (game.move_unit (0, &[Direction::Right, Direction::Down, Direction::Left]), (1, 0));
@@ -603,7 +725,7 @@ mod tests {
 
     #[test]
     fn game_try_spawn_recruit () {
-        let mut game = generate_game ();
+        let mut game = generate_game (&b""[..]);
 
         game.place_unit (0, (0, 0));
 
@@ -614,7 +736,7 @@ mod tests {
 
     #[test]
     fn game_send_passive () {
-        let mut game = generate_game ();
+        let mut game = generate_game (&b""[..]);
 
         game.place_unit (0, (0, 0));
         game.place_unit (1, (0, 1));
@@ -633,7 +755,7 @@ mod tests {
 
     #[test]
     fn game_kill_unit () {
-        let mut game = generate_game ();
+        let mut game = generate_game (&b""[..]);
 
         game.factions[0].add_follower (1, 0);
         game.turns.push (Turn::new (0, 0, 0));
@@ -650,102 +772,126 @@ mod tests {
         // TODO: Surely there will be more later
     }
 
-    #[test]
-    fn game_start_turn () {
-        assert! (true);
-        // TODO: No new functionality right now
-    }
+    // #[test]
+    // fn game_start_turn () {
+    //     todo! ("no functionality")
+    // }
 
     #[test]
     fn game_act_attack () {
-        let mut game = generate_game ();
+        let mut game = generate_game (&b""[..]);
         let status_9 = *game.lists.get_status (&9);
         let status_10 = *game.lists.get_status (&10);
 
         game.units[0].add_status (status_10);
         game.units[2].add_status (status_9);
 
-        let spl_unit_0_0 = game.units[0].get_statistic (SPL).0;
-        let mrl_unit_2_0 = game.units[2].get_statistic (MRL).0;
-        let hlt_unit_2_0 = game.units[2].get_statistic (HLT).0;
-        let spl_unit_2_0 = game.units[2].get_statistic (SPL).0;
+        let spl_0_0 = game.units[0].get_statistic (SPL).0;
+        let mrl_2_0 = game.units[2].get_statistic (MRL).0;
+        let hlt_2_0 = game.units[2].get_statistic (HLT).0;
+        let spl_2_0 = game.units[2].get_statistic (SPL).0;
         assert_eq! (game.act_attack (0, 2), 10);
-        let spl_unit_0_1 = game.units[0].get_statistic (SPL).0;
-        let mrl_unit_2_1 = game.units[2].get_statistic (MRL).0;
-        let hlt_unit_2_1 = game.units[2].get_statistic (HLT).0;
-        let spl_unit_2_1 = game.units[2].get_statistic (SPL).0;
-        assert! (spl_unit_0_0 > spl_unit_0_1);
-        assert! (mrl_unit_2_0 > mrl_unit_2_1);
-        assert! (hlt_unit_2_0 > hlt_unit_2_1);
-        assert! (spl_unit_2_0 > spl_unit_2_1);
+        let spl_0_1 = game.units[0].get_statistic (SPL).0;
+        let mrl_2_1 = game.units[2].get_statistic (MRL).0;
+        let hlt_2_1 = game.units[2].get_statistic (HLT).0;
+        let spl_2_1 = game.units[2].get_statistic (SPL).0;
+        assert! (spl_0_0 > spl_0_1);
+        assert! (mrl_2_0 > mrl_2_1);
+        assert! (hlt_2_0 > hlt_2_1);
+        assert! (spl_2_0 > spl_2_1);
         assert_eq! (game.units[0].get_statistic (DEF).0, 18);
         assert_eq! (game.units[2].get_statistic (MAG).0, 18);
     }
 
     #[test]
     fn game_act_skill () {
-        let mut game = generate_game ();
+        let mut game = generate_game (&b""[..]);
 
         // Test This skill
-        let spl_unit_3_0 = game.units[3].get_statistic (SPL).0;
+        let spl_3_0 = game.units[3].get_statistic (SPL).0;
         assert_eq! (game.act_skill (3, 3, 6), 10);
-        let spl_unit_3_1 = game.units[3].get_statistic (SPL).0;
-        assert! (spl_unit_3_0 > spl_unit_3_1);
+        let spl_3_1 = game.units[3].get_statistic (SPL).0;
+        assert! (spl_3_0 > spl_3_1);
         assert_eq! (game.units[3].get_statistic (DEF).0, 18);
         // Test Ally skill
         assert_eq! (game.act_skill (3, 0, 4), 10);
-        let spl_unit_3_2 = game.units[3].get_statistic (SPL).0;
-        assert! (spl_unit_3_1 > spl_unit_3_2);
+        let spl_3_2 = game.units[3].get_statistic (SPL).0;
+        assert! (spl_3_1 > spl_3_2);
         assert_eq! (game.units[0].get_statistic (DEF).0, 18);
         // Test Allies skill
         assert_eq! (game.act_skill (3, 0, 5), 10);
         assert_eq! (game.act_skill (3, 1, 5), 10);
-        let spl_unit_3_3 = game.units[3].get_statistic (SPL).0;
-        assert! (spl_unit_3_2 > spl_unit_3_3);
+        let spl_3_3 = game.units[3].get_statistic (SPL).0;
+        assert! (spl_3_2 > spl_3_3);
         assert_eq! (game.units[0].get_statistic (DEF).0, 16);
         assert_eq! (game.units[1].get_statistic (DEF).0, 18);
+        // Test toggled skill
+        let spl_0_0 = game.units[0].get_statistic (SPL).0;
+        assert_eq! (game.act_skill (0, 0, 2), 10);
+        let spl_0_1 = game.units[0].get_statistic (SPL).0;
+        assert! (spl_0_0 > spl_0_1);
+        assert_eq! (game.units[0].get_statistic (ATK).0, 22);
+        assert_eq! (game.act_skill (0, 0, 2), 10);
+        let spl_0_2 = game.units[0].get_statistic (SPL).0;
+        assert! (spl_0_1 > spl_0_2);
+        assert_eq! (game.units[0].get_statistic (ATK).0, 28);
     }
 
     #[test]
     fn game_act_magic () {
-        let mut game = generate_game ();
+        let mut game = generate_game (&b""[..]);
 
         // Test This magic
-        let hlt_unit_0_0 = game.units[0].get_statistic (HLT).0;
-        let spl_unit_0_0 = game.units[0].get_statistic (SPL).0;
-        let org_unit_0_0 = game.units[0].get_statistic (ORG).0;
+        let hlt_0_0 = game.units[0].get_statistic (HLT).0;
+        let spl_0_0 = game.units[0].get_statistic (SPL).0;
+        let org_0_0 = game.units[0].get_statistic (ORG).0;
         assert_eq! (game.act_magic (0, None, 0), 10);
-        let hlt_unit_0_1 = game.units[0].get_statistic (HLT).0;
-        let spl_unit_0_1 = game.units[0].get_statistic (SPL).0;
-        let org_unit_0_1 = game.units[0].get_statistic (ORG).0;
-        assert! (hlt_unit_0_0 > hlt_unit_0_1);
-        assert! (spl_unit_0_0 > spl_unit_0_1);
-        assert! (org_unit_0_0 > org_unit_0_1);
+        let hlt_0_1 = game.units[0].get_statistic (HLT).0;
+        let spl_0_1 = game.units[0].get_statistic (SPL).0;
+        let org_0_1 = game.units[0].get_statistic (ORG).0;
+        assert! (hlt_0_0 > hlt_0_1);
+        assert! (spl_0_0 > spl_0_1);
+        assert! (org_0_0 > org_0_1);
         assert_eq! (game.units[0].get_statistic (DEF).0, 18);
         // Test Map magic
         assert_eq! (game.act_magic (0, Some ((1, 0)), 3), 10);
-        let hlt_unit_0_2 = game.units[0].get_statistic (HLT).0;
-        let spl_unit_0_2 = game.units[0].get_statistic (SPL).0;
-        let org_unit_0_2 = game.units[0].get_statistic (ORG).0;
-        assert! (hlt_unit_0_1 > hlt_unit_0_2);
-        assert! (spl_unit_0_1 > spl_unit_0_2);
-        assert! (org_unit_0_1 > org_unit_0_2);
+        let hlt_0_2 = game.units[0].get_statistic (HLT).0;
+        let spl_0_2 = game.units[0].get_statistic (SPL).0;
+        let org_0_2 = game.units[0].get_statistic (ORG).0;
+        assert! (hlt_0_1 > hlt_0_2);
+        assert! (spl_0_1 > spl_0_2);
+        assert! (org_0_1 > org_0_2);
         assert! (game.grid.try_yield_appliable (&(1, 0)).is_some ())
     }
 
     #[test]
     fn game_act_wait () {
-        let mut game = generate_game ();
+        let mut game = generate_game (&b""[..]);
 
-        let spl_unit_0_0 = game.units[0].get_statistic (SPL).0;
+        let spl_0_0 = game.units[0].get_statistic (SPL).0;
         assert_eq! (game.act_wait (0), 10);
-        let spl_unit_0_1 = game.units[0].get_statistic (SPL).0;
-        assert! (spl_unit_0_0 > spl_unit_0_1);
+        let spl_0_1 = game.units[0].get_statistic (SPL).0;
+        assert! (spl_0_0 > spl_0_1);
     }
 
     #[test]
+    fn game_act () {
+        let input = b"rdlu";
+        let mut game = generate_game (&input[..]);
+
+        // game.place_unit(0, (0, 0));
+        // game.act (0);
+        // todo! ("further I/O testing")
+    }
+
+    // #[test]
+    // fn game_end_turn () {
+        // todo! ("no functionality")
+    // }
+
+    #[test]
     fn game_do_turn () {
-        let mut game = generate_game ();
+        let mut game = generate_game (&b""[..]);
 
         assert! (true);
         // No functionality right now

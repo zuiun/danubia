@@ -1,7 +1,7 @@
-use std::rc::Rc;
 use super::{Appliable, Effect, Modifier, ModifierBuilder};
-use crate::Lists;
 use crate::common::ID;
+use crate::Lists;
+use std::rc::Rc;
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]

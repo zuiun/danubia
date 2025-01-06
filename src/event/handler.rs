@@ -1,8 +1,8 @@
+use super::*;
+use crate::collections::CrossJoinMap;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use super::*;
-use crate::collections::CrossJoinMap;
 
 // Handler needs to own all observers
 #[derive (Debug)]
@@ -212,7 +212,7 @@ pub mod tests {
         // Test non-empty unsubscribe
         handler.borrow_mut ().subscribe (0, 0);
         assert! (handler.borrow_mut ().unsubscribe (&0, &0));
-        assert_eq! (handler.borrow ().message_observers.get_first (&0).unwrap ().len (), 0);
+        assert! (handler.borrow ().message_observers.get_first (&0).unwrap ().is_empty ());
         // Test conflicting unsubscribe
         handler.borrow_mut ().subscribe (0, 0);
         handler.borrow_mut ().subscribe (1, 0);
@@ -235,7 +235,7 @@ pub mod tests {
         handler.borrow_mut ().register (thing_1);
         // Test empty notify
         let responses: Vec<Response> = handler.borrow ().notify (Message::TestAdd);
-        assert_eq! (responses.len (), 0);
+        assert! (responses.is_empty ());
         // Test non-empty notify
         handler.borrow_mut ().subscribe (0, 0);
         let responses: Vec<Response> = handler.borrow ().notify (Message::TestAdd);

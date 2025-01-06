@@ -1,6 +1,8 @@
+use crate::common::ID;
+use std::fmt::Debug;
+
 pub mod handler;
 pub use self::handler::Handler;
-
 mod message_response;
 pub use self::message_response::EVENT_GAME_UNIT_DIE;
 // pub use self::message_response::EVENT_UNIT_TAKE_DAMAGE;
@@ -32,9 +34,6 @@ pub use self::message_response::SUBJECT_FACTION_TYPE;
 pub use self::message_response::event_iter;
 pub use self::message_response::Message;
 pub use self::message_response::Response;
-
-use core::fmt::Debug;
-use crate::common::ID;
 
 pub trait Observer: Debug {
     /*

@@ -155,21 +155,21 @@ mod tests {
         // Test non-empty remove
         map.insert ((0, (0, 0)));
         assert! (map.remove (&0, &(0, 0)));
-        assert_eq! (map.get_first (&0).unwrap ().len (), 0);
-        assert_eq! (map.get_second (&(0, 0)).unwrap ().len (), 0);
+        assert! (map.get_first (&0).unwrap ().is_empty ());
+        assert! (map.get_second (&(0, 0)).unwrap ().is_empty ());
         map.insert ((0, (0, 0)));
         assert! (map.remove_first (&0));
         assert! (map.get_first (&0).is_none ());
-        assert_eq! (map.get_second (&(0, 0)).unwrap ().len (), 0);
+        assert! (map.get_second (&(0, 0)).unwrap ().is_empty ());
         map.insert ((0, (0, 0)));
         assert! (map.remove_second (&(0, 0)));
-        assert_eq! (map.get_first (&0).unwrap ().len (), 0);
+        assert! (map.get_first (&0).unwrap ().is_empty ());
         assert! (map.get_second (&(0, 0)).is_none ());
         // Test colliding remove
         map.insert ((0, (0, 0)));
         map.insert ((1, (0, 0)));
         assert! (map.remove (&0, &(0, 0)));
-        assert_eq! (map.get_first (&0).unwrap ().len (), 0);
+        assert! (map.get_first (&0).unwrap ().is_empty ());
         assert_eq! (map.get_first (&1).unwrap ().len (), 1);
         assert_eq! (map.get_second (&(0, 0)).unwrap ().len (), 1);
         map.insert ((0, (0, 0)));

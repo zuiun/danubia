@@ -1,9 +1,9 @@
-use std::rc::Rc;
 use super::Tool;
-use crate::Lists;
 use crate::common::{ID, Target};
 use crate::dynamic::{Appliable, Applier, Status};
 use crate::map::Area;
+use crate::Lists;
+use std::rc::Rc;
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]

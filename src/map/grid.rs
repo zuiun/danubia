@@ -1,13 +1,11 @@
-use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
-use std::fmt;
-use std::rc::{Rc, Weak};
 use super::{City, Search, Tile, COST_IMPASSABLE};
 use crate::collections::{InnerJoinMap, OuterJoinMap};
 use crate::common::{ID, ID_UNINITIALISED};
 use crate::dynamic::{Appliable, Applier, Changeable, Modifier, Status, Trigger};
-use crate::event::Handler;
 use crate::Lists;
+use std::collections::{HashSet, VecDeque};
+// use std::fmt;
+use std::rc::Rc;
 
 pub type Location = (usize, usize); // row, column
 type Adjacency = [u8; Direction::Length as usize]; // cost, climb
@@ -52,19 +50,15 @@ pub struct Grid {
     adjacencies: Vec<Vec<Adjacency>>,
     unit_locations: InnerJoinMap<ID, Location>,
     faction_locations: OuterJoinMap<ID, Location>,
-    // Safety guarantee: Grid will never borrow_mut Handler
-    handler: Weak<RefCell<Handler>>,
-    // observer_id: Cell<ID>,
 }
 
 impl Grid {
-    pub fn new (lists: Rc<Lists>, tiles: Vec<Vec<Tile>>, handler: Weak<RefCell<Handler>>) -> Self {
+    pub fn new (lists: Rc<Lists>, tiles: Vec<Vec<Tile>>) -> Self {
         assert! (is_rectangular (&tiles));
 
         let adjacencies: Vec<Vec<Adjacency>> = Grid::build_adjacencies (&tiles);
         let mut faction_locations: OuterJoinMap<ID, Location> = OuterJoinMap::new ();
         let unit_locations: InnerJoinMap<ID, Location> = InnerJoinMap::new ();
-        // let observer_id: Cell<ID> = Cell::new (ID_UNINITIALISED);
 
         for i in 0 .. tiles.len () {
             for j in 0 .. tiles[0].len () {
@@ -72,7 +66,7 @@ impl Grid {
             }
         }
 
-        Self { lists, tiles, adjacencies, unit_locations, faction_locations, handler/*, observer_id*/ }
+        Self { lists, tiles, adjacencies, unit_locations, faction_locations }
     }
 
     fn build_adjacencies (tiles: &Vec<Vec<Tile>>) -> Vec<Vec<Adjacency>> {
@@ -506,6 +500,81 @@ impl Grid {
         }
     }
 
+    pub fn find_locations_supplied (&self, unit_id: &ID) -> Vec<Location> {
+        assert! (is_rectangular (&self.tiles));
+
+        // Find all locations connected to a city controlled by faction_id
+        let location: Location = *self.get_unit_location (unit_id);
+        let faction_id: ID = self.get_unit_faction (unit_id);
+        let mut locations: VecDeque<Location> = VecDeque::new ();
+        let mut is_visited: Vec<Vec<bool>> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
+        let mut controlled: Vec<Location> = Vec::new ();
+        let mut has_city: bool = self.tiles[location.0][location.1].get_city_id ().is_some ();
+
+        locations.push_back (location);
+        controlled.push (location);
+        is_visited[location.0][location.1] = true;
+
+        while !locations.is_empty () {
+            let location: Location = locations.pop_front ()
+                    .expect ("Location not found");
+
+            for direction in DIRECTIONS {
+                if let Some (n) = self.try_connect (&location, direction) {
+                    let controller_id: ID = *self.get_location_faction (&n);
+
+                    if !is_visited[n.0][n.1] && controller_id == faction_id {
+                        locations.push_back (n);
+                        controlled.push (n);
+                        is_visited[n.0][n.1] = true;
+
+                        if self.tiles[n.0][n.1].get_city_id ().is_some () {
+                            has_city = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if has_city {
+            controlled
+        } else {
+            Vec::new ()
+        }
+    }
+
+    pub fn expand_control (&mut self, unit_id: &ID) {
+        assert! (is_rectangular (&self.tiles));
+
+        let faction_id: ID = self.get_unit_faction (unit_id);
+        let controlled: Vec<Location> = self.find_locations_supplied (unit_id);
+        let mut is_visited: Vec<Vec<bool>> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
+        let mut uncontrolled: Vec<Location> = Vec::new ();
+
+        for location in controlled.iter () {
+            is_visited[location.0][location.1] = true;
+        }
+
+        for location in controlled {
+            for direction in DIRECTIONS {
+                let occupation: Option<Location> = self.try_connect (&location, direction);
+
+                if let Some (o) = occupation {
+                    if !is_visited[o.0][o.1]
+                            && self.tiles[o.0][o.1].get_city_id ().is_none ()
+                            && self.get_location_unit (&o).is_none () {
+                        uncontrolled.push (o);
+                        is_visited[o.0][o.1] = true;
+                    }
+                }
+            }
+        }
+
+        for occupation in uncontrolled {
+            self.faction_locations.replace (occupation, faction_id);
+        }
+    }
+
     pub fn get_city_id (&self, location: &Location) -> Option<ID> {
         assert! (is_rectangular (&self.tiles));
         assert! (is_in_bounds (&self.tiles, location));
@@ -552,9 +621,8 @@ impl Grid {
         self.unit_locations.get_second (location)
     }
 
-    pub fn get_faction_locations (&self, faction_id: &ID) -> &HashSet<Location> {
+    pub fn get_faction_locations (&self, faction_id: &ID) -> Option<&HashSet<Location>> {
         self.faction_locations.get_first (faction_id)
-                .unwrap_or_else (|| panic! ("Locations not found for faction {}", faction_id))
     }
 
     pub fn get_location_faction (&self, location: &Location) -> &ID {
@@ -569,61 +637,33 @@ impl Grid {
     }
 }
 
-// impl Observer for Grid {
-//     fn respond (&self, message: Message) -> Option<Response> {
-//         match message {
-//             _ => None,
-//         }
-//     }
+// impl fmt::Display for Grid {
+//     fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         let mut display: String = String::from ("");
 
-//     fn set_observer_id (&self, observer_id: ID) -> bool {
-//         if self.observer_id.get () < ID_UNINITIALISED {            
-//             false
-//         } else {
-//             self.observer_id.replace (observer_id);
+//         for (i, row) in self.tiles.iter ().enumerate () {
+//             for (j, tile) in row.iter ().enumerate () {
+//                 if self.is_occupied (&(i, j)) {
+//                     display.push_str (&format! ("{}o{} ",
+//                             self.get_location_unit (&(i, j))
+//                                     .unwrap_or_else (|| panic! ("Unit not found for location ({}, {})", i, j)),
+//                             tile.get_height ()));
+//                 } else {
+//                     display.push_str (&format! ("{}_{} ", self.lists.get_terrain (&tile.get_terrain_id ()), tile.get_height ()));
+//                 }
+//             }
 
-//             true
+//             display.push ('\n');
 //         }
+
+//         write! (f, "{}", display)
 //     }
 // }
-
-// impl Subject for Grid {
-//     fn notify (&self, message: Message) -> Vec<Response> {
-//         self.handler.upgrade ()
-//                 .expect (&format! ("Pointer upgrade failed for {:?}", self.handler))
-//                 .borrow ()
-//                 .notify (message)
-//     }
-// }
-
-impl fmt::Display for Grid {
-    fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut display: String = String::from ("");
-
-        for (i, row) in self.tiles.iter ().enumerate () {
-            for (j, tile) in row.iter ().enumerate () {
-                if self.is_occupied (&(i, j)) {
-                    display.push_str (&format! ("{}o{} ",
-                            self.get_location_unit (&(i, j))
-                                    .unwrap_or_else (|| panic! ("Unit not found for location ({}, {})", i, j)),
-                            tile.get_height ()));
-                } else {
-                    display.push_str (&format! ("{}_{} ", self.lists.get_terrain (&tile.get_terrain_id ()), tile.get_height ()));
-                }
-            }
-
-            display.push ('\n');
-        }
-
-        write! (f, "{}", display)
-    }
-}
 
 #[cfg (test)]
 pub mod tests {
     use super::*;
     use crate::map::TileBuilder;
-    use crate::event::handler::tests::generate_handler;
     use crate::tests::generate_lists;
 
     fn generate_tiles () -> Vec<Vec<Tile>> {
@@ -636,17 +676,16 @@ pub mod tests {
         ]
     }
 
-    pub fn generate_grid (handler: Weak<RefCell<Handler>>) -> Grid {
+    pub fn generate_grid () -> Grid {
         let lists = generate_lists ();
         let tiles: Vec<Vec<Tile>> = generate_tiles ();
 
-        Grid::new (Rc::clone (&lists), tiles, handler)
+        Grid::new (Rc::clone (&lists), tiles)
     }
 
     #[test]
     fn grid_get_cost () {
-        let handler = generate_handler ();
-        let grid = generate_grid (Rc::downgrade (&handler));
+        let grid = generate_grid ();
 
         assert_eq! (grid.get_cost (&(0, 0), Direction::Up), 0);
         assert_eq! (grid.get_cost (&(0, 0), Direction::Right), 2);
@@ -677,8 +716,7 @@ pub mod tests {
 
     #[test]
     fn grid_is_impassable () {
-        let handler = generate_handler ();
-        let grid = generate_grid (Rc::downgrade (&handler));
+        let grid = generate_grid ();
 
         // Test passable
         assert! (!grid.is_impassable (&(0, 0)));
@@ -688,8 +726,7 @@ pub mod tests {
 
     #[test]
     fn grid_is_occupied () {
-        let handler = generate_handler ();
-        let mut grid = generate_grid (Rc::downgrade (&handler));
+        let mut grid = generate_grid ();
 
         // Test empty
         assert! (!grid.is_occupied (&(0, 0)));
@@ -700,8 +737,7 @@ pub mod tests {
 
     #[test]
     fn grid_is_placeable () {
-        let handler = generate_handler ();
-        let mut grid = generate_grid (Rc::downgrade (&handler));
+        let mut grid = generate_grid ();
 
         // Test passable
         assert! (grid.is_placeable (&(0, 0)));
@@ -718,8 +754,7 @@ pub mod tests {
 
     #[test]
     fn grid_find_nearest_placeable () {
-        let handler = generate_handler ();
-        let mut grid = generate_grid (Rc::downgrade (&handler));
+        let mut grid = generate_grid ();
 
         // Test empty find
         assert_eq! (grid.find_nearest_placeable (&(0, 0)), (0, 0));
@@ -732,8 +767,7 @@ pub mod tests {
 
     #[test]
     fn grid_find_distance_between () {
-        let handler = generate_handler ();
-        let mut grid = generate_grid (Rc::downgrade (&handler));
+        let mut grid = generate_grid ();
 
         grid.place_unit (0, (0, 0));
         grid.place_unit (1, (0, 1));
@@ -748,8 +782,7 @@ pub mod tests {
 
     #[test]
     fn grid_try_connect () {
-        let handler = generate_handler ();
-        let grid = generate_grid (Rc::downgrade (&handler));
+        let grid = generate_grid ();
 
         assert! (grid.try_connect (&(0, 0), Direction::Up).is_none ());
         assert_eq! (grid.try_connect (&(0, 0), Direction::Right).unwrap (), (0, 1));
@@ -780,8 +813,7 @@ pub mod tests {
 
     #[test]
     fn grid_try_move () {
-        let handler = generate_handler ();
-        let mut grid = generate_grid (Rc::downgrade (&handler));
+        let mut grid = generate_grid ();
 
         // Test empty move
         assert! (grid.try_move (&(0, 0), Direction::Up).is_none ());
@@ -825,8 +857,7 @@ pub mod tests {
             vec![tile_builder.build (0, 10, Some (0)) /* changed */, tile_builder.build (0, 1, None), tile_builder.build (0, 0, Some (1))],
             vec![tile_builder.build (1, 2, None), tile_builder.build (1, 1, None), tile_builder.build (0, 0, None) /* changed */]
         ];
-        let handler = generate_handler ();
-        let mut grid = generate_grid (Rc::downgrade (&handler));
+        let mut grid = generate_grid ();
 
         grid.tiles = tiles_updated;
 
@@ -842,8 +873,7 @@ pub mod tests {
 
     #[test]
     fn grid_place_unit () {
-        let handler = generate_handler ();
-        let mut grid = generate_grid (Rc::downgrade (&handler));
+        let mut grid = generate_grid ();
 
         // Test empty place
         assert_eq! (grid.place_unit (0, (0, 0)).unwrap (), 0);
@@ -856,8 +886,7 @@ pub mod tests {
 
     #[test]
     fn grid_move_unit () {
-        let handler = generate_handler ();
-        let mut grid = generate_grid (Rc::downgrade (&handler));
+        let mut grid = generate_grid ();
 
         grid.place_unit (0, (0, 0));
 
@@ -889,17 +918,16 @@ pub mod tests {
 
     #[test]
     fn grid_find_unit_cities () {
-        let handler = generate_handler ();
-        let mut grid = generate_grid (Rc::downgrade (&handler));
+        let mut grid = generate_grid ();
 
         // Test no supply
         grid.place_unit (0, (0, 1));
-        assert_eq! (grid.find_unit_cities (&0, &0).len (), 0);
+        assert! (grid.find_unit_cities (&0, &0).is_empty ());
         grid.move_unit (0, &[Direction::Down]);
-        assert_eq! (grid.find_unit_cities (&0, &0).len (), 0);
+        assert! (grid.find_unit_cities (&0, &0).is_empty ());
         // Test contested supply
         grid.place_unit (2, (0, 0));
-        assert_eq! (grid.find_unit_cities (&0, &0).len (), 0);
+        assert! (grid.find_unit_cities (&0, &0).is_empty ());
         assert_eq! (grid.find_unit_cities (&2, &1).len (), 1);
         // Test normal supply
         grid.place_unit (1, (0, 2));
@@ -915,8 +943,7 @@ pub mod tests {
 
     #[test]
     fn grid_find_locations () {
-        let handler = generate_handler ();
-        let grid = generate_grid (Rc::downgrade (&handler));
+        let grid = generate_grid ();
 
         assert_eq! (grid.find_locations (&(0, 0), Search::Single).len (), 1);
         assert_eq! (grid.find_locations (&(0, 1), Search::Single).len (), 1);
@@ -956,44 +983,43 @@ pub mod tests {
 
     #[test]
     fn grid_find_units () {
-        let handler = generate_handler ();
-        let mut grid = generate_grid (Rc::downgrade (&handler));
+        let mut grid = generate_grid ();
 
         // Test empty find
-        assert_eq! (grid.find_units (&(0, 0), Search::Single).len (), 0);
-        assert_eq! (grid.find_units (&(0, 1), Search::Single).len (), 0);
-        assert_eq! (grid.find_units (&(0, 2), Search::Single).len (), 0);
-        assert_eq! (grid.find_units (&(1, 0), Search::Single).len (), 0);
-        assert_eq! (grid.find_units (&(1, 1), Search::Single).len (), 0);
-        assert_eq! (grid.find_units (&(1, 2), Search::Single).len (), 0);
+        assert! (grid.find_units (&(0, 0), Search::Single).is_empty ());
+        assert! (grid.find_units (&(0, 1), Search::Single).is_empty ());
+        assert! (grid.find_units (&(0, 2), Search::Single).is_empty ());
+        assert! (grid.find_units (&(1, 0), Search::Single).is_empty ());
+        assert! (grid.find_units (&(1, 1), Search::Single).is_empty ());
+        assert! (grid.find_units (&(1, 2), Search::Single).is_empty ());
 
-        assert_eq! (grid.find_units (&(0, 0), Search::Path (1, 1, Direction::Right)).len (), 0);
-        assert_eq! (grid.find_units (&(0, 1), Search::Path (1, 1, Direction::Down)).len (), 0);
-        assert_eq! (grid.find_units (&(0, 2), Search::Path (1, 1, Direction::Left)).len (), 0);
-        assert_eq! (grid.find_units (&(1, 0), Search::Path (1, 1, Direction::Right)).len (), 0);
-        assert_eq! (grid.find_units (&(1, 1), Search::Path (1, 1, Direction::Up)).len (), 0);
-        assert_eq! (grid.find_units (&(1, 2), Search::Path (1, 1, Direction::Left)).len (), 0);
+        assert! (grid.find_units (&(0, 0), Search::Path (1, 1, Direction::Right)).is_empty ());
+        assert! (grid.find_units (&(0, 1), Search::Path (1, 1, Direction::Down)).is_empty ());
+        assert! (grid.find_units (&(0, 2), Search::Path (1, 1, Direction::Left)).is_empty ());
+        assert! (grid.find_units (&(1, 0), Search::Path (1, 1, Direction::Right)).is_empty ());
+        assert! (grid.find_units (&(1, 1), Search::Path (1, 1, Direction::Up)).is_empty ());
+        assert! (grid.find_units (&(1, 2), Search::Path (1, 1, Direction::Left)).is_empty ());
 
-        assert_eq! (grid.find_units (&(0, 0), Search::Path (0, 2, Direction::Right)).len (), 0);
-        assert_eq! (grid.find_units (&(0, 1), Search::Path (0, 2, Direction::Down)).len (), 0);
-        assert_eq! (grid.find_units (&(0, 2), Search::Path (0, 2, Direction::Left)).len (), 0);
-        assert_eq! (grid.find_units (&(1, 0), Search::Path (0, 2, Direction::Right)).len (), 0);
-        assert_eq! (grid.find_units (&(1, 1), Search::Path (0, 2, Direction::Up)).len (), 0);
-        assert_eq! (grid.find_units (&(1, 2), Search::Path (0, 2, Direction::Left)).len (), 0);
+        assert! (grid.find_units (&(0, 0), Search::Path (0, 2, Direction::Right)).is_empty ());
+        assert! (grid.find_units (&(0, 1), Search::Path (0, 2, Direction::Down)).is_empty ());
+        assert! (grid.find_units (&(0, 2), Search::Path (0, 2, Direction::Left)).is_empty ());
+        assert! (grid.find_units (&(1, 0), Search::Path (0, 2, Direction::Right)).is_empty ());
+        assert! (grid.find_units (&(1, 1), Search::Path (0, 2, Direction::Up)).is_empty ());
+        assert! (grid.find_units (&(1, 2), Search::Path (0, 2, Direction::Left)).is_empty ());
 
-        assert_eq! (grid.find_units (&(0, 0), Search::Radial (1)).len (), 0);
-        assert_eq! (grid.find_units (&(0, 1), Search::Radial (1)).len (), 0);
-        assert_eq! (grid.find_units (&(0, 2), Search::Radial (1)).len (), 0);
-        assert_eq! (grid.find_units (&(1, 0), Search::Radial (1)).len (), 0);
-        assert_eq! (grid.find_units (&(1, 1), Search::Radial (1)).len (), 0);
-        assert_eq! (grid.find_units (&(1, 2), Search::Radial (1)).len (), 0);
+        assert! (grid.find_units (&(0, 0), Search::Radial (1)).is_empty ());
+        assert! (grid.find_units (&(0, 1), Search::Radial (1)).is_empty ());
+        assert! (grid.find_units (&(0, 2), Search::Radial (1)).is_empty ());
+        assert! (grid.find_units (&(1, 0), Search::Radial (1)).is_empty ());
+        assert! (grid.find_units (&(1, 1), Search::Radial (1)).is_empty ());
+        assert! (grid.find_units (&(1, 2), Search::Radial (1)).is_empty ());
 
-        assert_eq! (grid.find_units (&(0, 0), Search::Radial (2)).len (), 0);
-        assert_eq! (grid.find_units (&(0, 1), Search::Radial (2)).len (), 0);
-        assert_eq! (grid.find_units (&(0, 2), Search::Radial (2)).len (), 0);
-        assert_eq! (grid.find_units (&(1, 0), Search::Radial (2)).len (), 0);
-        assert_eq! (grid.find_units (&(1, 1), Search::Radial (2)).len (), 0);
-        assert_eq! (grid.find_units (&(1, 2), Search::Radial (2)).len (), 0);
+        assert! (grid.find_units (&(0, 0), Search::Radial (2)).is_empty ());
+        assert! (grid.find_units (&(0, 1), Search::Radial (2)).is_empty ());
+        assert! (grid.find_units (&(0, 2), Search::Radial (2)).is_empty ());
+        assert! (grid.find_units (&(1, 0), Search::Radial (2)).is_empty ());
+        assert! (grid.find_units (&(1, 1), Search::Radial (2)).is_empty ());
+        assert! (grid.find_units (&(1, 2), Search::Radial (2)).is_empty ());
         // Test non-empty find
         grid.place_unit (0, (0, 0));
         grid.place_unit (1, (0, 1));
@@ -1005,7 +1031,7 @@ pub mod tests {
         assert_eq! (grid.find_units (&(0, 2), Search::Single).len (), 1);
         assert_eq! (grid.find_units (&(1, 0), Search::Single).len (), 1);
         assert_eq! (grid.find_units (&(1, 1), Search::Single).len (), 1);
-        assert_eq! (grid.find_units (&(1, 2), Search::Single).len (), 0);
+        assert! (grid.find_units (&(1, 2), Search::Single).is_empty ());
 
         assert_eq! (grid.find_units (&(0, 0), Search::Path (1, 1, Direction::Right)).len (), 2);
         assert_eq! (grid.find_units (&(0, 1), Search::Path (1, 1, Direction::Down)).len (), 2);
@@ -1039,8 +1065,7 @@ pub mod tests {
     #[test]
     fn grid_add_status () {
         let lists = generate_lists ();
-        let handler = generate_handler ();
-        let mut grid = generate_grid (Rc::downgrade (&handler));
+        let mut grid = generate_grid ();
         let status_0 = *lists.get_status (&0);
         let status_2 = *lists.get_status (&2);
         let status_3 = *lists.get_status (&3);
@@ -1059,8 +1084,7 @@ pub mod tests {
 
     #[test]
     fn grid_try_spawn_recruit () {
-        let handler = generate_handler ();
-        let mut grid = generate_grid (Rc::downgrade (&handler));
+        let mut grid = generate_grid ();
 
         // Test empty spawn
         assert! (grid.try_spawn_recruit ((0, 1)).is_none ());
@@ -1069,5 +1093,53 @@ pub mod tests {
         assert_eq! (grid.get_unit_location (&1), &(0, 0));
         // Test repeated spawn
         assert! (grid.try_spawn_recruit ((0, 0)).is_none ());
+    }
+
+    #[test]
+    fn grid_find_locations_supplied () {
+        let mut grid = generate_grid ();
+
+        // Test normal find
+        grid.place_unit (0, (0, 0));
+        let response = grid.find_locations_supplied (&0);
+        assert_eq! (response.len (), 1);
+        assert! (response.contains (&(0, 0)));
+        // Test disconnected find
+        grid.place_unit (1, (0, 2));
+        let response = grid.find_locations_supplied (&1);
+        assert_eq! (response.len (), 1);
+        assert! (response.contains (&(0, 2)));
+        // Test connected find
+        grid.move_unit (0, &[Direction::Right]);
+        let response = grid.find_locations_supplied (&0);
+        assert_eq! (response.len (), 3);
+        assert! (response.contains (&(0, 0)));
+        assert! (response.contains (&(0, 1)));
+        assert! (response.contains (&(0, 2)));
+    }
+
+    #[test]
+    fn grid_expand_control () {
+        let mut grid = generate_grid ();
+
+        // Test normal expand
+        grid.place_unit (0, (0, 0));
+        grid.expand_control (&0);
+        let response = grid.get_faction_locations (&0).unwrap ();
+        assert_eq! (response.len (), 2);
+        assert! (response.contains (&(0, 0)));
+        assert! (response.contains (&(0, 1)));
+        // Test blocked expand
+        grid.place_unit (2, (1, 1));
+        grid.expand_control (&0);
+        let response = grid.get_faction_locations (&0).unwrap ();
+        assert_eq! (response.len (), 2);
+        assert! (response.contains (&(0, 0)));
+        assert! (response.contains (&(0, 1)));
+        // Test encircled expand
+        grid.expand_control (&2);
+        let response = grid.get_faction_locations (&1).unwrap ();
+        assert_eq! (response.len (), 1);
+        assert! (response.contains (&(1, 1)));
     }
 }

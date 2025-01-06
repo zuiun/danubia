@@ -1,6 +1,5 @@
 mod information;
 pub use self::information::Information;
-
 mod turn;
 pub use self::turn::Turn;
 

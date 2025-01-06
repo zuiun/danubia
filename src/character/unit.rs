@@ -1,12 +1,10 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::rc::{Rc, Weak};
 use super::*;
-use crate::{event::Handler, Lists};
+use self::UnitStatistic::{MRL, HLT, SPL, ATK, DEF, MAG, MOV, ORG};
 use crate::common::{Capacity, Target, Timed, ID, MULTIPLIER_ATTACK, MULTIPLIER_MAGIC, MULTIPLIER_SKILL, MULTIPLIER_WAIT};
-use crate::event::{Message, Response, Subject};
 use crate::dynamic::{Appliable, Applier, Change, Changeable, Effect, Modifier, StatisticType, Status, Trigger};
-use UnitStatistic::{MRL, HLT, SPL, ATK, DEF, MAG, MOV, ORG};
+use crate::Lists;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 const PERCENT_1: u16 = 1_0;
 #[allow (clippy::inconsistent_digit_grouping)]
@@ -227,15 +225,12 @@ pub struct Unit {
     weapon_active: usize,
     faction_id: ID,
     rank: Rank,
-    is_dead: bool,
-    // Safety guarantee: Unit will never borrow_mut Handler
-    handler: Weak<RefCell<Handler>>,
-    // observer_id: Cell<ID>,
+    is_alive: bool,
 }
 
 impl Unit {
     #[allow (clippy::too_many_arguments)]
-    pub fn new (id: ID, lists: Rc<Lists>, statistics: UnitStatistics, weapon_ids: [ID; WEAPONS_LENGTH], skill_passive_id: Option<ID>, skill_ids: &[Option<ID>; SKILLS_LENGTH], magics_usable: &[bool; Element::Length as usize], faction_id: ID, rank: Rank, handler: Weak<RefCell<Handler>>) -> Self {
+    pub fn new (id: ID, lists: Rc<Lists>, statistics: UnitStatistics, weapon_ids: [ID; WEAPONS_LENGTH], skill_passive_id: Option<ID>, skill_ids: &[Option<ID>; SKILLS_LENGTH], magics_usable: &[bool; Element::Length as usize], faction_id: ID, rank: Rank) -> Self {
         let modifier_terrain_id: Option<ID> = None;
         let modifiers: Vec<Modifier> = Vec::new ();
         let mut statuses: HashMap<Trigger, Vec<Status>> = HashMap::new ();
@@ -246,8 +241,7 @@ impl Unit {
             *lists.get_weapon (&weapon_ids[WEAPON_1]),
         ];
         let weapon_active: usize = WEAPON_0;
-        let is_dead: bool = false;
-        // let observer_id: Cell<ID> = Cell::new (ID_UNINITIALISED);
+        let is_alive: bool = true;
 
         statuses.insert (Trigger::None, Vec::new ());
 
@@ -263,7 +257,7 @@ impl Unit {
             skills.push (skill);
         }
 
-        Self { id, lists, statistics, modifier_terrain_id, modifiers, statuses, magic_ids, skill_passive_id, skills, weapons, weapon_active, faction_id, rank, is_dead, handler/*, observer_id*/ }
+        Self { id, lists, statistics, modifier_terrain_id, modifiers, statuses, magic_ids, skill_passive_id, skills, weapons, weapon_active, faction_id, rank, is_alive }
     }
 
     pub fn initialise (&mut self) {
@@ -281,23 +275,13 @@ impl Unit {
     fn change_statistic_flat (&mut self, statistic: UnitStatistic, change: u16, is_add: bool) {
         self.statistics.change_statistic_flat (statistic, change, is_add);
 
-        if self.get_statistic (HLT).0 == 0 {
-            self.die ();
-        }
+        self.update_is_alive ();
     }
 
     fn change_statistic_percentage (&mut self, statistic: UnitStatistic, change: u16, is_add: bool) {
         self.statistics.change_statistic_percentage (statistic, change, is_add);
 
-        if self.get_statistic (HLT).0 == 0 {
-            self.die ();
-        }
-    }
-
-    fn die (&self) {
-        self.notify (Message::GameUnitDie (self.id));
-
-        // TODO: deinitialise
+        self.update_is_alive ();
     }
 
     pub fn apply_inactive_skills (&mut self) {
@@ -406,6 +390,8 @@ impl Unit {
         for appliable in appliables {
             self.add_appliable (appliable);
         }
+
+        self.update_is_alive ();
     }
 
     pub fn switch_weapon (&mut self) -> ID {
@@ -422,6 +408,7 @@ impl Unit {
         let drain_spl: u16 = (DRAIN_SPL * MULTIPLIER_ATTACK) as u16;
 
         self.change_statistic_flat (SPL, drain_spl, false);
+        self.update_is_alive ();
 
         (self.get_statistic (MOV).0, self.get_weapon ().try_yield_appliable (Rc::clone (&self.lists)))
     }
@@ -430,6 +417,7 @@ impl Unit {
         self.change_statistic_flat (MRL, damage_mrl, false);
         self.change_statistic_flat (HLT, damage_hlt, false);
         self.change_statistic_flat (SPL, damage_spl, false);
+        self.update_is_alive ();
 
         self.try_yield_appliable (Rc::clone (&self.lists))
     }
@@ -456,6 +444,7 @@ impl Unit {
         }
 
         self.change_statistic_flat (SPL, drain_spl, false);
+        self.update_is_alive ();
 
         (self.get_statistic (MOV).0, &self.skills[index])
     }
@@ -473,6 +462,7 @@ impl Unit {
         self.change_statistic_flat (HLT, drain_hlt, false);
         self.change_statistic_flat (ORG, drain_org, false);
         self.change_statistic_flat (SPL, drain_spl, false);
+        self.update_is_alive ();
 
         (self.get_statistic (MOV).0, self.lists.get_magic (magic_id))
     }
@@ -481,11 +471,12 @@ impl Unit {
         let drain_spl: u16 = (DRAIN_SPL * MULTIPLIER_WAIT) as u16;
 
         self.change_statistic_flat (SPL, drain_spl, false);
+        // self.update_is_dead (); // No change to HLT
 
         self.get_statistic (MOV).0
     }
 
-    pub fn recover_supplies (&mut self, city_ids: &[ID]) {
+    fn recover_supplies (&mut self, city_ids: &[ID]) {
         if !self.is_retreat () && !city_ids.is_empty () {
             let mut recover_hlt: u16 = 0;
             let mut recover_spl: u16 = 0;
@@ -501,7 +492,7 @@ impl Unit {
             }
 
             self.change_statistic_flat (HLT, recover_hlt, true);
-            self.change_statistic_flat (SPL, recover_spl, false);
+            self.change_statistic_flat (SPL, recover_spl, true);
         }
     }
 
@@ -513,6 +504,8 @@ impl Unit {
         if let Some (a) = appliable {
             self.add_appliable (a);
         }
+
+        self.update_is_alive ();
     }
 
     pub fn get_id (&self) -> ID {
@@ -542,35 +535,14 @@ impl Unit {
         }
     }
 
-    pub fn is_dead (&self) -> bool {
-        self.is_dead
+    pub fn is_alive (&self) -> bool {
+        self.is_alive
     }
-}
 
-// impl Observer for Unit {
-//     fn respond (&self, message: Message) -> Option<Response> {
-//         match message {
-//             _ => None,
-//         }
-//     }
+    fn update_is_alive (&mut self) -> bool {
+        self.is_alive = self.get_statistic (HLT).0 > 0;
 
-//     fn set_observer_id (&self, observer_id: ID) -> bool {
-//         if self.observer_id.get () < ID_UNINITIALISED {
-//             false
-//         } else {
-//             self.observer_id.replace (observer_id);
-
-//             true
-//         }
-//     }
-// }
-
-impl Subject for Unit {
-    fn notify (&self, message: Message) -> Vec<Response> {
-        self.handler.upgrade ()
-                .unwrap_or_else (|| panic! ("Pointer upgrade failed for {:?}", self.handler))
-                .borrow ()
-                .notify (message)
+        self.is_alive
     }
 }
 
@@ -756,8 +728,8 @@ impl UnitBuilder {
         Self { id, statistics, weapon_ids, skill_passive_id, skill_ids, magics_usable, faction_id, rank }
     }
 
-    pub fn build (&self, lists: Rc<Lists>, handler: Weak<RefCell<Handler>>) -> Unit {
-        Unit::new (self.id, lists, self.statistics, self.weapon_ids, self.skill_passive_id, &self.skill_ids, &self.magics_usable, self.faction_id, self.rank, handler)
+    pub fn build (&self, lists: Rc<Lists>) -> Unit {
+        Unit::new (self.id, lists, self.statistics, self.weapon_ids, self.skill_passive_id, &self.skill_ids, &self.magics_usable, self.faction_id, self.rank)
     }
 
     pub fn get_id (&self) -> ID {
@@ -773,16 +745,15 @@ impl UnitBuilder {
 pub mod tests {
     use super::*;
     use crate::tests::generate_lists;
-    use crate::event::handler::tests::generate_handler;
 
-    pub fn generate_units (handler: Rc<RefCell<Handler>>) -> (Unit, Unit, Unit) {
+    pub fn generate_units () -> (Unit, Unit, Unit) {
         let lists = generate_lists ();
         let unit_builder_0 = lists.get_unit_builder (&0);
-        let unit_0 = unit_builder_0.build (Rc::clone (&lists), Rc::downgrade (&handler));
+        let unit_0 = unit_builder_0.build (Rc::clone (&lists));
         let unit_builder_1 = lists.get_unit_builder (&1);
-        let unit_1 = unit_builder_1.build (Rc::clone (&lists), Rc::downgrade (&handler));
+        let unit_1 = unit_builder_1.build (Rc::clone (&lists));
         let unit_builder_2 = lists.get_unit_builder (&2);
-        let unit_2 = unit_builder_2.build (Rc::clone (&lists), Rc::downgrade (&handler));
+        let unit_2 = unit_builder_2.build (Rc::clone (&lists));
 
         (unit_0, unit_1, unit_2)
     }
@@ -820,8 +791,7 @@ pub mod tests {
 
     #[test]
     fn unit_change_statistic_flat () {
-        let handler = generate_handler ();
-        let (mut unit_0, _, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, _, _) = generate_units ();
 
         // Test constant
         unit_0.change_statistic_flat (ATK, 5, true); // Test additive change
@@ -845,8 +815,7 @@ pub mod tests {
 
     #[test]
     fn unit_change_statistic_percentage () {
-        let handler = generate_handler ();
-        let (mut unit_0, _, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, _, _) = generate_units ();
 
         // Test constant
         unit_0.change_statistic_percentage (ATK, 10, true); // Test additive change
@@ -871,7 +840,7 @@ pub mod tests {
     // #[test]
     // fn unit_filter_unit_allegiance () {
     //     let handler = generate_handler ();
-    //     let (unit_0, unit_1, unit_2) = generate_units (Rc::clone (&handler));
+    //     let (unit_0, unit_1, unit_2) = generate_units ();
     //     let (faction_0, faction_1) = generate_factions (Rc::clone (&handler));
     //     let unit_0_id = handler.borrow_mut ().register (Rc::clone (&unit_0) as Rc<RefCell<dyn Observer>>);
     //     let unit_1_id = handler.borrow_mut ().register (Rc::clone (&unit_1) as Rc<RefCell<dyn Observer>>);
@@ -897,7 +866,7 @@ pub mod tests {
     // #[test]
     // fn unit_choose_targets_units () {
     //     let handler = generate_handler ();
-    //     let (unit_0, unit_1, unit_2) = generate_units (Rc::clone (&handler));
+    //     let (unit_0, unit_1, unit_2) = generate_units ();
     //     let grid = generate_grid (Rc::downgrade (&handler));
     //     let (faction_0, faction_1) = generate_factions (Rc::clone (&handler));
     //     let grid_id = handler.borrow_mut ().register (Rc::clone (&grid) as Rc<RefCell<dyn Observer>>);
@@ -938,7 +907,7 @@ pub mod tests {
     // #[test]
     // fn unit_find_targets_units () {
     //     let handler = generate_handler ();
-    //     let (unit_0, unit_1, unit_2) = generate_units (Rc::clone (&handler));
+    //     let (unit_0, unit_1, unit_2) = generate_units ();
     //     let grid = generate_grid (Rc::downgrade (&handler));
     //     let (faction_0, faction_1) = generate_factions (Rc::clone (&handler));
     //     let grid_id = handler.borrow_mut ().register (Rc::clone (&grid) as Rc<RefCell<dyn Observer>>);
@@ -978,13 +947,13 @@ pub mod tests {
     //     assert_eq! (results.len (), 1);
     //     assert_eq! (results.contains (&1), true);
     //     let results: Vec<ID> = unit_0.borrow ().find_targets_units (TargetType::Enemies, Area::Path (0), 1); // Test empty find
-    //     assert_eq! (results.len (), 0);
+    //     assert_eq! (results.is_empty ());
     // }
 
     // #[test]
     // fn unit_choose_targets_locations () {
     //     let handler = generate_handler ();
-    //     let (unit_0, _, _) = generate_units (Rc::clone (&handler));
+    //     let (unit_0, _, _) = generate_units ();
     //     let grid = generate_grid (Rc::downgrade (&handler));
     //     let grid_id = handler.borrow_mut ().register (Rc::clone (&grid) as Rc<RefCell<dyn Observer>>);
     //     let unit_0_id = handler.borrow_mut ().register (Rc::clone (&unit_0) as Rc<RefCell<dyn Observer>>);
@@ -1015,7 +984,7 @@ pub mod tests {
     // #[test]
     // fn unit_find_targets_locations () {
     //     let handler = generate_handler ();
-    //     let (unit_0, _, _) = generate_units (Rc::clone (&handler));
+    //     let (unit_0, _, _) = generate_units ();
     //     let grid = generate_grid (Rc::downgrade (&handler));
     //     let grid_id = handler.borrow_mut ().register (Rc::clone (&grid) as Rc<RefCell<dyn Observer>>);
     //     let unit_0_id = handler.borrow_mut ().register (Rc::clone (&unit_0) as Rc<RefCell<dyn Observer>>);
@@ -1068,8 +1037,7 @@ pub mod tests {
 
     #[test]
     fn unit_apply_inactive_skills () {
-        let handler = generate_handler ();
-        let (mut unit_0, _, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, _, _) = generate_units ();
 
         unit_0.apply_inactive_skills ();
         assert_eq! (unit_0.statuses.get (&Trigger::None).unwrap ().len (), 2);
@@ -1078,13 +1046,12 @@ pub mod tests {
 
     #[test]
     fn unit_change_modifier_terrain () {
-        let handler = generate_handler ();
-        let (mut unit_0, _, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, _, _) = generate_units ();
 
         // Test empty modifier
         unit_0.change_modifier_terrain (None);
         assert! (unit_0.modifier_terrain_id.is_none ());
-        assert_eq! (unit_0.modifiers.len (), 0);
+        assert! (unit_0.modifiers.is_empty ());
         // Test non-empty modifier
         unit_0.change_modifier_terrain (Some (3));
         assert_eq! (unit_0.modifier_terrain_id.unwrap (), 3);
@@ -1093,8 +1060,7 @@ pub mod tests {
 
     #[test]
     fn unit_set_leader () {
-        let handler = generate_handler ();
-        let (mut unit_0, mut unit_1, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, mut unit_1, _) = generate_units ();
 
         // Test leader set
         unit_0.set_leader (1);
@@ -1107,8 +1073,7 @@ pub mod tests {
     #[test]
     fn unit_try_add_passive () {
         let lists = generate_lists ();
-        let handler = generate_handler ();
-        let (mut unit_0, mut unit_1, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, mut unit_1, _) = generate_units ();
         let skill_passive_id = unit_0.skill_passive_id.unwrap ();
         let skill_passive = lists.get_skill (&skill_passive_id);
         let status_passive_id = skill_passive.get_status_id ();
@@ -1123,15 +1088,14 @@ pub mod tests {
         // Test far add
         assert! (!unit_1.try_add_passive (&status_passive_id, 2));
         assert! (unit_1.skill_passive_id.is_none ());
-        assert_eq! (unit_1.statuses.get (&Trigger::None).unwrap ().len (), 0);
-        assert_eq! (unit_1.modifiers.len (), 0);
+        assert! (unit_1.statuses.get (&Trigger::None).unwrap ().is_empty ());
+        assert! (unit_1.modifiers.is_empty ());
     }
 
     #[test]
     fn unit_start_turn () {
         let lists = generate_lists ();
-        let handler = generate_handler ();
-        let (mut unit_0, _, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, _, _) = generate_units ();
         let (status_0, _, _) = generate_statuses ();
         let status_8 = *lists.get_status (&8);
 
@@ -1154,31 +1118,29 @@ pub mod tests {
     #[test]
     fn unit_act_attack () {
         let lists = generate_lists ();
-        let handler = generate_handler ();
-        let (mut unit_0, _, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, _, _) = generate_units ();
         let status = *lists.get_status (&6);
 
         // Test normal attack
-        let spl_unit_0_0 = unit_0.get_statistic (SPL).0;
+        let spl_0_0 = unit_0.get_statistic (SPL).0;
         let response = unit_0.act_attack ();
         assert_eq! (response.0, 10);
         assert! (response.1.is_none ());
-        let spl_unit_0_1 = unit_0.get_statistic (SPL).0;
-        assert! (spl_unit_0_0 > spl_unit_0_1);
+        let spl_0_1 = unit_0.get_statistic (SPL).0;
+        assert! (spl_0_0 > spl_0_1);
         // Test OnAttack attack
         unit_0.add_status (status);
         let response = unit_0.act_attack ();
         assert_eq! (response.0, 10);
         assert! (response.1.is_some ());
-        let spl_unit_0_2 = unit_0.get_statistic (SPL).0;
-        assert! (spl_unit_0_1 > spl_unit_0_2);
+        let spl_0_2 = unit_0.get_statistic (SPL).0;
+        assert! (spl_0_1 > spl_0_2);
     }
 
     #[test]
     fn unit_take_damage () {
         let lists = generate_lists ();
-        let handler = generate_handler ();
-        let (mut unit_0, _, mut unit_2) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, _, mut unit_2) = generate_units ();
         let statistics_0 = unit_0.statistics;
         let statistics_2 = unit_2.statistics;
         let weapon = *unit_0.get_weapon ();
@@ -1186,79 +1148,132 @@ pub mod tests {
 
         // Test normal attack
         let (damage_mrl, damage_hlt, damage_spl) = UnitStatistics::calculate_damage (&statistics_0, &statistics_2, &weapon);
-        let mrl_unit_2_0 = unit_2.get_statistic (MRL).0;
-        let hlt_unit_2_0 = unit_2.get_statistic (HLT).0;
-        let spl_unit_2_0 = unit_2.get_statistic (SPL).0;
+        let mrl_2_0 = unit_2.get_statistic (MRL).0;
+        let hlt_2_0 = unit_2.get_statistic (HLT).0;
+        let spl_2_0 = unit_2.get_statistic (SPL).0;
         assert! (unit_2.take_damage (damage_mrl, damage_hlt, damage_spl).is_none ());
-        let mrl_unit_2_1 = unit_2.get_statistic (MRL).0;
-        let hlt_unit_2_1 = unit_2.get_statistic (HLT).0;
-        let spl_unit_2_1 = unit_2.get_statistic (SPL).0;
-        assert_eq! (mrl_unit_2_0 - damage_mrl, mrl_unit_2_1);
-        assert_eq! (hlt_unit_2_0 - damage_hlt, hlt_unit_2_1);
-        assert_eq! (spl_unit_2_0 - damage_spl, spl_unit_2_1);
+        let mrl_2_1 = unit_2.get_statistic (MRL).0;
+        let hlt_2_1 = unit_2.get_statistic (HLT).0;
+        let spl_2_1 = unit_2.get_statistic (SPL).0;
+        assert_eq! (mrl_2_0 - damage_mrl, mrl_2_1);
+        assert_eq! (hlt_2_0 - damage_hlt, hlt_2_1);
+        assert_eq! (spl_2_0 - damage_spl, spl_2_1);
         // Test OnHit attack
         unit_0.add_status (status);
         let weapon = *unit_2.get_weapon ();
         let (damage_mrl, damage_hlt, damage_spl) = UnitStatistics::calculate_damage (&statistics_2, &statistics_0, &weapon);
-        let mrl_unit_0_0 = unit_0.get_statistic (MRL).0;
-        let hlt_unit_0_0 = unit_0.get_statistic (HLT).0;
-        let spl_unit_0_0 = unit_0.get_statistic (SPL).0;
+        let mrl_0_0 = unit_0.get_statistic (MRL).0;
+        let hlt_0_0 = unit_0.get_statistic (HLT).0;
+        let spl_0_0 = unit_0.get_statistic (SPL).0;
         assert! (unit_0.take_damage (damage_mrl, damage_hlt, damage_spl).is_some ());
-        let mrl_unit_0_1 = unit_0.get_statistic (MRL).0;
-        let hlt_unit_0_1 = unit_0.get_statistic (HLT).0;
-        let spl_unit_0_1 = unit_0.get_statistic (SPL).0;
-        assert_eq! (mrl_unit_0_0 - damage_mrl, mrl_unit_0_1);
-        assert_eq! (hlt_unit_0_0 - damage_hlt, hlt_unit_0_1);
-        assert_eq! (spl_unit_0_0 - damage_spl, spl_unit_0_1);
+        let mrl_0_1 = unit_0.get_statistic (MRL).0;
+        let hlt_0_1 = unit_0.get_statistic (HLT).0;
+        let spl_0_1 = unit_0.get_statistic (SPL).0;
+        assert_eq! (mrl_0_0 - damage_mrl, mrl_0_1);
+        assert_eq! (hlt_0_0 - damage_hlt, hlt_0_1);
+        assert_eq! (spl_0_0 - damage_spl, spl_0_1);
         // Test switch attack
         assert_eq! (unit_2.switch_weapon (), 1);
         let weapon = *unit_2.get_weapon ();
         let (damage_mrl, damage_hlt, damage_spl) = UnitStatistics::calculate_damage (&statistics_2, &statistics_0, &weapon);
         assert! (unit_0.take_damage (damage_mrl, damage_hlt, damage_spl).is_some ());
-        let mrl_unit_0_2 = unit_0.get_statistic (MRL).0;
-        let hlt_unit_0_2 = unit_0.get_statistic (HLT).0;
-        let spl_unit_0_2 = unit_0.get_statistic (SPL).0;
-        assert_eq! (mrl_unit_0_1 - damage_mrl, mrl_unit_0_2);
-        assert_eq! (hlt_unit_0_1 - damage_hlt, hlt_unit_0_2);
-        assert_eq! (spl_unit_0_1 - damage_spl, spl_unit_0_2);
+        let mrl_0_2 = unit_0.get_statistic (MRL).0;
+        let hlt_0_2 = unit_0.get_statistic (HLT).0;
+        let spl_0_2 = unit_0.get_statistic (SPL).0;
+        assert_eq! (mrl_0_1 - damage_mrl, mrl_0_2);
+        assert_eq! (hlt_0_1 - damage_hlt, hlt_0_2);
+        assert_eq! (spl_0_1 - damage_spl, spl_0_2);
     }
 
     #[test]
     fn unit_act_skill () {
-        let handler = generate_handler ();
-        let (mut unit_0, _, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, _, _) = generate_units ();
 
-        let spl_unit_0_0 = unit_0.get_statistic (SPL).0;
+        let spl_0_0 = unit_0.get_statistic (SPL).0;
         let response = unit_0.act_skill (&0);
         assert_eq! (response.0, 10);
         assert_eq! (response.1.get_id (), 0);
-        let spl_unit_0_1 = unit_0.get_statistic (SPL).0;
-        assert! (spl_unit_0_0 > spl_unit_0_1);
+        let spl_0_1 = unit_0.get_statistic (SPL).0;
+        assert! (spl_0_0 > spl_0_1);
     }
 
     #[test]
     fn unit_act_magic () {
-        let handler = generate_handler ();
-        let (mut unit_0, _, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, _, _) = generate_units ();
 
-        let hlt_unit_0_0 = unit_0.get_statistic (HLT).0;
-        let org_unit_0_0 = unit_0.get_statistic (ORG).0;
-        let spl_unit_0_0 = unit_0.get_statistic (SPL).0;
+        let hlt_0_0 = unit_0.get_statistic (HLT).0;
+        let org_0_0 = unit_0.get_statistic (ORG).0;
+        let spl_0_0 = unit_0.get_statistic (SPL).0;
         let response = unit_0.act_magic (&0);
         assert_eq! (response.0, 10);
         assert_eq! (response.1.get_status_id (), 8);
-        let hlt_unit_0_1 = unit_0.get_statistic (HLT).0;
-        let org_unit_0_1 = unit_0.get_statistic (ORG).0;
-        let spl_unit_0_1 = unit_0.get_statistic (SPL).0;
-        assert! (hlt_unit_0_0 > hlt_unit_0_1);
-        assert! (org_unit_0_0 > org_unit_0_1);
-        assert! (spl_unit_0_0 > spl_unit_0_1);
+        let hlt_0_1 = unit_0.get_statistic (HLT).0;
+        let org_0_1 = unit_0.get_statistic (ORG).0;
+        let spl_0_1 = unit_0.get_statistic (SPL).0;
+        assert! (hlt_0_0 > hlt_0_1);
+        assert! (org_0_0 > org_0_1);
+        assert! (spl_0_0 > spl_0_1);
+    }
+
+    #[test]
+    fn unit_recover_supplies () {
+        let (mut unit_0, _, _) = generate_units ();
+
+        unit_0.change_statistic_flat (HLT, 500, false);
+        unit_0.change_statistic_flat (SPL, 500, false);
+
+        // Test encircled recover
+        let hlt_0_0 = unit_0.get_statistic (HLT).0;
+        let spl_0_0 = unit_0.get_statistic (SPL).0;
+        unit_0.recover_supplies (&[]);
+        let hlt_0_1 = unit_0.get_statistic (HLT).0;
+        let spl_0_1 = unit_0.get_statistic (SPL).0;
+        assert_eq! (hlt_0_0, hlt_0_1);
+        assert_eq! (spl_0_0, spl_0_1);
+        // Test normal recover
+        unit_0.recover_supplies (&[0]);
+        let hlt_0_2 = unit_0.get_statistic (HLT).0;
+        let spl_0_2 = unit_0.get_statistic (SPL).0;
+        assert! (hlt_0_1 < hlt_0_2);
+        assert! (spl_0_1 < spl_0_2);
+    }
+
+    #[test]
+    fn unit_end_turn () {
+        let lists = generate_lists ();
+        let (mut unit_0, _, _) = generate_units ();
+        let effect_0 = *lists.get_effect (&0);
+        let effect_0 = Box::new (effect_0) as Box<dyn Appliable>;
+        let effect_0 = Some (effect_0);
+
+        unit_0.change_statistic_flat (MRL, 500, false);
+        unit_0.change_statistic_flat (HLT, 500, false);
+        unit_0.change_statistic_flat (SPL, 500, false);
+
+        // Test encircled recover
+        let mrl_0_0 = unit_0.get_statistic (MRL).0;
+        let hlt_0_0 = unit_0.get_statistic (HLT).0;
+        let spl_0_0 = unit_0.get_statistic (SPL).0;
+        unit_0.end_turn (&[], effect_0);
+        let mrl_0_1 = unit_0.get_statistic (MRL).0;
+        let hlt_0_1 = unit_0.get_statistic (HLT).0;
+        let spl_0_1 = unit_0.get_statistic (SPL).0;
+        assert_eq! (mrl_0_0 + RECOVER_MRL, mrl_0_1);
+        assert! (hlt_0_0 > hlt_0_1);
+        assert_eq! (spl_0_0, spl_0_1);
+        // Test normal recover
+        unit_0.end_turn (&[1], None);
+        let mrl_0_2 = unit_0.get_statistic (MRL).0;
+        let hlt_0_2 = unit_0.get_statistic (HLT).0;
+        let spl_0_2 = unit_0.get_statistic (SPL).0;
+        assert_eq! (mrl_0_1 + RECOVER_MRL, mrl_0_2);
+        assert! (hlt_0_1 < hlt_0_2);
+        assert! (spl_0_1 < spl_0_2);
     }
 
     #[test]
     fn unit_add_appliable () {
-        let handler = generate_handler ();
-        let (mut unit_0, mut unit_1, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, mut unit_1, _) = generate_units ();
         let (modifier_3, modifier_4) = generate_modifiers ();
         let (effect_0, effect_1) = generate_effects ();
 
@@ -1295,9 +1310,8 @@ pub mod tests {
 
     #[test]
     fn unit_add_status () {
-        let handler = generate_handler ();
         let lists = generate_lists ();
-        let (mut unit_0, _, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, _, _) = generate_units ();
         let (status_0, _, status_5) = generate_statuses ();
         let status_6 = *lists.get_status (&6);
 
@@ -1315,53 +1329,50 @@ pub mod tests {
 
     #[test]
     fn unit_remove_modifier () {
-        let handler = generate_handler ();
-        let (mut unit_0, _, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, _, _) = generate_units ();
         let (modifier_3, _) = generate_modifiers ();
 
         // Test empty remove
         assert! (!unit_0.remove_modifier (&3));
-        assert_eq! (unit_0.modifiers.len (), 0);
+        assert! (unit_0.modifiers.is_empty ());
         // Test non-empty remove
         unit_0.add_appliable (modifier_3);
         assert! (unit_0.remove_modifier (&3));
-        assert_eq! (unit_0.modifiers.len (), 0);
+        assert! (unit_0.modifiers.is_empty ());
     }
 
     #[test]
     fn unit_remove_status () {
-        let handler = generate_handler ();
-        let (mut unit_0, _, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, _, _) = generate_units ();
         let (status_0, _, status_5) = generate_statuses ();
 
         // Test empty remove
         assert! (!unit_0.remove_status (&0));
-        assert_eq! (unit_0.statuses.get (&Trigger::None).unwrap ().len (), 0);
-        assert_eq! (unit_0.modifiers.len (), 0);
+        assert! (unit_0.statuses.get (&Trigger::None).unwrap ().is_empty ());
+        assert! (unit_0.modifiers.is_empty ());
         // Test non-empty remove
         unit_0.add_status (status_0);
         assert_eq! (unit_0.get_statistic (ATK).0, 24);
         assert! (unit_0.remove_status (&0));
         assert_eq! (unit_0.get_statistic (ATK).0, 20);
-        assert_eq! (unit_0.statuses.get (&Trigger::None).unwrap ().len (), 0);
-        assert_eq! (unit_0.modifiers.len (), 0);
+        assert! (unit_0.statuses.get (&Trigger::None).unwrap ().is_empty ());
+        assert! (unit_0.modifiers.is_empty ());
         // Test applier remove
         unit_0.add_status (status_5);
         assert! (unit_0.remove_status (&5));
-        assert_eq! (unit_0.statuses.get (&Trigger::OnHit).unwrap ().len (), 0);
-        assert_eq! (unit_0.modifiers.len (), 0);
+        assert! (unit_0.statuses.get (&Trigger::OnHit).unwrap ().is_empty ());
+        assert! (unit_0.modifiers.is_empty ());
     }
 
     #[test]
     fn unit_decrement_durations () {
-        let handler = generate_handler ();
-        let (mut unit_0, mut unit_1, _) = generate_units (Rc::clone (&handler));
+        let (mut unit_0, mut unit_1, _) = generate_units ();
         let (modifier_3, modifier_4) = generate_modifiers ();
         let (status_0, status_1, status_5) = generate_statuses ();
 
         // Test empty modifier
         unit_0.decrement_durations ();
-        assert_eq! (unit_0.modifiers.len (), 0);
+        assert! (unit_0.modifiers.is_empty ());
         // Test timed modifier
         unit_0.add_appliable (modifier_3.clone ());
         unit_0.decrement_durations ();
@@ -1369,7 +1380,7 @@ pub mod tests {
         unit_0.decrement_durations ();
         assert_eq! (unit_0.modifiers.len (), 1);
         unit_0.decrement_durations ();
-        assert_eq! (unit_0.modifiers.len (), 0);
+        assert! (unit_0.modifiers.is_empty ());
         // Test permanent modifier
         unit_0.add_appliable (modifier_4);
         unit_0.decrement_durations ();
@@ -1379,7 +1390,7 @@ pub mod tests {
 
         // Test empty status
         unit_1.decrement_durations ();
-        assert_eq! (unit_1.statuses.get (&Trigger::None).unwrap ().len (), 0);
+        assert! (unit_1.statuses.get (&Trigger::None).unwrap ().is_empty ());
         // Test timed status
         unit_1.add_status (status_1);
         unit_1.decrement_durations ();
@@ -1387,7 +1398,7 @@ pub mod tests {
         unit_1.decrement_durations ();
         assert_eq! (unit_1.statuses.get (&Trigger::None).unwrap ().len (), 1);
         unit_1.decrement_durations ();
-        assert_eq! (unit_1.statuses.get (&Trigger::None).unwrap ().len (), 0);
+        assert! (unit_1.statuses.get (&Trigger::None).unwrap ().is_empty ());
         // Test permanent status
         unit_1.add_status (status_0);
         unit_1.decrement_durations ();
@@ -1405,7 +1416,7 @@ pub mod tests {
         assert_eq! (unit_1.statuses.get (&Trigger::OnHit).unwrap ().len (), 1);
         assert_eq! (unit_1.statuses.get (&Trigger::OnHit).unwrap ()[0].get_next_id ().unwrap (), 0);
         unit_1.decrement_durations ();
-        assert_eq! (unit_1.statuses.get (&Trigger::OnHit).unwrap ().len (), 0);
+        assert! (unit_1.statuses.get (&Trigger::OnHit).unwrap ().is_empty ());
         assert_eq! (unit_1.statuses.get (&Trigger::None).unwrap ().len (), 2);
         assert! (unit_1.statuses.get (&Trigger::None).unwrap ()[1].get_next_id ().is_none ());
     }

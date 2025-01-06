@@ -1,4 +1,3 @@
-use std::fmt;
 use crate::common::ID;
 
 #[derive (Debug)]
@@ -19,11 +18,5 @@ impl Terrain {
 
     pub fn get_cost (&self) -> u8 {
         self.cost
-    }
-}
-
-impl fmt::Display for Terrain {
-    fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write! (f, "{}", self.cost)
     }
 }

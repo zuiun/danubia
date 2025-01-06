@@ -1,14 +1,11 @@
 mod city;
 pub use self::city::City;
-
 pub mod grid;
 pub use self::grid::Location;
 pub use self::grid::Direction;
 pub use self::grid::Grid;
-
 mod terrain;
 pub use self::terrain::Terrain;
-
 mod tile;
 pub use self::tile::Tile;
 pub use self::tile::TileBuilder;

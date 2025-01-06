@@ -1,5 +1,5 @@
-use crate::character::{FactionBuilder, Magic, Skill, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
-use crate::common::{Capacity, Target, DURATION_PERMANENT};
+use crate::character::{Activity, Element, FactionBuilder, Magic, Rank, Skill, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
+use crate::common::{Target, DURATION_PERMANENT, ID_UNINITIALISED};
 use crate::dynamic::{Change, Effect, ModifierBuilder, StatisticType, Status, Trigger};
 use crate::map::{Area, City, Terrain};
 

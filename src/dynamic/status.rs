@@ -1,7 +1,6 @@
-use std::rc::Rc;
-
-use crate::common::{Capacity, DURATION_PERMANENT, ID, Target, Timed};
 use super::{Appliable, Applier, Change, Trigger};
+use crate::common::{Capacity, DURATION_PERMANENT, ID, Target, Timed};
+use std::rc::Rc;
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]

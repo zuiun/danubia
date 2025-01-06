@@ -162,7 +162,7 @@ mod tests {
         // Test non-empty remove
         map.insert ((0, (0, 0)));
         assert! (map.remove (&(0, 0)));
-        assert_eq! (map.get_first (&0).unwrap ().len (), 0);
+        assert! (map.get_first (&0).unwrap ().is_empty ());
         assert! (map.get_second (&(0, 0)).is_none ());
         assert! (map.get_collection_second (&(0, 0)).is_none ());
     }
@@ -180,7 +180,7 @@ mod tests {
         assert_eq! (map.get_first (&1).unwrap ().len (), 1);
         assert_eq! (map.get_second (&(1, 1)).unwrap (), &1);
         assert_eq! (map.get_collection_second (&(1, 1)).unwrap ().len (), 1);
-        assert_eq! (map.get_first (&0).unwrap ().len (), 0);
+        assert! (map.get_first (&0).unwrap ().is_empty ());
         assert! (map.get_second (&(0, 0)).is_none ());
         // Test complete replace
         map.insert ((1, (0, 0)));

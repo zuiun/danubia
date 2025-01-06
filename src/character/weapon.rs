@@ -1,9 +1,9 @@
-use std::rc::Rc;
 use super::Tool;
 use crate::Lists;
 use crate::common::{ID, Target, Timed};
 use crate::dynamic::{Appliable, Applier, Change, Changeable, Status, Trigger};
 use crate::map::Area;
+use std::rc::Rc;
 
 type WeaponStatistics = [u8; WeaponStatistic::Length as usize];
 

@@ -1,27 +1,20 @@
-use std::cell::RefCell;
-use std::collections::HashSet;
-use std::rc::Weak;
 use crate::collections::OuterJoinMap;
 use crate::common::{ID, ID_UNINITIALISED};
-use crate::event::Handler;
+use std::collections::HashSet;
 
 #[derive (Debug)]
 pub struct Faction {
     id: ID,
     member_ids: HashSet<ID>,
     leader_followers: OuterJoinMap<ID, ID>,
-    // Safety guarantee: Faction will never borrow_mut Handler
-    handler: Weak<RefCell<Handler>>,
-    // observer_id: Cell<ID>,
 }
 
 impl Faction {
-    pub fn new (id: ID, handler: Weak<RefCell<Handler>>) -> Self {
+    pub fn new (id: ID) -> Self {
         let member_ids: HashSet<ID> = HashSet::new ();
         let leader_followers: OuterJoinMap<ID, ID> = OuterJoinMap::new ();
-        // let observer_id: Cell<ID> = Cell::new (ID_UNINITIALISED);
 
-        Self { id, member_ids, leader_followers, handler/*, observer_id*/ }
+        Self { id, member_ids, leader_followers }
     }
 
     pub fn is_member (&self, unit_id: &ID) -> bool {
@@ -44,46 +37,11 @@ impl Faction {
         self.leader_followers.remove (unit_id)
     }
 
-    pub fn get_leader (&self, unit_id: &ID) -> &ID {
-        self.leader_followers.get_second (unit_id)
-                .unwrap_or_else (|| panic! ("Leader not found for unit {}", unit_id))
-    }
-
-    pub fn get_followers (&self, unit_id: &ID) -> Vec<ID> {
+    pub fn get_followers (&self, unit_id: &ID) -> &HashSet<ID> {
         self.leader_followers.get_first (unit_id)
                 .unwrap_or_else (|| panic! ("Followers not found for unit {}", unit_id))
-                .iter ()
-                .copied ()
-                .collect::<Vec<ID>> ()
     }
 }
-
-// impl Observer for Faction {
-//     fn respond (&self, message: Message) -> Option<Response> {
-//         match message {
-//             _ => None
-//         }
-//     }
-
-//     fn set_observer_id (&self, observer_id: ID) -> bool {
-//         if self.observer_id.get () < ID_UNINITIALISED {
-//             false
-//         } else {
-//             self.observer_id.replace (observer_id);
-
-//             true
-//         }
-//     }
-// }
-
-// impl Subject for Faction {
-//     fn notify (&self, message: Message) -> Vec<Response> {
-//         self.handler.upgrade ()
-//                 .expect (&format! ("Pointer upgrade failed for {:?}", self.handler))
-//                 .borrow ()
-//                 .notify (message)
-//     }
-// }
 
 #[derive (Debug)]
 pub struct FactionBuilder {
@@ -95,7 +53,7 @@ impl FactionBuilder {
         Self { id }
     }
 
-    pub fn build (&self, handler: Weak<RefCell<Handler>>) -> Faction {
-        Faction::new (self.id, handler)
+    pub fn build (&self) -> Faction {
+        Faction::new (self.id)
     }
 }
