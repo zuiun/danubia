@@ -1,8 +1,8 @@
-use super::{City, Search, Tile, COST_IMPASSABLE};
+use super::{City, Search, Tile, TileBuilder, COST_IMPASSABLE};
 use crate::collections::{InnerJoinMap, OuterJoinMap};
 use crate::common::{ID, ID_UNINITIALISED};
 use crate::dynamic::{Appliable, Applier, Changeable, Modifier, Status, Trigger};
-use crate::Lists;
+use crate::Scene;
 use std::collections::{HashSet, VecDeque};
 // use std::fmt;
 use std::rc::Rc;
@@ -45,7 +45,7 @@ pub enum Direction {
 
 #[derive (Debug)]
 pub struct Grid {
-    lists: Rc<Lists>,
+    scene: Rc<Scene>,
     tiles: Vec<Vec<Tile>>,
     adjacencies: Vec<Vec<Adjacency>>,
     unit_locations: InnerJoinMap<ID, Location>,
@@ -53,8 +53,19 @@ pub struct Grid {
 }
 
 impl Grid {
-    pub fn new (lists: Rc<Lists>, tiles: Vec<Vec<Tile>>) -> Self {
-        assert! (is_rectangular (&tiles));
+    pub fn new (scene: Rc<Scene>) -> Self {
+        let tile_builders: &[&[TileBuilder]] = scene.get_tile_builders ();
+        let mut tiles: Vec<Vec<Tile>> = Vec::new ();
+
+        for (i, row) in tile_builders.iter ().enumerate () {
+            tiles.push (Vec::new ());
+
+            for tile_builder in row.iter () {
+                let tile: Tile = tile_builder.build (Rc::clone (&scene));
+
+                tiles[i].push (tile);
+            }
+        }
 
         let adjacencies: Vec<Vec<Adjacency>> = Grid::build_adjacencies (&tiles);
         let mut faction_locations: OuterJoinMap<ID, Location> = OuterJoinMap::new ();
@@ -66,7 +77,10 @@ impl Grid {
             }
         }
 
-        Self { lists, tiles, adjacencies, unit_locations, faction_locations }
+        assert! (is_rectangular (&tiles));
+        assert! (is_rectangular (&adjacencies));
+
+        Self { scene, tiles, adjacencies, unit_locations, faction_locations }
     }
 
     fn build_adjacencies (tiles: &Vec<Vec<Tile>>) -> Vec<Vec<Adjacency>> {
@@ -294,9 +308,10 @@ impl Grid {
         Some ((end, terrain_id))
     }
 
-    fn find_unit_movable (&self, unit_id: &ID) -> Vec<ID> {
-        todo! ()
-    }
+    // TODO: This eventually needs to be displayed on a GUI
+    // fn find_unit_movable (&self, unit_id: &ID) -> Vec<ID> {
+    //     todo! ()
+    // }
 
     pub fn find_unit_cities (&self, unit_id: &ID, faction_id: &ID) -> Vec<ID> {
         assert! (is_rectangular (&self.tiles));
@@ -480,7 +495,7 @@ impl Grid {
 
         if let Some (c) = tile.get_city_id () {
             if !tile.is_recruited () {
-                let city: &City = self.lists.get_city (&c);
+                let city: &City = self.scene.get_city (&c);
 
                 if let Some (r) = city.get_recruit_id () {
                     let spawn: Location = self.find_nearest_placeable (&location);
@@ -600,7 +615,7 @@ impl Grid {
         assert! (is_rectangular (&self.tiles));
         assert! (is_in_bounds (&self.tiles, location));
 
-        self.tiles[location.0][location.1].try_yield_appliable (Rc::clone (&self.lists))
+        self.tiles[location.0][location.1].try_yield_appliable (Rc::clone (&self.scene))
     }
 
     pub fn is_recruited (&self, location: &Location) -> bool {
@@ -633,7 +648,7 @@ impl Grid {
     }
 
     fn get_unit_faction (&self, unit_id: &ID) -> ID {
-        self.lists.get_unit_builder (unit_id).get_faction_id ()
+        self.scene.get_unit_builder (unit_id).get_faction_id ()
     }
 }
 
@@ -649,7 +664,7 @@ impl Grid {
 //                                     .unwrap_or_else (|| panic! ("Unit not found for location ({}, {})", i, j)),
 //                             tile.get_height ()));
 //                 } else {
-//                     display.push_str (&format! ("{}_{} ", self.lists.get_terrain (&tile.get_terrain_id ()), tile.get_height ()));
+//                     display.push_str (&format! ("{}_{} ", self.scene.get_terrain (&tile.get_terrain_id ()), tile.get_height ()));
 //                 }
 //             }
 
@@ -661,26 +676,14 @@ impl Grid {
 // }
 
 #[cfg (test)]
-pub mod tests {
+mod tests {
     use super::*;
-    use crate::map::TileBuilder;
-    use crate::tests::generate_lists;
+    use crate::tests::generate_scene;
 
-    fn generate_tiles () -> Vec<Vec<Tile>> {
-        let lists = generate_lists ();
-        let tile_builder = TileBuilder::new (Rc::clone (&lists));
+    fn generate_grid () -> Grid {
+        let scene = generate_scene ();
 
-        vec![
-            vec![tile_builder.build (0, 0, Some (0)), tile_builder.build (0, 1, None), tile_builder.build (0, 0, Some (1))],
-            vec![tile_builder.build (1, 2, Some (2)), tile_builder.build (1, 1, None), tile_builder.build (2, 0, None)]
-        ]
-    }
-
-    pub fn generate_grid () -> Grid {
-        let lists = generate_lists ();
-        let tiles: Vec<Vec<Tile>> = generate_tiles ();
-
-        Grid::new (Rc::clone (&lists), tiles)
+        Grid::new (Rc::clone (&scene))
     }
 
     #[test]
@@ -851,11 +854,10 @@ pub mod tests {
 
     #[test]
     fn grid_update_adjacency () {
-        let lists = generate_lists ();
-        let tile_builder: TileBuilder = TileBuilder::new (Rc::clone (&lists));
+        let scene = generate_scene ();
         let tiles_updated: Vec<Vec<Tile>> = vec![
-            vec![tile_builder.build (0, 10, Some (0)) /* changed */, tile_builder.build (0, 1, None), tile_builder.build (0, 0, Some (1))],
-            vec![tile_builder.build (1, 2, None), tile_builder.build (1, 1, None), tile_builder.build (0, 0, None) /* changed */]
+            vec![Tile::new (Rc::clone (&scene), 0, 10, Some (0)), Tile::new (Rc::clone (&scene), 0, 1, None), Tile::new (Rc::clone (&scene), 0, 0, Some (1))],
+            vec![Tile::new (Rc::clone (&scene), 1, 2, Some (2)), Tile::new (Rc::clone (&scene), 1, 1, None), Tile::new (Rc::clone (&scene), 0, 0, None)],
         ];
         let mut grid = generate_grid ();
 
@@ -1064,11 +1066,11 @@ pub mod tests {
 
     #[test]
     fn grid_add_status () {
-        let lists = generate_lists ();
+        let scene = generate_scene ();
         let mut grid = generate_grid ();
-        let status_0 = *lists.get_status (&0);
-        let status_2 = *lists.get_status (&2);
-        let status_3 = *lists.get_status (&3);
+        let status_0 = *scene.get_status (&0);
+        let status_2 = *scene.get_status (&2);
+        let status_3 = *scene.get_status (&3);
 
         assert! (!grid.add_status (&(0, 0), status_0));
         assert! (grid.add_status (&(0, 0), status_2));

@@ -1,8 +1,8 @@
 use super::Tool;
-use crate::Lists;
 use crate::common::{ID, Target, Timed};
 use crate::dynamic::{Appliable, Applier, Change, Changeable, Status, Trigger};
 use crate::map::Area;
+use crate::Scene;
 use std::rc::Rc;
 
 type WeaponStatistics = [u8; WeaponStatistic::Length as usize];
@@ -112,8 +112,8 @@ impl Changeable for Weapon {
 }
 
 impl Applier for Weapon {
-    fn try_yield_appliable (&self, lists: Rc<Lists>) -> Option<Box<dyn Appliable>> {
-        self.status.and_then (|s: Status| s.try_yield_appliable (lists))
+    fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
+        self.status.and_then (|s: Status| s.try_yield_appliable (scene))
     }
 
     fn get_target (&self) -> Target {
@@ -124,20 +124,20 @@ impl Applier for Weapon {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use crate::tests::generate_lists;
+    use crate::tests::generate_scene;
 
     fn generate_statuses () -> (Status, Status) {
-        let lists = generate_lists ();
-        let status_6 = *lists.get_status (&6);
-        let status_7 = *lists.get_status (&7);
+        let scene = generate_scene ();
+        let status_6 = *scene.get_status (&6);
+        let status_7 = *scene.get_status (&7);
 
         (status_6, status_7)
     }
 
     #[test]
     fn weapon_add_status () {
-        let lists = generate_lists ();
-        let mut weapon = *lists.get_weapon (&0);
+        let scene = generate_scene ();
+        let mut weapon = *scene.get_weapon (&0);
         let (status_6, _) = generate_statuses ();
 
         assert! (weapon.add_status (status_6));
@@ -146,8 +146,8 @@ mod tests {
 
     #[test]
     fn weapon_remove_status () {
-        let lists = generate_lists ();
-        let mut weapon = *lists.get_weapon (&0);
+        let scene = generate_scene ();
+        let mut weapon = *scene.get_weapon (&0);
         let (status_6, _) = generate_statuses ();
     
         // Test empty remove
@@ -161,8 +161,8 @@ mod tests {
 
     #[test]
     fn weapon_decrement_durations () {
-        let lists = generate_lists ();
-        let mut weapon = *lists.get_weapon (&0);
+        let scene = generate_scene ();
+        let mut weapon = *scene.get_weapon (&0);
         let (status_6, status_7) = generate_statuses ();
 
         // Test empty status

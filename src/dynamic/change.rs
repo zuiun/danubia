@@ -1,6 +1,6 @@
 use super::{Appliable, Effect, Modifier, ModifierBuilder};
 use crate::common::ID;
-use crate::Lists;
+use crate::Scene;
 use std::rc::Rc;
 
 #[derive (Debug)]
@@ -11,10 +11,10 @@ pub enum Change {
 }
 
 impl Change {
-    pub fn modifier (&self, lists: Rc<Lists>) -> Modifier {
+    pub fn modifier (&self, scene: Rc<Scene>) -> Modifier {
         match self {
             Change::Modifier (m, s) => {
-                let modifier_builder: &ModifierBuilder = lists.get_modifier_builder (m);
+                let modifier_builder: &ModifierBuilder = scene.get_modifier_builder (m);
 
                 modifier_builder.build (*s)
             }
@@ -22,25 +22,25 @@ impl Change {
         }
     }
 
-    pub fn effect (&self, lists: Rc<Lists>) -> Effect {
+    pub fn effect (&self, scene: Rc<Scene>) -> Effect {
         match self {
             Change::Modifier ( .. ) => unimplemented! (),
             Change::Effect (e) => {
-                *lists.get_effect (e)
+                *scene.get_effect (e)
             }
         }
     }
 
-    pub fn appliable (&self, lists: Rc<Lists>) -> Box<dyn Appliable> {
+    pub fn appliable (&self, scene: Rc<Scene>) -> Box<dyn Appliable> {
         match self {
             Change::Modifier ( .. ) => {
-                let modifier: Modifier = self.modifier (lists);
+                let modifier: Modifier = self.modifier (scene);
                 let appliable: Box<dyn Appliable> = Box::new (modifier);
 
                 appliable
             }
             Change::Effect ( .. ) => {
-                let effect: Effect = self.effect (lists);
+                let effect: Effect = self.effect (scene);
                 let appliable: Box<dyn Appliable> = Box::new (effect);
 
                 appliable

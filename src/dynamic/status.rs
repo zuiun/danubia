@@ -68,8 +68,8 @@ impl Status {
 }
 
 impl Applier for Status {
-    fn try_yield_appliable (&self, lists: Rc<crate::Lists>) -> Option<Box<dyn Appliable>> {
-        let appliable: Box<dyn Appliable> = self.change.appliable (lists);
+    fn try_yield_appliable (&self, scene: Rc<crate::Scene>) -> Option<Box<dyn Appliable>> {
+        let appliable: Box<dyn Appliable> = self.change.appliable (scene);
 
         Some (appliable)
     }

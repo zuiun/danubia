@@ -1,21 +1,19 @@
 Features:
-time to read input :(
 game loop
 rework event system into game events (weather, spawning reinforcements, etc)
-I/O (sync::mspc seems promising)
+logging (sync::mspc seems promising)
 
 Code:
-move all test generation functions out of their modules - it clutters crate visibility
+move all test generation functions out of their modules - it clutters crate visibility < last one is generate_scene
 start documenting functions...
 Needs more error checking (for example, if a a fallible function is called, check that it succeeded)
 ^ Functions that can fail should return Option or Result (maybe Result<Option>)
 ^ If I start writing my own error types, I can also take advantage of ?
 Go through and remove as many pubs as possible
 consistent semantics for &parameters/returns
-consistent usage of Option vs ID_UNINITIALISED and such
 associated structs/enums should probably have their parent in their names
 consider renaming single letter variables (used for deconstruction)
-rust seems to like using *Kind instead of *Type for enums and such
+can_stack shouldn't necessarily require a ModifierBuilder
 
 Balancing:
 When in combat, morale/manpower/equipment drain should always be greater than recovery

@@ -1,6 +1,6 @@
 use crate::character::UnitStatistic;
 use crate::common::{ID, Target};
-use crate::Lists;
+use crate::Scene;
 use std::rc::Rc;
 
 mod change;
@@ -8,14 +8,12 @@ pub use self::change::Change;
 mod effect;
 pub use self::effect::Effect;
 mod modifier;
-pub use self::modifier::MODIFIER_EMPTY;
 pub use self::modifier::Modifier;
 pub use self::modifier::ModifierBuilder;
 mod status;
 pub use self::status::Status;
 
-pub type Adjustment = (StatisticType, u16, bool); // statistic, change (value depends on context), is add
-pub type Adjustments = [Option<Adjustment>; 4]; // Any more than 4 is probably excessive
+pub type Adjustment = (Statistic, u16, bool); // statistic, change (value depends on context), is add
 
 pub trait Appliable {
     /*
@@ -51,7 +49,7 @@ pub trait Appliable {
      * Post: None
      * Return: Adjustments = self's adjustments
      */
-    fn get_adjustments (&self) -> Adjustments;
+    fn get_adjustments (&self) -> &[Adjustment];
     /*
      * Gets whether self can stack or is flat change
      * Modifier -> can stack
@@ -68,13 +66,13 @@ pub trait Applier {
     /*
      * Gets self's change
      *
-     * lists: Rc<Lists> = lists of all game objects
+     * scene: Rc<Scene> = lists of all game objects
      *
      * Pre: None
      * Post: None
      * Return: Option<Box<dyn Appliable>> = None -> change unavailable, Some (change) -> change available
      */
-    fn try_yield_appliable (&self, lists: Rc<Lists>) -> Option<Box<dyn Appliable>>;
+    fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>>;
     /*
      * Gets self's target
      *
@@ -145,7 +143,7 @@ pub trait Changeable {
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
-pub enum StatisticType {
+pub enum Statistic {
     Unit (UnitStatistic),
     Tile (bool), // false = set to constant, true = flat change
 }

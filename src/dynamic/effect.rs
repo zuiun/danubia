@@ -1,16 +1,16 @@
-use super::{Adjustments, Appliable, Change, Modifier};
+use super::{Adjustment, Appliable, Change, Modifier};
 use crate::common::ID;
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
 pub struct Effect {
     id: ID,
-    adjustments: Adjustments,
+    adjustments: &'static [Adjustment],
     is_flat: bool,
 }
 
 impl Effect {
-    pub const fn new (id: ID, adjustments: Adjustments, is_flat: bool) -> Self {
+    pub const fn new (id: ID, adjustments: &'static [Adjustment], is_flat: bool) -> Self {
         Self { id, adjustments, is_flat }
     }
 
@@ -32,7 +32,7 @@ impl Appliable for Effect {
         Change::Effect (self.id)   
     }
 
-    fn get_adjustments (&self) -> Adjustments {
+    fn get_adjustments (&self) -> &[Adjustment] {
         self.adjustments
     }
 

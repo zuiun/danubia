@@ -1,8 +1,8 @@
 use super::*;
 use self::UnitStatistic::{MRL, HLT, SPL, ATK, DEF, MAG, MOV, ORG};
 use crate::common::{Capacity, Target, Timed, ID, MULTIPLIER_ATTACK, MULTIPLIER_MAGIC, MULTIPLIER_SKILL, MULTIPLIER_WAIT};
-use crate::dynamic::{Appliable, Applier, Change, Changeable, Effect, Modifier, StatisticType, Status, Trigger};
-use crate::Lists;
+use crate::dynamic::{Appliable, Applier, Change, Changeable, Effect, Modifier, Statistic, Status, Trigger};
+use crate::Scene;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -25,10 +25,6 @@ const THRESHOLD_RETREAT_MRL: u16 = 40_0; // 40.0%
 #[allow (clippy::inconsistent_digit_grouping)]
 const THRESHOLD_ROUT_MRL: u16 = 20_0; // 20.0%
 const THRESHOLD_SKILL_PASSIVE: usize = 1; // TODO: probably needs to be balanced
-const WEAPON_0: usize = 0;
-const WEAPON_1: usize = 1;
-const WEAPONS_LENGTH: usize = 2;
-const SKILLS_LENGTH: usize = 3;
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
@@ -213,12 +209,12 @@ impl UnitStatistics {
 #[derive (Debug)]
 pub struct Unit {
     id: ID,
-    lists: Rc<Lists>,
+    scene: Rc<Scene>,
     statistics: UnitStatistics,
     modifier_terrain_id: Option<ID>,
     modifiers: Vec<Modifier>,
     statuses: HashMap<Trigger, Vec<Status>>,
-    weapons: [Weapon; WEAPONS_LENGTH],
+    weapons: Vec<Weapon>,
     skill_passive_id: Option<ID>,
     skills: Vec<Skill>,
     magic_ids: Vec<ID>,
@@ -230,34 +226,27 @@ pub struct Unit {
 
 impl Unit {
     #[allow (clippy::too_many_arguments)]
-    pub fn new (id: ID, lists: Rc<Lists>, statistics: UnitStatistics, weapon_ids: [ID; WEAPONS_LENGTH], skill_passive_id: Option<ID>, skill_ids: &[Option<ID>; SKILLS_LENGTH], magics_usable: &[bool; Element::Length as usize], faction_id: ID, rank: Rank) -> Self {
+    pub fn new (id: ID, scene: Rc<Scene>, statistics: UnitStatistics, weapons: &[ID], skill_passive_id: Option<ID>, skill_ids: &[ID], magics_usable: &[bool; Element::Length as usize], faction_id: ID, rank: Rank) -> Self {
         let modifier_terrain_id: Option<ID> = None;
         let modifiers: Vec<Modifier> = Vec::new ();
         let mut statuses: HashMap<Trigger, Vec<Status>> = HashMap::new ();
+        let weapons: Vec<Weapon> = weapons.iter ()
+                .map (|w: &ID| *scene.get_weapon (w)).collect ();
+        let skills: Vec<Skill> = skill_ids.iter ()
+                .map (|s: &ID| *scene.get_skill (s)).collect ();
         let mut magic_ids: Vec<ID> = Vec::new ();
-        let mut skills: Vec<Skill> = Vec::new ();
-        let weapons: [Weapon; WEAPONS_LENGTH] = [
-            *lists.get_weapon (&weapon_ids[WEAPON_0]),
-            *lists.get_weapon (&weapon_ids[WEAPON_1]),
-        ];
-        let weapon_active: usize = WEAPON_0;
+        let weapon_active: usize = 0;
         let is_alive: bool = true;
 
         statuses.insert (Trigger::None, Vec::new ());
 
-        for magic in lists.magics_iter () {
+        for magic in scene.magics_iter () {
             if magics_usable[magic.get_element () as usize] && statistics.get_statistic (MAG).0 >= magic.get_cost () {
                 magic_ids.push (magic.get_id ());
             }
         }
 
-        for skill_id in skill_ids.iter ().flatten () {
-            let skill: Skill = *lists.get_skill (skill_id);
-
-            skills.push (skill);
-        }
-
-        Self { id, lists, statistics, modifier_terrain_id, modifiers, statuses, magic_ids, skill_passive_id, skills, weapons, weapon_active, faction_id, rank, is_alive }
+        Self { id, scene, statistics, modifier_terrain_id, modifiers, statuses, magic_ids, skill_passive_id, skills, weapons, weapon_active, faction_id, rank, is_alive }
     }
 
     pub fn initialise (&mut self) {
@@ -286,9 +275,9 @@ impl Unit {
 
     pub fn apply_inactive_skills (&mut self) {
         if let Some (s) = self.skill_passive_id {
-            let status_passive_id: ID = self.lists.get_skill (&s)
+            let status_passive_id: ID = self.scene.get_skill (&s)
                     .get_status_id ();
-            let status_passive: Status = *self.lists.get_status (&status_passive_id);
+            let status_passive: Status = *self.scene.get_status (&status_passive_id);
             self.add_status (status_passive);
         }
 
@@ -296,7 +285,7 @@ impl Unit {
                 .filter_map (|s: &Skill| 
                     if s.is_toggle () {
                         let status_id: ID = s.get_status_id ();
-                        let status: Status = *self.lists.get_status (&status_id);
+                        let status: Status = *self.scene.get_status (&status_id);
 
                         Some (status)
                     } else {
@@ -316,7 +305,7 @@ impl Unit {
 
         self.modifier_terrain_id = match modifier_id {
             Some (m) => {
-                let modifier: Modifier = self.lists.get_modifier_builder (&m)
+                let modifier: Modifier = self.scene.get_modifier_builder (&m)
                         .build (true);
                 let appliable: Box<dyn Appliable> = Box::new (modifier);
     
@@ -336,7 +325,7 @@ impl Unit {
 
     pub fn try_add_passive (&mut self, skill_id: &ID, distance: usize) -> bool {
         if let Rank::Follower ( .. ) = self.rank {
-            let status_id: &ID = &self.lists.get_skill (skill_id)
+            let status_id: &ID = &self.scene.get_skill (skill_id)
                     .get_status_id();
             let org: u16 = self.get_statistic (ORG).0;
             let multiplier: f32 = (org / PERCENT_100) as f32;
@@ -348,7 +337,7 @@ impl Unit {
 
                 false
             } else if self.skill_passive_id.is_none () {
-                let status: Status = *self.lists.get_status (status_id);
+                let status: Status = *self.scene.get_status (status_id);
 
                 self.skill_passive_id = Some (*skill_id);
 
@@ -380,7 +369,7 @@ impl Unit {
             for status in collection.iter () {
                 if status.is_every_turn () {
                     let appliable: Box<dyn Appliable> = status.get_change ()
-                            .appliable (Rc::clone (&self.lists));
+                            .appliable (Rc::clone (&self.scene));
 
                     appliables.push (appliable);
                 }
@@ -395,11 +384,7 @@ impl Unit {
     }
 
     pub fn switch_weapon (&mut self) -> ID {
-        self.weapon_active = if self.weapon_active == WEAPON_0 {
-            WEAPON_1
-        } else {
-            WEAPON_0
-        };
+        self.weapon_active = (self.weapon_active + 1) % self.weapons.len ();
 
         self.weapon_active
     }
@@ -410,7 +395,7 @@ impl Unit {
         self.change_statistic_flat (SPL, drain_spl, false);
         self.update_is_alive ();
 
-        (self.get_statistic (MOV).0, self.get_weapon ().try_yield_appliable (Rc::clone (&self.lists)))
+        (self.get_statistic (MOV).0, self.get_weapon ().try_yield_appliable (Rc::clone (&self.scene)))
     }
 
     pub fn take_damage (&mut self, damage_mrl: u16, damage_hlt: u16, damage_spl: u16) -> Option<Box<dyn Appliable>> {
@@ -419,7 +404,7 @@ impl Unit {
         self.change_statistic_flat (SPL, damage_spl, false);
         self.update_is_alive ();
 
-        self.try_yield_appliable (Rc::clone (&self.lists))
+        self.try_yield_appliable (Rc::clone (&self.scene))
     }
 
     pub fn act_skill (&mut self, skill_id: &ID) -> (u16, &Skill) {
@@ -453,7 +438,7 @@ impl Unit {
         assert! (self.magic_ids.contains (magic_id));
 
         let mag: u16 = self.get_statistic (MAG).0;
-        let cost: u16 = self.lists.get_magic (magic_id)
+        let cost: u16 = self.scene.get_magic (magic_id)
                 .get_cost ();
         let drain_hlt: u16 = u16::max ((cost * DRAIN_HLT).saturating_sub (mag), 1);
         let drain_org: u16 = u16::max ((cost * PERCENT_1).saturating_sub (mag / PERCENT_1), PERCENT_1);
@@ -464,7 +449,7 @@ impl Unit {
         self.change_statistic_flat (SPL, drain_spl, false);
         self.update_is_alive ();
 
-        (self.get_statistic (MOV).0, self.lists.get_magic (magic_id))
+        (self.get_statistic (MOV).0, self.scene.get_magic (magic_id))
     }
 
     pub fn act_wait (&mut self) -> u16 {
@@ -482,9 +467,9 @@ impl Unit {
             let mut recover_spl: u16 = 0;
 
             for city_id in city_ids {
-                let change_hlt: u16 = self.lists.get_city (city_id)
+                let change_hlt: u16 = self.scene.get_city (city_id)
                         .get_manpower ();
-                let change_spl: u16 = self.lists.get_city (city_id)
+                let change_spl: u16 = self.scene.get_city (city_id)
                         .get_equipment ();
 
                 recover_hlt += change_hlt;
@@ -547,9 +532,9 @@ impl Unit {
 }
 
 impl Applier for Unit {
-    fn try_yield_appliable (&self, lists: Rc<Lists>) -> Option<Box<dyn Appliable>> {
+    fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
         self.statuses.get (&Trigger::OnHit).and_then (|c: &Vec<Status>|
-            c.first ().and_then (|s: &Status| s.try_yield_appliable (lists))
+            c.first ().and_then (|s: &Status| s.try_yield_appliable (scene))
         )
     }
 
@@ -567,8 +552,8 @@ impl Changeable for Unit {
                 let modifier: Modifier = appliable.modifier ();
 
                 if modifier.can_stack () || !self.modifiers.contains (&modifier){
-                    for adjustment in modifier.get_adjustments ().iter ().flatten () {
-                        if let StatisticType::Unit (s) = adjustment.0 {
+                    for adjustment in modifier.get_adjustments ().iter () {
+                        if let Statistic::Unit (s) = adjustment.0 {
                             self.change_statistic_percentage (s, adjustment.1, adjustment.2);
                         }
                     }
@@ -583,8 +568,8 @@ impl Changeable for Unit {
             Change::Effect ( .. ) => {
                 let effect: Effect = appliable.effect ();
 
-                for adjustment in effect.get_adjustments ().iter ().flatten () {
-                    if let StatisticType::Unit (s) = adjustment.0 {
+                for adjustment in effect.get_adjustments ().iter () {
+                    if let Statistic::Unit (s) = adjustment.0 {
                         if effect.can_stack_or_is_flat () {
                             self.change_statistic_flat (s, adjustment.1, adjustment.2);
                         } else {
@@ -604,7 +589,7 @@ impl Changeable for Unit {
         if let Trigger::OnOccupy = trigger {
             false
         } else {
-            let appliable: Box<dyn Appliable> = status.try_yield_appliable (Rc::clone (&self.lists))
+            let appliable: Box<dyn Appliable> = status.try_yield_appliable (Rc::clone (&self.scene))
                     .unwrap_or_else (|| panic! ("Appliable not found for status {:?}", status));
 
             match trigger {
@@ -651,8 +636,8 @@ impl Changeable for Unit {
         if let Some (i) = index {
             let modifier: Modifier = self.modifiers.swap_remove (i);
 
-            for adjustment in modifier.get_adjustments ().iter ().flatten () {
-                if let StatisticType::Unit (s) = adjustment.0 {
+            for adjustment in modifier.get_adjustments ().iter () {
+                if let Statistic::Unit (s) = adjustment.0 {
                     self.change_statistic_percentage (s, adjustment.1, !adjustment.2);
                 }
             }
@@ -701,7 +686,7 @@ impl Changeable for Unit {
                 self.remove_modifier (&m);
 
                 if let Some (n) = status_expired.get_next_id () {
-                    let status_next: Status = *self.lists.get_status (&n);
+                    let status_next: Status = *self.scene.get_status (&n);
 
                     self.add_status (status_next);
                 }
@@ -714,9 +699,9 @@ impl Changeable for Unit {
 pub struct UnitBuilder {
     id: ID,
     statistics: UnitStatistics,
-    weapon_ids: [ID; WEAPONS_LENGTH],
+    weapon_ids: &'static [ID],
     skill_passive_id: Option<ID>,
-    skill_ids: [Option<ID>; SKILLS_LENGTH],
+    skill_ids: &'static [ID],
     magics_usable: [bool; Element::Length as usize],
     faction_id: ID,
     rank: Rank,
@@ -724,12 +709,12 @@ pub struct UnitBuilder {
 
 impl UnitBuilder {
     #[allow (clippy::too_many_arguments)]
-    pub const fn new (id: ID, statistics: UnitStatistics, weapon_ids: [ID; WEAPONS_LENGTH], skill_passive_id: Option<ID>, skill_ids: [Option<ID>; SKILLS_LENGTH], magics_usable: [bool; Element::Length as usize], faction_id: ID, rank: Rank) -> Self {
+    pub const fn new (id: ID, statistics: UnitStatistics, weapon_ids: &'static [ID], skill_passive_id: Option<ID>, skill_ids: &'static [ID], magics_usable: [bool; Element::Length as usize], faction_id: ID, rank: Rank) -> Self {
         Self { id, statistics, weapon_ids, skill_passive_id, skill_ids, magics_usable, faction_id, rank }
     }
 
-    pub fn build (&self, lists: Rc<Lists>) -> Unit {
-        Unit::new (self.id, lists, self.statistics, self.weapon_ids, self.skill_passive_id, &self.skill_ids, &self.magics_usable, self.faction_id, self.rank)
+    pub fn build (&self, scene: Rc<Scene>) -> Unit {
+        Unit::new (self.id, scene, self.statistics, self.weapon_ids, self.skill_passive_id, self.skill_ids, &self.magics_usable, self.faction_id, self.rank)
     }
 
     pub fn get_id (&self) -> ID {
@@ -742,28 +727,28 @@ impl UnitBuilder {
 }
 
 #[cfg (test)]
-pub mod tests {
+mod tests {
     use super::*;
-    use crate::tests::generate_lists;
+    use crate::tests::generate_scene;
 
-    pub fn generate_units () -> (Unit, Unit, Unit) {
-        let lists = generate_lists ();
-        let unit_builder_0 = lists.get_unit_builder (&0);
-        let unit_0 = unit_builder_0.build (Rc::clone (&lists));
-        let unit_builder_1 = lists.get_unit_builder (&1);
-        let unit_1 = unit_builder_1.build (Rc::clone (&lists));
-        let unit_builder_2 = lists.get_unit_builder (&2);
-        let unit_2 = unit_builder_2.build (Rc::clone (&lists));
+    fn generate_units () -> (Unit, Unit, Unit) {
+        let scene = generate_scene ();
+        let unit_builder_0 = scene.get_unit_builder (&0);
+        let unit_0 = unit_builder_0.build (Rc::clone (&scene));
+        let unit_builder_1 = scene.get_unit_builder (&1);
+        let unit_1 = unit_builder_1.build (Rc::clone (&scene));
+        let unit_builder_2 = scene.get_unit_builder (&2);
+        let unit_2 = unit_builder_2.build (Rc::clone (&scene));
 
         (unit_0, unit_1, unit_2)
     }
 
     fn generate_modifiers () -> (Box<Modifier>, Box<Modifier>) {
-        let lists = generate_lists ();
-        let modifier_builder_3 = lists.get_modifier_builder (&3);
+        let scene = generate_scene ();
+        let modifier_builder_3 = scene.get_modifier_builder (&3);
         let modifier_3 = modifier_builder_3.build (true);
         let modifier_3 = Box::new (modifier_3);
-        let modifier_builder_4 = lists.get_modifier_builder (&4);
+        let modifier_builder_4 = scene.get_modifier_builder (&4);
         let modifier_4 = modifier_builder_4.build (false);
         let modifier_4 = Box::new (modifier_4);
 
@@ -771,20 +756,20 @@ pub mod tests {
     }
 
     fn generate_effects () -> (Box<Effect>, Box<Effect>) {
-        let lists = generate_lists ();
-        let effect_0 = *lists.get_effect (&0);
+        let scene = generate_scene ();
+        let effect_0 = *scene.get_effect (&0);
         let effect_0 = Box::new (effect_0);
-        let effect_1 = *lists.get_effect (&1);
+        let effect_1 = *scene.get_effect (&1);
         let effect_1 = Box::new (effect_1);
 
         (effect_0, effect_1)
     }
 
     fn generate_statuses () -> (Status, Status, Status) {
-        let lists = generate_lists ();
-        let status_0 = *lists.get_status (&0);
-        let status_1 = *lists.get_status (&1);
-        let status_5 = *lists.get_status (&5);
+        let scene = generate_scene ();
+        let status_0 = *scene.get_status (&0);
+        let status_1 = *scene.get_status (&1);
+        let status_5 = *scene.get_status (&5);
 
         (status_0, status_1, status_5)
     }
@@ -837,204 +822,6 @@ pub mod tests {
         assert_eq! (unit_0.get_statistic (HLT).0, 0);
     }
 
-    // #[test]
-    // fn unit_filter_unit_allegiance () {
-    //     let handler = generate_handler ();
-    //     let (unit_0, unit_1, unit_2) = generate_units ();
-    //     let (faction_0, faction_1) = generate_factions (Rc::clone (&handler));
-    //     let unit_0_id = handler.borrow_mut ().register (Rc::clone (&unit_0) as Rc<RefCell<dyn Observer>>);
-    //     let unit_1_id = handler.borrow_mut ().register (Rc::clone (&unit_1) as Rc<RefCell<dyn Observer>>);
-    //     let unit_2_id = handler.borrow_mut ().register (Rc::clone (&unit_2) as Rc<RefCell<dyn Observer>>);
-    //     let faction_0_id = handler.borrow_mut ().register (Rc::clone (&faction_0) as Rc<RefCell<dyn Observer>>);
-    //     let faction_1_id = handler.borrow_mut ().register (Rc::clone (&faction_1) as Rc<RefCell<dyn Observer>>);
-
-    //     handler.borrow_mut ().subscribe (unit_0_id, EVENT_UNIT_GET_FACTION_ID);
-    //     handler.borrow_mut ().subscribe (unit_1_id, EVENT_UNIT_GET_FACTION_ID);
-    //     handler.borrow_mut ().subscribe (unit_2_id, EVENT_UNIT_GET_FACTION_ID);
-    //     handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_IS_MEMBER);
-    //     handler.borrow_mut ().subscribe (faction_1_id, EVENT_FACTION_IS_MEMBER);
-
-    //     let response = unit_0.borrow ().filter_unit_allegiance (&vec![0, 1, 2], true);
-    //     assert_eq! (response.len (), 2);
-    //     assert_eq! (response.contains (&0), true);
-    //     assert_eq! (response.contains (&1), true);
-    //     let response = unit_0.borrow ().filter_unit_allegiance (&vec![0, 1, 2], false);
-    //     assert_eq! (response.len (), 1);
-    //     assert_eq! (response.contains (&2), true);
-    // }
-
-    // #[test]
-    // fn unit_choose_targets_units () {
-    //     let handler = generate_handler ();
-    //     let (unit_0, unit_1, unit_2) = generate_units ();
-    //     let grid = generate_grid (Rc::downgrade (&handler));
-    //     let (faction_0, faction_1) = generate_factions (Rc::clone (&handler));
-    //     let grid_id = handler.borrow_mut ().register (Rc::clone (&grid) as Rc<RefCell<dyn Observer>>);
-    //     let unit_0_id = handler.borrow_mut ().register (Rc::clone (&unit_0) as Rc<RefCell<dyn Observer>>);
-    //     let unit_1_id = handler.borrow_mut ().register (Rc::clone (&unit_1) as Rc<RefCell<dyn Observer>>);
-    //     let unit_2_id = handler.borrow_mut ().register (Rc::clone (&unit_2) as Rc<RefCell<dyn Observer>>);
-    //     let faction_0_id = handler.borrow_mut ().register (Rc::clone (&faction_0) as Rc<RefCell<dyn Observer>>);
-    //     let faction_1_id = handler.borrow_mut ().register (Rc::clone (&faction_1) as Rc<RefCell<dyn Observer>>);
-
-    //     handler.borrow_mut ().subscribe (grid_id, EVENT_GRID_FIND_UNITS);
-    //     handler.borrow_mut ().subscribe (unit_0_id, EVENT_UNIT_GET_FACTION_ID);
-    //     handler.borrow_mut ().subscribe (unit_1_id, EVENT_UNIT_GET_FACTION_ID);
-    //     handler.borrow_mut ().subscribe (unit_2_id, EVENT_UNIT_GET_FACTION_ID);
-    //     handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_IS_MEMBER);
-    //     handler.borrow_mut ().subscribe (faction_1_id, EVENT_FACTION_IS_MEMBER);
-    //     grid.borrow_mut ().place_unit (0, (0, 0));
-    //     grid.borrow_mut ().place_unit (1, (1, 1));
-    //     grid.borrow_mut ().place_unit (2, (1, 0));
-
-    //     let results: Vec<ID> = unit_0.borrow ().choose_targets_units (&vec![0], TargetType::This, Area::Single, 1);
-    //     assert_eq! (results.len (), 1);
-    //     assert_eq! (results.contains (&0), true);
-    //     let results: Vec<ID> = unit_0.borrow ().choose_targets_units (&vec![1], TargetType::Ally, Area::Path (0), 1);
-    //     assert_eq! (results.len (), 1);
-    //     assert_eq! (results.contains (&1), true);
-    //     let results: Vec<ID> = unit_0.borrow ().choose_targets_units (&vec![0, 1], TargetType::Allies, Area::Radial (1), 0);
-    //     assert_eq! (results.len (), 1);
-    //     assert_eq! (results.contains (&0), true);
-    //     let results: Vec<ID> = unit_0.borrow ().choose_targets_units (&vec![0, 1], TargetType::Allies, Area::Radial (2), 0);
-    //     assert_eq! (results.len (), 2);
-    //     assert_eq! (results.contains (&0), true);
-    //     assert_eq! (results.contains (&1), true);
-    //     let results: Vec<ID> = unit_0.borrow ().choose_targets_units (&vec![2], TargetType::Enemy, Area::Radial (1), 0);
-    //     assert_eq! (results.len (), 1);
-    //     assert_eq! (results.contains (&2), true);
-    // }
-
-    // #[test]
-    // fn unit_find_targets_units () {
-    //     let handler = generate_handler ();
-    //     let (unit_0, unit_1, unit_2) = generate_units ();
-    //     let grid = generate_grid (Rc::downgrade (&handler));
-    //     let (faction_0, faction_1) = generate_factions (Rc::clone (&handler));
-    //     let grid_id = handler.borrow_mut ().register (Rc::clone (&grid) as Rc<RefCell<dyn Observer>>);
-    //     let unit_0_id = handler.borrow_mut ().register (Rc::clone (&unit_0) as Rc<RefCell<dyn Observer>>);
-    //     let unit_1_id = handler.borrow_mut ().register (Rc::clone (&unit_1) as Rc<RefCell<dyn Observer>>);
-    //     let unit_2_id = handler.borrow_mut ().register (Rc::clone (&unit_2) as Rc<RefCell<dyn Observer>>);
-    //     let faction_0_id = handler.borrow_mut ().register (Rc::clone (&faction_0) as Rc<RefCell<dyn Observer>>);
-    //     let faction_1_id = handler.borrow_mut ().register (Rc::clone (&faction_1) as Rc<RefCell<dyn Observer>>);
-
-    //     handler.borrow_mut ().subscribe (grid_id, EVENT_GRID_FIND_UNITS);
-    //     handler.borrow_mut ().subscribe (unit_0_id, EVENT_UNIT_GET_FACTION_ID);
-    //     handler.borrow_mut ().subscribe (unit_1_id, EVENT_UNIT_GET_FACTION_ID);
-    //     handler.borrow_mut ().subscribe (unit_2_id, EVENT_UNIT_GET_FACTION_ID);
-    //     handler.borrow_mut ().subscribe (faction_0_id, EVENT_FACTION_IS_MEMBER);
-    //     handler.borrow_mut ().subscribe (faction_1_id, EVENT_FACTION_IS_MEMBER);
-    //     grid.borrow_mut ().place_unit (0, (0, 0));
-    //     grid.borrow_mut ().place_unit (1, (1, 1));
-    //     grid.borrow_mut ().place_unit (2, (1, 0));
-
-    //     let results: Vec<ID> = unit_0.borrow ().find_targets_units (TargetType::This, Area::Single, 1);
-    //     assert_eq! (results.len (), 1);
-    //     assert_eq! (results.contains (&0), true);
-    //     let results: Vec<ID> = unit_0.borrow ().find_targets_units (TargetType::Ally, Area::Single, 1);
-    //     assert_eq! (results.len (), 1);
-    //     assert_eq! (results.contains (&0), true);
-    //     let results: Vec<ID> = unit_0.borrow ().find_targets_units (TargetType::Allies, Area::Radial (1), 0);
-    //     assert_eq! (results.len (), 1);
-    //     assert_eq! (results.contains (&0), true);
-    //     let results: Vec<ID> = unit_0.borrow ().find_targets_units (TargetType::Allies, Area::Radial (2), 0);
-    //     assert_eq! (results.len (), 2);
-    //     assert_eq! (results.contains (&0), true);
-    //     assert_eq! (results.contains (&1), true);
-    //     let results: Vec<ID> = unit_0.borrow ().find_targets_units (TargetType::Enemy, Area::Radial (0), 1);
-    //     assert_eq! (results.len (), 1);
-    //     assert_eq! (results.contains (&2), true);
-    //     let results: Vec<ID> = unit_2.borrow ().find_targets_units (TargetType::Enemies, Area::Path (0), 1);
-    //     assert_eq! (results.len (), 1);
-    //     assert_eq! (results.contains (&1), true);
-    //     let results: Vec<ID> = unit_0.borrow ().find_targets_units (TargetType::Enemies, Area::Path (0), 1); // Test empty find
-    //     assert_eq! (results.is_empty ());
-    // }
-
-    // #[test]
-    // fn unit_choose_targets_locations () {
-    //     let handler = generate_handler ();
-    //     let (unit_0, _, _) = generate_units ();
-    //     let grid = generate_grid (Rc::downgrade (&handler));
-    //     let grid_id = handler.borrow_mut ().register (Rc::clone (&grid) as Rc<RefCell<dyn Observer>>);
-    //     let unit_0_id = handler.borrow_mut ().register (Rc::clone (&unit_0) as Rc<RefCell<dyn Observer>>);
-
-    //     handler.borrow_mut ().subscribe (grid_id, EVENT_GRID_GET_UNIT_LOCATION);
-    //     handler.borrow_mut ().subscribe (grid_id, EVENT_GRID_FIND_LOCATIONS);
-    //     handler.borrow_mut ().subscribe (unit_0_id, EVENT_UNIT_GET_FACTION_ID);
-    //     grid.borrow_mut ().place_unit (0, (0, 0));
-
-    //     let results: Vec<Location> = unit_0.borrow ().choose_targets_locations (&vec![(0, 0)], Area::Single, 1);
-    //     assert_eq! (results.len (), 1);
-    //     assert_eq! (results.contains (&(0, 0)), true);
-    //     let results: Vec<Location> = unit_0.borrow ().choose_targets_locations (&vec![(0, 0), (0, 1)], Area::Path (0), 1);
-    //     assert_eq! (results.len (), 1);
-    //     assert_eq! (results.contains (&(0, 1)), true);
-    //     let results: Vec<Location> = unit_0.borrow ().choose_targets_locations (&vec![(0, 0), (0, 1), (1, 0)], Area::Radial (1), 0);
-    //     assert_eq! (results.len (), 3);
-    //     assert_eq! (results.contains (&(0, 0)), true);
-    //     assert_eq! (results.contains (&(0, 1)), true);
-    //     assert_eq! (results.contains (&(1, 0)), true);
-    //     let results: Vec<Location> = unit_0.borrow ().choose_targets_locations (&vec![(1, 0), (0, 1), (0, 0)], Area::Radial (1), 0);
-    //     assert_eq! (results.len (), 3);
-    //     assert_eq! (results.contains (&(1, 0)), true);
-    //     assert_eq! (results.contains (&(0, 0)), true);
-    //     assert_eq! (results.contains (&(1, 1)), true);
-    // }
-
-    // #[test]
-    // fn unit_find_targets_locations () {
-    //     let handler = generate_handler ();
-    //     let (unit_0, _, _) = generate_units ();
-    //     let grid = generate_grid (Rc::downgrade (&handler));
-    //     let grid_id = handler.borrow_mut ().register (Rc::clone (&grid) as Rc<RefCell<dyn Observer>>);
-    //     let unit_0_id = handler.borrow_mut ().register (Rc::clone (&unit_0) as Rc<RefCell<dyn Observer>>);
-
-    //     handler.borrow_mut ().subscribe (grid_id, EVENT_GRID_GET_UNIT_LOCATION);
-    //     handler.borrow_mut ().subscribe (grid_id, EVENT_GRID_FIND_LOCATIONS);
-    //     handler.borrow_mut ().subscribe (unit_0_id, EVENT_UNIT_GET_FACTION_ID);
-    //     grid.borrow_mut ().place_unit (0, (0, 0));
- 
-    //     let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Area::Single, 1);
-    //     assert_eq! (results.len (), 3);
-    //     assert_eq! (results.contains (&(0, 0)), true);
-    //     assert_eq! (results.contains (&(0, 1)), true);
-    //     assert_eq! (results.contains (&(1, 0)), true);
-    //     let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Area::Path (0), 1);
-    //     assert_eq! (results.len (), 1);
-    //     assert_eq! (results.contains (&(0, 1)), true);
-    //     let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Area::Path (0), 2);
-    //     assert_eq! (results.len (), 2);
-    //     assert_eq! (results.contains (&(0, 1)), true);
-    //     assert_eq! (results.contains (&(0, 2)), true);
-    //     let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Area::Path (1), 1);
-    //     assert_eq! (results.len (), 2);
-    //     assert_eq! (results.contains (&(0, 1)), true);
-    //     assert_eq! (results.contains (&(1, 1)), true);
-    //     let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Area::Path (2), 2);
-    //     assert_eq! (results.len (), 4);
-    //     assert_eq! (results.contains (&(0, 1)), true);
-    //     assert_eq! (results.contains (&(0, 2)), true);
-    //     assert_eq! (results.contains (&(1, 1)), true);
-    //     assert_eq! (results.contains (&(1, 2)), true);
-
-    //     // Radial is non-deterministic (any target could be picked to search)
-    //     for _ in 0 .. 100 {
-    //         let results: Vec<Location> = unit_0.borrow ().find_targets_locations (Area::Radial (1), 1);  
-
-    //         if results.contains (&(0, 2)) {
-    //             assert_eq! (results.len (), 4);    
-    //             assert_eq! (results.contains (&(0, 1)), true);
-    //             assert_eq! (results.contains (&(1, 1)), true);
-    //         } else {
-    //             assert_eq! (results.len (), 3);
-    //             assert_eq! (results.contains (&(1, 0)), true);
-    //             assert! (results.contains (&(0, 1)) || results.contains (&(1, 1)));
-    //         }
-
-    //         assert_eq! (results.contains (&(0, 0)), true);
-    //     }
-    // }
-
     #[test]
     fn unit_apply_inactive_skills () {
         let (mut unit_0, _, _) = generate_units ();
@@ -1072,10 +859,10 @@ pub mod tests {
 
     #[test]
     fn unit_try_add_passive () {
-        let lists = generate_lists ();
+        let scene = generate_scene ();
         let (mut unit_0, mut unit_1, _) = generate_units ();
         let skill_passive_id = unit_0.skill_passive_id.unwrap ();
-        let skill_passive = lists.get_skill (&skill_passive_id);
+        let skill_passive = scene.get_skill (&skill_passive_id);
         let status_passive_id = skill_passive.get_status_id ();
 
         // Test leader add
@@ -1094,10 +881,10 @@ pub mod tests {
 
     #[test]
     fn unit_start_turn () {
-        let lists = generate_lists ();
+        let scene = generate_scene ();
         let (mut unit_0, _, _) = generate_units ();
         let (status_0, _, _) = generate_statuses ();
-        let status_8 = *lists.get_status (&8);
+        let status_8 = *scene.get_status (&8);
 
         // Test normal status
         unit_0.add_status (status_0);
@@ -1117,9 +904,9 @@ pub mod tests {
 
     #[test]
     fn unit_act_attack () {
-        let lists = generate_lists ();
+        let scene = generate_scene ();
         let (mut unit_0, _, _) = generate_units ();
-        let status = *lists.get_status (&6);
+        let status = *scene.get_status (&6);
 
         // Test normal attack
         let spl_0_0 = unit_0.get_statistic (SPL).0;
@@ -1139,12 +926,12 @@ pub mod tests {
 
     #[test]
     fn unit_take_damage () {
-        let lists = generate_lists ();
+        let scene = generate_scene ();
         let (mut unit_0, _, mut unit_2) = generate_units ();
         let statistics_0 = unit_0.statistics;
         let statistics_2 = unit_2.statistics;
         let weapon = *unit_0.get_weapon ();
-        let status = *lists.get_status (&5);
+        let status = *scene.get_status (&5);
 
         // Test normal attack
         let (damage_mrl, damage_hlt, damage_spl) = UnitStatistics::calculate_damage (&statistics_0, &statistics_2, &weapon);
@@ -1240,9 +1027,9 @@ pub mod tests {
 
     #[test]
     fn unit_end_turn () {
-        let lists = generate_lists ();
+        let scene = generate_scene ();
         let (mut unit_0, _, _) = generate_units ();
-        let effect_0 = *lists.get_effect (&0);
+        let effect_0 = *scene.get_effect (&0);
         let effect_0 = Box::new (effect_0) as Box<dyn Appliable>;
         let effect_0 = Some (effect_0);
 
@@ -1310,10 +1097,10 @@ pub mod tests {
 
     #[test]
     fn unit_add_status () {
-        let lists = generate_lists ();
+        let scene = generate_scene ();
         let (mut unit_0, _, _) = generate_units ();
         let (status_0, _, status_5) = generate_statuses ();
-        let status_6 = *lists.get_status (&6);
+        let status_6 = *scene.get_status (&6);
 
         // Test unit status
         assert! (unit_0.add_status (status_0));
@@ -1321,10 +1108,10 @@ pub mod tests {
         // Test applier status
         assert! (unit_0.add_status (status_5));
         assert_eq! (unit_0.statuses.get (&Trigger::OnHit).unwrap ().len (), 1);
-        assert! (unit_0.try_yield_appliable (Rc::clone (&lists)).is_some ());
+        assert! (unit_0.try_yield_appliable (Rc::clone (&scene)).is_some ());
         // Test weapon status
         assert! (unit_0.add_status (status_6));
-        assert! (unit_0.weapons[unit_0.weapon_active].try_yield_appliable (Rc::clone (&lists)).is_some ());
+        assert! (unit_0.weapons[unit_0.weapon_active].try_yield_appliable (Rc::clone (&scene)).is_some ());
     }
 
     #[test]

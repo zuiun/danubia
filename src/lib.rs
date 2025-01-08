@@ -8,7 +8,7 @@ pub mod dynamic;
 mod error;
 pub mod event;
 mod lists;
-pub use self::lists::Lists;
+pub use self::lists::Scene;
 pub use self::lists::game;
 pub use self::lists::debug;
 pub use self::lists::information;
@@ -18,7 +18,7 @@ pub mod system;
 pub mod tests {
     use super::*;
 
-    pub fn generate_lists () -> Rc<Lists> {
-        Rc::new (Lists::debug ())
+    pub fn generate_scene () -> Rc<Scene> {
+        Rc::new (Scene::debug ())
     }
 }

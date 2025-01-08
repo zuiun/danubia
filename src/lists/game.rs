@@ -1,22 +1,22 @@
 use crate::character::{Activity, Element, FactionBuilder, Magic, Rank, Skill, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
 use crate::common::{Target, DURATION_PERMANENT, ID_UNINITIALISED};
-use crate::dynamic::{Change, Effect, ModifierBuilder, StatisticType, Status, Trigger};
-use crate::map::{Area, City, Terrain};
+use crate::dynamic::{Change, Effect, ModifierBuilder, Statistic, Status, Trigger};
+use crate::map::{Area, City, Terrain, TileBuilder};
 
-pub const MODIFIER_BUILDERS: [ModifierBuilder; 0] = [
-
-];
-pub const EFFECTS: [Effect; 0] = [
+pub const MODIFIER_BUILDERS: &[ModifierBuilder] = &[
 
 ];
-pub const STATUSES: [Status; 0] = [
+pub const EFFECTS: &[Effect] = &[
 
 ];
-pub const TERRAINS: [Terrain; 1] = [
+pub const STATUSES: &[Status] = &[
+
+];
+pub const TERRAINS: &[Terrain] = &[
     Terrain::new (None, 0), // Void
 ];
 // TODO: recruits
-pub const CITIES: [City; 17] = [
+pub const CITIES: &[City] = &[
     // Jassica
     City::new (524, 108, 24, None), // Ilyvó
     City::new (41, 2, 14, None), // Kismarton
@@ -39,7 +39,7 @@ pub const CITIES: [City; 17] = [
     City::new (83,14, 11, None), // Gnesen
 ];
 // TODO: dmg, area, range
-pub const WEAPONS: [Weapon; 9] = [
+pub const WEAPONS: &[Weapon] = &[
     Weapon::new ([0, 2, 1, 0], Area::Single, 1), // Sabre
     Weapon::new ([0, 0, 3, 0], Area::Path (0), 2), // Lance
     Weapon::new ([0, 0, 2, 0], Area::Single, 2), // Pike
@@ -50,15 +50,18 @@ pub const WEAPONS: [Weapon; 9] = [
     Weapon::new ([0, 0, 1, 0], Area::Single, 1), // Bayonet
     Weapon::new ([0, 0, 1, 2], Area::Radial (3), 12), // Mortar
 ];
-pub const MAGICS: [Magic; 0] = [
+pub const MAGICS: &[Magic] = &[
 
 ];
-pub const SKILLS: [Skill; 0] = [
+pub const SKILLS: &[Skill] = &[
 
 ];
-pub const FACTION_BUILDERS: [FactionBuilder; 0] = [
+pub const FACTION_BUILDERS: &[FactionBuilder] = &[
 
 ];
-pub const UNIT_BUILDERS: [UnitBuilder; 0] = [
+pub const UNIT_BUILDERS: &[UnitBuilder] = &[
 
+];
+pub const TILE_BUILDERS: &[&[TileBuilder]] = &[
+    &[],
 ];

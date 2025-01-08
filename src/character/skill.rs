@@ -2,7 +2,7 @@ use super::Tool;
 use crate::common::{DURATION_PERMANENT, Target, Timed, ID};
 use crate::dynamic::{Appliable, Applier, Status};
 use crate::map::Area;
-use crate::Lists;
+use crate::Scene;
 use std::rc::Rc;
 
 #[derive (Debug)]
@@ -88,10 +88,10 @@ impl Tool for Skill {
 }
 
 impl Applier for Skill {
-    fn try_yield_appliable (&self, lists: Rc<Lists>) -> Option<Box<dyn Appliable>> {
-        let status: Status = *lists.get_status (&self.status_id);
+    fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
+        let status: Status = *scene.get_status (&self.status_id);
 
-        status.try_yield_appliable (lists)
+        status.try_yield_appliable (scene)
     }
 
     fn get_target (&self) -> Target {
@@ -128,14 +128,14 @@ impl Timed for Skill {
 }
 
 #[cfg (test)]
-pub mod tests {
+mod tests {
     use super::*;
-    use crate::tests::generate_lists;
+    use crate::tests::generate_scene;
 
-    pub fn generate_skills () -> (Skill, Skill) {
-        let lists = generate_lists ();
-        let skill_0 = *lists.get_skill (&0);
-        let skill_1 = *lists.get_skill (&1);
+    fn generate_skills () -> (Skill, Skill) {
+        let scene = generate_scene ();
+        let skill_0 = *scene.get_skill (&0);
+        let skill_1 = *scene.get_skill (&1);
 
         (skill_0, skill_1)
     }

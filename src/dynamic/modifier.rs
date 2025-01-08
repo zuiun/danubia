@@ -1,19 +1,19 @@
-use super::{Adjustments, Appliable, Change, Effect};
+use super::{Adjustment, Appliable, Change, Effect};
 use crate::common::{Capacity, Timed, DURATION_PERMANENT, ID, ID_UNINITIALISED};
 
-pub const MODIFIER_EMPTY: ID = ID_UNINITIALISED;
+const ADJUSTMENTS_EMPTY: &[Adjustment] = &[];
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
 pub struct Modifier {
     id: ID,
-    adjustments: Adjustments,
+    adjustments: &'static [Adjustment],
     duration: Capacity,
     can_stack: bool,
 }
 
 impl Modifier {
-    pub const fn new (id: ID, adjustments: Adjustments, duration: Capacity, can_stack: bool) -> Self {
+    pub const fn new (id: ID, adjustments: &'static [Adjustment], duration: Capacity, can_stack: bool) -> Self {
         Self { id, adjustments, duration, can_stack }
     }
 
@@ -39,7 +39,7 @@ impl Appliable for Modifier {
         Change::Modifier (self.id, self.can_stack)
     }
 
-    fn get_adjustments (&self) -> Adjustments {
+    fn get_adjustments (&self) -> &[Adjustment] {
         self.adjustments
     }
 
@@ -82,8 +82,8 @@ impl PartialEq for Modifier {
 
 impl Default for Modifier {
     fn default () -> Self {
-        let id: ID = MODIFIER_EMPTY;
-        let adjustments: Adjustments = [None, None, None, None];
+        let id: ID = ID_UNINITIALISED;
+        let adjustments: &'static [Adjustment] = ADJUSTMENTS_EMPTY;
         let duration: Capacity = Capacity::Constant (1, 0, 0);
         let can_stack: bool = false;
 
@@ -95,12 +95,12 @@ impl Default for Modifier {
 #[derive (Clone, Copy)]
 pub struct ModifierBuilder {
     id: ID,
-    adjustments: Adjustments,
+    adjustments: &'static [Adjustment],
     duration: u16,
 }
 
 impl ModifierBuilder {
-    pub const fn new (id: ID, adjustments: Adjustments, duration: u16) -> Self {
+    pub const fn new (id: ID, adjustments: &'static [Adjustment], duration: u16) -> Self {
         assert! (duration > 0);
 
         Self { id, adjustments, duration }
@@ -120,13 +120,13 @@ impl ModifierBuilder {
 #[cfg (test)]
 mod tests {    
     use super::*;
-    use crate::tests::generate_lists;
+    use crate::tests::generate_scene;
 
     fn generate_modifiers () -> (Modifier, Modifier) {
-        let lists = generate_lists ();
-        let modifier_builder_0 = lists.get_modifier_builder (&0);
+        let scene = generate_scene ();
+        let modifier_builder_0 = scene.get_modifier_builder (&0);
         let modifier_0 = modifier_builder_0.build (false);
-        let modifier_builder_1 = lists.get_modifier_builder (&1);
+        let modifier_builder_1 = scene.get_modifier_builder (&1);
         let modifier_1 = modifier_builder_1.build (false);
 
         (modifier_0, modifier_1)

@@ -75,20 +75,20 @@ mod tests {
     use super::*;
     use crate::common::Information;
     use crate::lists::{game, information};
-    use crate::tests::generate_lists;
+    use crate::tests::generate_scene;
 
     #[test]
     fn city_get_manpower () {
-        let lists = generate_lists ();
+        let scene = generate_scene ();
 
         for i in 0 ..= 3 {
-            assert! (lists.get_city (&i).get_manpower () > 0);
+            assert! (scene.get_city (&i).get_manpower () > 0);
         }
 
-        let manpower_0: u16 = lists.get_city (&0).get_manpower ();
-        let manpower_1: u16 = lists.get_city (&1).get_manpower ();
-        let manpower_2: u16 = lists.get_city (&2).get_manpower ();
-        let manpower_3: u16 = lists.get_city (&3).get_manpower ();
+        let manpower_0: u16 = scene.get_city (&0).get_manpower ();
+        let manpower_1: u16 = scene.get_city (&1).get_manpower ();
+        let manpower_2: u16 = scene.get_city (&2).get_manpower ();
+        let manpower_3: u16 = scene.get_city (&3).get_manpower ();
 
         println! ("{}", manpower_0);
         println! ("{}", manpower_1);
@@ -99,14 +99,14 @@ mod tests {
 
     #[test]
     fn city_get_equipment () {
-        let lists = generate_lists ();
-        let equipment_0: u16 = lists.get_city (&0).get_equipment ();
-        let equipment_1: u16 = lists.get_city (&1).get_equipment ();
-        let equipment_2: u16 = lists.get_city (&2).get_equipment ();
-        let equipment_3: u16 = lists.get_city (&3).get_equipment ();
+        let scene = generate_scene ();
+        let equipment_0: u16 = scene.get_city (&0).get_equipment ();
+        let equipment_1: u16 = scene.get_city (&1).get_equipment ();
+        let equipment_2: u16 = scene.get_city (&2).get_equipment ();
+        let equipment_3: u16 = scene.get_city (&3).get_equipment ();
 
         for i in 0 ..= 3 {
-            assert! (lists.get_city (&i).get_manpower () > 0);
+            assert! (scene.get_city (&i).get_manpower () > 0);
         }
 
         println! ("{}", equipment_0);

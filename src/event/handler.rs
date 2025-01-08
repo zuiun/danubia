@@ -70,7 +70,7 @@ impl Handler {
 }
 
 #[cfg (test)]
-pub mod tests {
+mod tests {
     use std::cell::{Cell, RefCell};
     use std::rc::{Rc, Weak};
     use super::*;
@@ -111,7 +111,7 @@ pub mod tests {
 
                     Some (Response::TestSubtract (data))
                 }
-                _ => None
+                // _ => None
             }
         }
 
@@ -132,7 +132,7 @@ pub mod tests {
         }
     }
 
-    pub fn generate_handler () -> Rc<RefCell<Handler>> {
+    fn generate_handler () -> Rc<RefCell<Handler>> {
         let handler = Handler::new ();
         let handler = RefCell::new (handler);
 

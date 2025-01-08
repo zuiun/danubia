@@ -1,7 +1,7 @@
 use super::{COST_IMPASSABLE, COST_MINIMUM};
-use crate::Lists;
 use crate::common::{Target, Timed, ID};
-use crate::dynamic::{Adjustment, Appliable, Applier, Change, Changeable, Modifier, StatisticType, Status, Trigger};
+use crate::dynamic::{Adjustment, Appliable, Applier, Change, Changeable, Modifier, Statistic, Status, Trigger};
+use crate::Scene;
 use std::rc::Rc;
 
 const CLIMB_MAX: u8 = 2;
@@ -9,7 +9,7 @@ const CLIMB_MAX: u8 = 2;
 #[derive (Debug)]
 #[derive (Clone)]
 pub struct Tile {
-    lists: Rc<Lists>,
+    scene: Rc<Scene>,
     modifier: Option<Modifier>,
     status: Option<Status>,
     terrain_id: ID,
@@ -19,24 +19,23 @@ pub struct Tile {
 }
 
 impl Tile {
-    pub fn new (lists: Rc<Lists>, terrain_id: ID, height: u8, city_id: Option<ID>) -> Self {
+    pub fn new (scene: Rc<Scene>, terrain_id: ID, height: u8, city_id: Option<ID>) -> Self {
         let modifier: Option<Modifier> = None;
         let status: Option<Status> = None;
         let is_recruited: bool = false;
 
-        Self { lists, modifier, status, terrain_id, height, city_id, is_recruited }
+        Self { scene, modifier, status, terrain_id, height, city_id, is_recruited }
     }
 
     pub fn get_cost (&self) -> u8 {
-        let cost: u8 = self.lists.get_terrain (&self.terrain_id).get_cost ();
+        let cost: u8 = self.scene.get_terrain (&self.terrain_id).get_cost ();
 
         match self.modifier {
             Some (m) => {
-                let adjustment: Adjustment = m.get_adjustments ()[0]
-                        .unwrap_or_else (|| panic! ("Adjustment not found for modifier {:?}", m));
+                let adjustment: Adjustment = m.get_adjustments ()[0];
 
                 match adjustment.0 {
-                    StatisticType::Tile (f) => if f {
+                    Statistic::Tile (f) => if f {
                         adjustment.1 as u8
                     } else if adjustment.2 {
                         cost + (adjustment.1 as u8)
@@ -101,10 +100,9 @@ impl Changeable for Tile {
     fn add_appliable (&mut self, appliable: Box<dyn Appliable>) -> bool {
         if let Change::Modifier ( .. ) = appliable.change () {
             let modifier: Modifier = appliable.modifier ();
-            let adjustment: Adjustment = modifier.get_adjustments ()[0]
-                    .unwrap_or_else (|| panic! ("Adjustment not found for modifier {:?}", modifier));
+            let adjustment: Adjustment = modifier.get_adjustments ()[0];
 
-            if let StatisticType::Tile ( .. ) = adjustment.0 {
+            if let Statistic::Tile ( .. ) = adjustment.0 {
                 self.modifier = Some (modifier);
 
                 true
@@ -118,7 +116,7 @@ impl Changeable for Tile {
 
     fn add_status (&mut self, status: Status) -> bool {
         if let Change::Modifier ( .. ) = status.get_change () {
-            let appliable: Box<dyn Appliable> = status.try_yield_appliable (Rc::clone (&self.lists))
+            let appliable: Box<dyn Appliable> = status.try_yield_appliable (Rc::clone (&self.scene))
                     .unwrap_or_else (|| panic! ("Appliable not found for status {:?}", status));
 
             if let Target::Map = status.get_target () {
@@ -189,7 +187,7 @@ impl Changeable for Tile {
         if let Some (mut s) = self.status {
             let status: Option<Status> = if s.decrement_duration () {
                 s.get_next_id ()
-                        .map (|n: ID| *self.lists.get_status (&n))
+                        .map (|n: ID| *self.scene.get_status (&n))
             } else {
                 Some (s)
             };
@@ -200,8 +198,8 @@ impl Changeable for Tile {
 }
 
 impl Applier for Tile {
-    fn try_yield_appliable (&self, lists: Rc<Lists>) -> Option<Box<dyn Appliable>> {
-        self.status.and_then (|s: Status| s.try_yield_appliable (lists))
+    fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
+        self.status.and_then (|s: Status| s.try_yield_appliable (scene))
     }
 
     fn get_target (&self) -> Target {
@@ -209,17 +207,20 @@ impl Applier for Tile {
     }
 }
 
+#[derive (Debug)]
 pub struct TileBuilder {
-    lists: Rc<Lists>,
+    terrain_id: ID,
+    height: u8,
+    city_id: Option<ID>,
 }
 
 impl TileBuilder {
-    pub fn new (lists: Rc<Lists>) -> Self {
-        Self { lists }
+    pub const fn new (terrain_id: ID, height: u8, city_id: Option<ID>) -> Self {
+        Self { terrain_id, height, city_id }
     }
 
-    pub fn build (&self, terrain_id: ID, height: u8, city_id: Option<ID>) -> Tile {
-        Tile::new (Rc::clone (&self.lists), terrain_id, height, city_id)
+    pub fn build (&self, scene: Rc<Scene>) -> Tile {
+        Tile::new (Rc::clone (&scene), self.terrain_id, self.height, self.city_id)
     }
 }
 
@@ -227,17 +228,17 @@ impl TileBuilder {
 mod tests {
     use super::*;
     use crate::dynamic::ModifierBuilder;
-    use crate::tests::generate_lists;
+    use crate::tests::generate_scene;
 
     fn generate_modifiers () -> (Box<Modifier>, Box<Modifier>, Box<Modifier>) {
-        let lists = generate_lists ();
-        let modifier_builder_0: &ModifierBuilder = lists.get_modifier_builder (&0);
+        let scene = generate_scene ();
+        let modifier_builder_0: &ModifierBuilder = scene.get_modifier_builder (&0);
         let modifier_0 = modifier_builder_0.build (false);
         let modifier_0 = Box::new (modifier_0);
-        let modifier_builder_1: &ModifierBuilder = lists.get_modifier_builder (&1);
+        let modifier_builder_1: &ModifierBuilder = scene.get_modifier_builder (&1);
         let modifier_1 = modifier_builder_1.build (false);
         let modifier_1 = Box::new (modifier_1);
-        let modifier_builder_2: &ModifierBuilder = lists.get_modifier_builder (&2);
+        let modifier_builder_2: &ModifierBuilder = scene.get_modifier_builder (&2);
         let modifier_2 = modifier_builder_2.build (false);
         let modifier_2 = Box::new (modifier_2);
 
@@ -245,20 +246,20 @@ mod tests {
     }
 
     fn generate_statuses () -> (Status, Status, Status) {
-        let lists = generate_lists ();
-        let status_2 = *lists.get_status (&2);
-        let status_3 = *lists.get_status (&3);
-        let status_4 = *lists.get_status (&4);
+        let scene = generate_scene ();
+        let status_2 = *scene.get_status (&2);
+        let status_3 = *scene.get_status (&3);
+        let status_4 = *scene.get_status (&4);
 
         (status_2, status_3, status_4)
     }
 
     #[test]
     fn tile_get_cost () {
-        let lists = generate_lists ();
-        let tile_0 = Tile::new (Rc::clone (&lists), 0, 0, None);
-        let tile_1 = Tile::new (Rc::clone (&lists), 1, 0, None);
-        let tile_2 = Tile::new (Rc::clone (&lists), 2, 0, None);
+        let scene = generate_scene ();
+        let tile_0 = Tile::new (Rc::clone (&scene), 0, 0, None);
+        let tile_1 = Tile::new (Rc::clone (&scene), 1, 0, None);
+        let tile_2 = Tile::new (Rc::clone (&scene), 2, 0, None);
 
         assert_eq! (tile_0.get_cost (), 1);
         assert_eq! (tile_1.get_cost (), 2);
@@ -267,9 +268,9 @@ mod tests {
 
     #[test]
     fn tile_is_impassable () {
-        let lists = generate_lists ();
-        let tile_0 = Tile::new (Rc::clone (&lists), 0, 0, None);
-        let tile_2 = Tile::new (Rc::clone (&lists), 2, 0, None);
+        let scene = generate_scene ();
+        let tile_0 = Tile::new (Rc::clone (&scene), 0, 0, None);
+        let tile_2 = Tile::new (Rc::clone (&scene), 2, 0, None);
 
         // Test passable tile
         assert! (!tile_0.is_impassable ());
@@ -279,11 +280,11 @@ mod tests {
 
     #[test]
     fn tile_try_climb () {
-        let lists = generate_lists ();
-        let tile_0 = Tile::new (Rc::clone (&lists), 0, 0, None);
-        let tile_1_0 = Tile::new (Rc::clone (&lists), 1, 0, None);
-        let tile_1_1 = Tile::new (Rc::clone (&lists), 1, 1, None);
-        let tile_1_2 = Tile::new (Rc::clone (&lists), 1, 2, None);
+        let scene = generate_scene ();
+        let tile_0 = Tile::new (Rc::clone (&scene), 0, 0, None);
+        let tile_1_0 = Tile::new (Rc::clone (&scene), 1, 0, None);
+        let tile_1_1 = Tile::new (Rc::clone (&scene), 1, 1, None);
+        let tile_1_2 = Tile::new (Rc::clone (&scene), 1, 2, None);
 
         // Test impassable climb
         assert! (tile_0.try_climb (&tile_1_2).is_none ());
@@ -297,11 +298,11 @@ mod tests {
 
     #[test]
     fn tile_find_cost () {
-        let lists = generate_lists ();
-        let tile_0 = Tile::new (Rc::clone (&lists), 0, 0, None);
-        let tile_1_0 = Tile::new (Rc::clone (&lists), 1, 0, None);
-        let tile_1_1 = Tile::new (Rc::clone (&lists), 1, 1, None);
-        let tile_2 = Tile::new (Rc::clone (&lists), 2, 0, None);
+        let scene = generate_scene ();
+        let tile_0 = Tile::new (Rc::clone (&scene), 0, 0, None);
+        let tile_1_0 = Tile::new (Rc::clone (&scene), 1, 0, None);
+        let tile_1_1 = Tile::new (Rc::clone (&scene), 1, 1, None);
+        let tile_2 = Tile::new (Rc::clone (&scene), 2, 0, None);
 
         // Test impassable cost
         assert_eq! (tile_0.find_cost (&tile_2), 0);
@@ -315,8 +316,8 @@ mod tests {
 
     #[test]
     fn tile_add_appliable () {
-        let lists = generate_lists ();
-        let mut tile = Tile::new (Rc::clone (&lists), 1, 0, None);
+        let scene = generate_scene ();
+        let mut tile = Tile::new (Rc::clone (&scene), 1, 0, None);
         let (modifier_0, modifier_1, modifier_2) = generate_modifiers ();
 
         // Test additive modifier
@@ -337,8 +338,8 @@ mod tests {
     
     #[test]
     fn tile_add_status () {
-        let lists = generate_lists ();
-        let mut tile = Tile::new (Rc::clone (&lists), 1, 0, None);
+        let scene = generate_scene ();
+        let mut tile = Tile::new (Rc::clone (&scene), 1, 0, None);
         let (status_2, status_3, _) = generate_statuses ();
 
         // Test tile status
@@ -349,13 +350,13 @@ mod tests {
         // Test applier status
         assert! (tile.add_status (status_2));
         assert! (tile.status.is_some ());
-        assert! (tile.try_yield_appliable (Rc::clone (&lists)).is_some ());
+        assert! (tile.try_yield_appliable (Rc::clone (&scene)).is_some ());
     }
 
     #[test]
     fn tile_remove_modifier () {
-        let lists = generate_lists ();
-        let mut tile = Tile::new (Rc::clone (&lists), 1, 0, None);
+        let scene = generate_scene ();
+        let mut tile = Tile::new (Rc::clone (&scene), 1, 0, None);
         let (modifier_0, _, _) = generate_modifiers ();
 
         // Test empty remove
@@ -371,8 +372,8 @@ mod tests {
 
     #[test]
     fn tile_remove_status () {
-        let lists = generate_lists ();
-        let mut tile = Tile::new (Rc::clone (&lists), 1, 0, None);
+        let scene = generate_scene ();
+        let mut tile = Tile::new (Rc::clone (&scene), 1, 0, None);
         let (status_2, status_3, _) = generate_statuses ();
 
         // Test empty remove
@@ -395,8 +396,8 @@ mod tests {
 
     #[test]
     fn tile_decrement_durations () {
-        let lists = generate_lists ();
-        let mut tile = Tile::new (Rc::clone (&lists), 0, 0, None);
+        let scene = generate_scene ();
+        let mut tile = Tile::new (Rc::clone (&scene), 0, 0, None);
         let (modifier_0, modifier_1, _) = generate_modifiers ();
         let (status_2, status_3, status_4) = generate_statuses ();
 

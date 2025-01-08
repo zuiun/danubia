@@ -1,2 +1,12 @@
 mod game;
+pub use self::game::Action;
 pub use self::game::Game;
+mod reader;
+pub use self::reader::Reader;
+mod validator;
+pub use self::validator::Validator;
+pub use self::validator::ActionValidator;
+pub use self::validator::UnitValidator;
+pub use self::validator::LocationValidator;
+pub use self::validator::DirectionValidator;
+pub use self::validator::ConfirmationValidator;

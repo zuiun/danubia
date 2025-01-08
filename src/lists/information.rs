@@ -1,7 +1,6 @@
 use crate::common::Information;
 
 // TODO: Anything that has an ID also has an Information mapped to it
-
 pub const CITIES: [Information; 17] = [
     // Jassica
     Information::new ("Ilyvó", ["", "", ""], 0),

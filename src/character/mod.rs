@@ -10,7 +10,7 @@ pub use self::magic::Magic;
 mod skill;
 pub use self::skill::Activity;
 pub use self::skill::Skill;
-pub mod unit;
+mod unit;
 pub use self::unit::UnitStatistic;
 pub use self::unit::Rank;
 pub use self::unit::UnitStatistics;

@@ -2,7 +2,7 @@ use super::Tool;
 use crate::common::{ID, Target};
 use crate::dynamic::{Appliable, Applier, Status};
 use crate::map::Area;
-use crate::Lists;
+use crate::Scene;
 use std::rc::Rc;
 
 #[derive (Debug)]
@@ -64,10 +64,10 @@ impl Tool for Magic {
 }
 
 impl Applier for Magic {
-    fn try_yield_appliable (&self, lists: Rc<Lists>) -> Option<Box<dyn Appliable>> {
-        let status: Status = *lists.get_status (&self.status_id);
+    fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
+        let status: Status = *scene.get_status (&self.status_id);
 
-        status.try_yield_appliable (lists)
+        status.try_yield_appliable (scene)
     }
 
     fn get_target (&self) -> Target {
