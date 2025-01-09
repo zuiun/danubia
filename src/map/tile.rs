@@ -1,5 +1,5 @@
 use super::{COST_IMPASSABLE, COST_MINIMUM};
-use crate::common::{Target, Timed, ID};
+use crate::common::{Target, Timed, ID, ID_UNINITIALISED};
 use crate::dynamic::{Adjustment, Appliable, Applier, Change, Changeable, Modifier, Statistic, Status, Trigger};
 use crate::Scene;
 use std::rc::Rc;
@@ -16,6 +16,7 @@ pub struct Tile {
     height: u8,
     city_id: Option<ID>,
     is_recruited: bool,
+    applier_id: Option<ID>,
 }
 
 impl Tile {
@@ -23,8 +24,9 @@ impl Tile {
         let modifier: Option<Modifier> = None;
         let status: Option<Status> = None;
         let is_recruited: bool = false;
+        let applier_id: Option<ID> = None;
 
-        Self { scene, modifier, status, terrain_id, height, city_id, is_recruited }
+        Self { scene, modifier, status, terrain_id, height, city_id, is_recruited, applier_id }
     }
 
     pub fn get_cost (&self) -> u8 {
@@ -91,6 +93,10 @@ impl Tile {
         self.is_recruited
     }
 
+    pub fn get_applier_id (&self) -> Option<ID> {
+        self.applier_id
+    }
+
     pub fn set_recruited (&mut self, is_recruited: bool) {
         self.is_recruited = is_recruited;
     }
@@ -119,7 +125,7 @@ impl Changeable for Tile {
             let appliable: Box<dyn Appliable> = status.try_yield_appliable (Rc::clone (&self.scene))
                     .unwrap_or_else (|| panic! ("Appliable not found for status {:?}", status));
 
-            if let Target::Map = status.get_target () {
+            if let Target::Map (a) = status.get_target () {
                 match status.get_trigger () {
                     Trigger::OnOccupy => { self.modifier = None; }
                     Trigger::None => { self.add_appliable (appliable); }
@@ -127,6 +133,7 @@ impl Changeable for Tile {
                 }
 
                 self.status = Some (status);
+                self.applier_id = Some (a);
 
                 true
             } else {
@@ -163,6 +170,7 @@ impl Changeable for Tile {
                 }
 
                 self.status = None;
+                self.applier_id = None;
     
                 true
             } else {
@@ -175,24 +183,20 @@ impl Changeable for Tile {
 
     fn decrement_durations (&mut self) {
         if let Some (mut m) = self.modifier {
-            let modifier: Option<Modifier> = if m.decrement_duration () {
+            self.modifier = if m.decrement_duration () {
                 None
             } else {
                 Some (m)
             };
-
-            self.modifier = modifier;
         }
 
         if let Some (mut s) = self.status {
-            let status: Option<Status> = if s.decrement_duration () {
+            self.status = if s.decrement_duration () {
                 s.get_next_id ()
                         .map (|n: ID| *self.scene.get_status (&n))
             } else {
                 Some (s)
             };
-
-            self.status = status;
         }
     }
 }
@@ -203,7 +207,7 @@ impl Applier for Tile {
     }
 
     fn get_target (&self) -> Target {
-        Target::Map
+        Target::Map (ID_UNINITIALISED)
     }
 }
 

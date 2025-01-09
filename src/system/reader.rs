@@ -1,6 +1,6 @@
 use super::Validator;
 use std::fmt::Debug;
-use std::io::BufRead;
+use std::io::{self, BufRead, Write};
 
 #[derive (Debug)]
 pub struct Reader<R: BufRead> {
@@ -39,6 +39,7 @@ impl<R: BufRead> Reader<R> {
 
     pub fn read_validate<T> (&mut self, validator: &impl Validator<T>) -> Option<T> {
         print! ("{}: ", validator.get_prompt ());
+        io::stdout ().flush ().expect ("Stdout flush failed");
 
         loop {
             let input: String = self.read_line ();

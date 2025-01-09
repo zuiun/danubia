@@ -20,6 +20,7 @@ pub enum WeaponStatistic {
 #[derive (Debug)]
 #[derive (Clone, Copy)]
 pub struct Weapon {
+    id: ID,
     statistics: WeaponStatistics,
     area: Area,
     range: u8,
@@ -27,14 +28,18 @@ pub struct Weapon {
 }
 
 impl Weapon {
-    pub const fn new (statistics: WeaponStatistics, area: Area, range: u8) -> Self {
+    pub const fn new (id: ID, statistics: WeaponStatistics, area: Area, range: u8) -> Self {
         let status: Option<Status> = None;
 
-        Self { statistics, area, range, status }
+        Self { id, statistics, area, range, status }
     }
 
     pub fn get_statistic (&self, statistic: WeaponStatistic) -> u16 {
         self.statistics[statistic as usize] as u16
+    }
+
+    pub fn get_id (&self) -> ID {
+        self.id
     }
 
     pub fn get_target (&self) -> Target {
@@ -100,13 +105,11 @@ impl Changeable for Weapon {
 
     fn decrement_durations (&mut self) {
         if let Some (mut s) = self.status {
-            let status: Option<Status> = if s.decrement_duration () {
+            self.status = if s.decrement_duration () {
                 None
             } else {
                 Some (s)
             };
-
-            self.status = status;
         }
     }
 }

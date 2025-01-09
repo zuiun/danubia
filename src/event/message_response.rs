@@ -11,13 +11,12 @@ impl Message {
     pub const fn discriminant (&self) -> ID {
         match self {
             Message::TestAdd => 0,
-            Message::TestSubtract =>  1,
+            Message::TestSubtract => 1,
         }
     }
 }
 
-#[derive (Debug)]
-#[derive (Clone)]
+#[derive (Debug, Clone)]
 pub enum Response {
     TestAdd (u8),
     TestSubtract (u8),
@@ -34,6 +33,6 @@ impl Response {
 
 impl PartialEq for Response {
     fn eq (&self, other: &Self) -> bool {
-       self.discriminant () == other.discriminant ()
+        self.discriminant () == other.discriminant ()
     }
 }

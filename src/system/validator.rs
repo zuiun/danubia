@@ -22,9 +22,9 @@ impl ActionValidator {
 
 impl Validator<Action> for ActionValidator {
     fn validate (&self, input: &str) -> Result<Option<Action>, String> {
-        let input: char = input.chars ().next ().unwrap_or_else (|| panic! ("Invalid input {}", input));
+        let action: char = input.chars ().next ().unwrap_or_else (|| panic! ("Invalid input {}", input));
 
-        match input {
+        match action {
             'a' => Ok (Some (Action::Attack)),
             'w' => Ok (Some (Action::Weapon)),
             's' => Ok (Some (Action::Skill)),
@@ -46,27 +46,33 @@ impl Default for ActionValidator {
     }
 }
 
-pub struct UnitValidator<'a> {
+pub struct IDValidator<'a> {
     prompt: &'static str,
-    unit_ids: &'a[ID],
+    ids: &'a [ID],
 }
 
-impl<'a> UnitValidator<'a> {
-    pub fn new (unit_ids: &'a[ID]) -> Self {
-        let prompt: &str = "Enter unit ID (#)";
+impl<'a> IDValidator<'a> {
+    pub fn new (ids: &'a [ID]) -> Self {
+        let prompt: &str = "Enter ID (#) or cancel (x)";
 
-        Self { prompt, unit_ids }
+        Self { prompt, ids }
     }
 }
 
-impl Validator<ID> for UnitValidator<'_> {
+impl Validator<ID> for IDValidator<'_> {
     fn validate (&self, input: &str) -> Result<Option<ID>, String> {
-        let input: ID = input.parse ().unwrap_or_else (|e| panic! ("{}", e));
+        let cancel: char = input.chars ().next ().unwrap_or_else (|| panic! ("Invalid input {}", input));
 
-        if self.unit_ids.contains (&input) {
-            Ok (Some (input))
-        } else {
+        if cancel == 'x' {
             Ok (None)
+        } else {
+            let id: ID = input.parse ().unwrap_or_else (|e| panic! ("{}", e));
+
+            if self.ids.contains (&id) {
+                Ok (Some (id))
+            } else {
+                Err (String::from ("Invalid ID"))
+            }
         }
     }
 
@@ -77,12 +83,12 @@ impl Validator<ID> for UnitValidator<'_> {
 
 pub struct LocationValidator<'a> {
     prompt: &'static str,
-    locations: &'a[Location]
+    locations: &'a [Location],
 }
 
 impl<'a> LocationValidator<'a> {
-    pub fn new (locations: &'a[Location]) -> Self {
-        let prompt: &str = "Enter comma-separated location (row, column: #, #)";
+    pub fn new (locations: &'a [Location]) -> Self {
+        let prompt: &str = "Enter comma-separated location (row, column: #, #) or cancel (x)";
 
         Self { prompt, locations }
     }
@@ -90,16 +96,22 @@ impl<'a> LocationValidator<'a> {
 
 impl Validator<Location> for LocationValidator<'_> {
     fn validate (&self, input: &str) -> Result<Option<Location>, String> {
-        let mut input = input.split (",");
-        let i: usize = input.next ().unwrap_or_else (|| panic! ("Invalid input"))
-                .trim ().parse ().unwrap_or_else (|e| panic! ("{}", e));
-        let j: usize = input.next ().unwrap_or_else (|| panic! ("Invalid input"))
-                .trim ().parse ().unwrap_or_else (|e| panic! ("{}", e));
+        let cancel: char = input.chars ().next ().unwrap_or_else (|| panic! ("Invalid input {}", input));
 
-        if self.locations.contains (&(i, j)) {
-            Ok (Some ((i, j)))
-        } else {
+        if cancel == 'x' {
             Ok (None)
+        } else {
+            let mut input = input.split (",");
+            let i: usize = input.next ().unwrap_or_else (|| panic! ("Invalid input"))
+                    .trim ().parse ().unwrap_or_else (|e| panic! ("{}", e));
+            let j: usize = input.next ().unwrap_or_else (|| panic! ("Invalid input"))
+                    .trim ().parse ().unwrap_or_else (|e| panic! ("{}", e));
+
+            if self.locations.contains (&(i, j)) {
+                Ok (Some ((i, j)))
+            } else {
+                Err (String::from ("Invalid location"))
+            }
         }
     }
 
@@ -114,7 +126,7 @@ pub struct DirectionValidator {
 
 impl DirectionValidator {
     pub fn new () -> Self {
-        let prompt: &str = "Enter direction ([u]p/[r]ight/[l]eft/[d]own) or stop (x)";
+        let prompt: &str = "Enter direction (w/a/s/d) or cancel (x)";
 
         Self { prompt }
     }
@@ -125,10 +137,10 @@ impl Validator<Direction> for DirectionValidator {
         let input: char = input.chars ().next ().unwrap_or_else (|| panic! ("Invalid input {}", input));
 
         match input {
-            'u' => Ok (Some (Direction::Up)),
-            'r' => Ok (Some (Direction::Right)),
-            'l' => Ok (Some (Direction::Left)),
-            'd' => Ok (Some (Direction::Down)),
+            'w' => Ok (Some (Direction::Up)),
+            'd' => Ok (Some (Direction::Right)),
+            'a' => Ok (Some (Direction::Left)),
+            's' => Ok (Some (Direction::Down)),
             'x' => Ok (None),
             _ => Err (String::from ("Invalid input")),
         }
@@ -147,6 +159,44 @@ impl Default for DirectionValidator {
 
 pub struct ConfirmationValidator {
     prompt: &'static str,
+}
+
+pub struct MovementValidator {
+    prompt: &'static str,
+}
+
+impl MovementValidator {
+    pub fn new () -> Self {
+        let prompt: &str = "Enter direction (w/a/s/d), confirm (z), or cancel (x)";
+
+        Self { prompt }
+    }
+}
+
+impl Validator<Direction> for MovementValidator {
+    fn validate (&self, input: &str) -> Result<Option<Direction>, String> {
+        let input: char = input.chars ().next ().unwrap_or_else (|| panic! ("Invalid input {}", input));
+
+        match input {
+            'w' => Ok (Some (Direction::Up)),
+            'd' => Ok (Some (Direction::Right)),
+            'a' => Ok (Some (Direction::Left)),
+            's' => Ok (Some (Direction::Down)),
+            'z' => Ok (Some (Direction::Length)),
+            'x' => Ok (None),
+            _ => Err (String::from ("Invalid input")),
+        }
+    }
+
+    fn get_prompt (&self) -> &str {
+        self.prompt
+    }
+}
+
+impl Default for MovementValidator {
+    fn default () -> Self {
+        Self::new ()
+    }
 }
 
 impl ConfirmationValidator {
@@ -196,11 +246,13 @@ mod tests {
     }
 
     #[test]
-    fn unit_validator_validate () {
-        let validator = UnitValidator::new (&[0, 1]);
+    fn id_validator_validate () {
+        let validator = IDValidator::new (&[0, 1]);
 
+        // Test cancel validate
+        assert! (validator.validate ("x").unwrap ().is_none ());
         // Test empty validate
-        assert! (validator.validate ("3").unwrap ().is_none ());
+        assert! (validator.validate ("3").is_err ());
         // Test non-empty validate
         assert! (matches! (validator.validate ("0").unwrap ().unwrap (), 0));
         assert! (matches! (validator.validate ("1").unwrap ().unwrap (), 1));
@@ -210,28 +262,45 @@ mod tests {
     fn location_validator_validate () {
         let validator = LocationValidator::new (&[(0, 0), (0, 1)]);
 
+        // Test cancel validate
+        assert! (validator.validate ("x").unwrap ().is_none ());
         // Test empty validate
-        assert! (validator.validate ("1, 0").unwrap ().is_none ());
+        assert! (validator.validate ("1, 0").is_err ());
         // Test non-empty validate
         assert! (matches! (validator.validate ("0, 0").unwrap ().unwrap (), (0, 0)));
         assert! (matches! (validator.validate ("0, 1").unwrap ().unwrap (), (0, 1)));
     }
 
     #[test]
-    fn direction_validate () {
+    fn direction_validator_validate () {
         let validator = DirectionValidator::new ();
 
         // Test cancel validate
         assert! (validator.validate ("x").unwrap ().is_none ());
         // Test normal validate
-        assert! (matches! (validator.validate ("u").unwrap ().unwrap (), Direction::Up));
-        assert! (matches! (validator.validate ("r").unwrap ().unwrap (), Direction::Right));
-        assert! (matches! (validator.validate ("l").unwrap ().unwrap (), Direction::Left));
-        assert! (matches! (validator.validate ("d").unwrap ().unwrap (), Direction::Down));
+        assert! (matches! (validator.validate ("w").unwrap ().unwrap (), Direction::Up));
+        assert! (matches! (validator.validate ("d").unwrap ().unwrap (), Direction::Right));
+        assert! (matches! (validator.validate ("a").unwrap ().unwrap (), Direction::Left));
+        assert! (matches! (validator.validate ("s").unwrap ().unwrap (), Direction::Down));
     }
 
     #[test]
-    fn confirmation_validate () {
+    fn movement_validator_validate () {
+        let validator = MovementValidator::new ();
+
+        // Test cancel validate
+        assert! (validator.validate ("x").unwrap ().is_none ());
+        // Test confirm validate
+        assert! (matches! (validator.validate ("z").unwrap ().unwrap (), Direction::Length));
+        // Test normal validate
+        assert! (matches! (validator.validate ("w").unwrap ().unwrap (), Direction::Up));
+        assert! (matches! (validator.validate ("d").unwrap ().unwrap (), Direction::Right));
+        assert! (matches! (validator.validate ("a").unwrap ().unwrap (), Direction::Left));
+        assert! (matches! (validator.validate ("s").unwrap ().unwrap (), Direction::Down));
+    }
+
+    #[test]
+    fn confirmation_validator_validate () {
         let validator = ConfirmationValidator::new ();
 
         assert! (validator.validate ("z").unwrap ().unwrap ());

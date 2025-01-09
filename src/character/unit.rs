@@ -4,6 +4,7 @@ use crate::common::{Capacity, Target, Timed, ID, MULTIPLIER_ATTACK, MULTIPLIER_M
 use crate::dynamic::{Appliable, Applier, Change, Changeable, Effect, Modifier, Statistic, Status, Trigger};
 use crate::Scene;
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter, Result};
 use std::rc::Rc;
 
 const PERCENT_1: u16 = 1_0;
@@ -25,6 +26,16 @@ const THRESHOLD_RETREAT_MRL: u16 = 40_0; // 40.0%
 #[allow (clippy::inconsistent_digit_grouping)]
 const THRESHOLD_ROUT_MRL: u16 = 20_0; // 20.0%
 const THRESHOLD_SKILL_PASSIVE: usize = 1; // TODO: probably needs to be balanced
+const UNIT_STATISTICS: [UnitStatistic; UnitStatistic::Length as usize] = [
+    MRL,
+    HLT,
+    SPL,
+    ATK,
+    DEF,
+    MAG,
+    MOV,
+    ORG,
+];
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
@@ -78,14 +89,14 @@ impl UnitStatistics {
 
     fn validate_statistic (&self, statistic: UnitStatistic) -> bool {
         match statistic {
-            MRL => matches! (self.0[MRL as usize], Capacity::Quantity { .. }),
-            HLT => matches! (self.0[HLT as usize], Capacity::Quantity { .. }),
-            SPL => matches! (self.0[SPL as usize], Capacity::Quantity { .. }),
-            ATK => matches! (self.0[ATK as usize], Capacity::Constant { .. }),
-            DEF => matches! (self.0[DEF as usize], Capacity::Constant { .. }),
-            MAG => matches! (self.0[MAG as usize], Capacity::Constant { .. }),
-            MOV => matches! (self.0[MOV as usize], Capacity::Constant { .. }),
-            ORG => matches! (self.0[ORG as usize], Capacity::Quantity { .. }),
+            MRL => matches! (self.0[MRL as usize], Capacity::Quantity ( .. )),
+            HLT => matches! (self.0[HLT as usize], Capacity::Quantity ( .. )),
+            SPL => matches! (self.0[SPL as usize], Capacity::Quantity ( .. )),
+            ATK => matches! (self.0[ATK as usize], Capacity::Constant ( .. )),
+            DEF => matches! (self.0[DEF as usize], Capacity::Constant ( .. )),
+            MAG => matches! (self.0[MAG as usize], Capacity::Constant ( .. )),
+            MOV => matches! (self.0[MOV as usize], Capacity::Constant ( .. )),
+            ORG => matches! (self.0[ORG as usize], Capacity::Quantity ( .. )),
             _ => panic! ("Statistic not found"),
         }
     }
@@ -94,12 +105,8 @@ impl UnitStatistics {
         assert! (self.validate_statistic (statistic));
 
         match self.0[statistic as usize] {
-            Capacity::Constant (c, _, b) => {
-                (c, b)
-            }
-            Capacity::Quantity (c, m) => {
-                (c, m)
-            }
+            Capacity::Constant (c, _, b) => (c, b),
+            Capacity::Quantity (c, m) => (c, m),
         }
     }
 
@@ -124,12 +131,8 @@ impl UnitStatistics {
         assert! (self.validate_statistic (statistic));
 
         let (current, maximum): (u16, u16) = match self.0[statistic as usize] {
-            Capacity::Constant (c, m, _) => {
-                (c, m)
-            }
-            Capacity::Quantity (c, m) => {
-                (c, m)
-            }
+            Capacity::Constant (c, m, _) => (c, m),
+            Capacity::Quantity (c, m) => (c, m),
         };
         let value: u16 = if is_add {
             u16::min (current + change, maximum)
@@ -206,6 +209,23 @@ impl UnitStatistics {
     }
 }
 
+impl Display for UnitStatistics {
+    fn fmt (&self, f: &mut Formatter) -> Result {
+        let mut display: String = String::from ("");
+
+        for (i, statistic) in self.0.iter ().enumerate () {
+            let value: u16 = match statistic {
+                Capacity::Constant (c, _, _) => *c,
+                Capacity::Quantity (c, _) => *c,
+            };
+
+            display.push_str (&format! ("({:?}: {}) ", UNIT_STATISTICS[i], value));
+        }
+
+        write! (f, "[ {}]", display)
+    }
+}
+
 #[derive (Debug)]
 pub struct Unit {
     id: ID,
@@ -230,10 +250,8 @@ impl Unit {
         let modifier_terrain_id: Option<ID> = None;
         let modifiers: Vec<Modifier> = Vec::new ();
         let mut statuses: HashMap<Trigger, Vec<Status>> = HashMap::new ();
-        let weapons: Vec<Weapon> = weapons.iter ()
-                .map (|w: &ID| *scene.get_weapon (w)).collect ();
-        let skills: Vec<Skill> = skill_ids.iter ()
-                .map (|s: &ID| *scene.get_skill (s)).collect ();
+        let weapons: Vec<Weapon> = weapons.iter ().map (|w: &ID| *scene.get_weapon (w)).collect ();
+        let skills: Vec<Skill> = skill_ids.iter ().map (|s: &ID| *scene.get_skill (s)).collect ();
         let mut magic_ids: Vec<ID> = Vec::new ();
         let weapon_active: usize = 0;
         let is_alive: bool = true;
@@ -249,16 +267,14 @@ impl Unit {
         Self { id, scene, statistics, modifier_terrain_id, modifiers, statuses, magic_ids, skill_passive_id, skills, weapons, weapon_active, faction_id, rank, is_alive }
     }
 
-    pub fn initialise (&mut self) {
-        self.apply_inactive_skills ();
-    }
-
     pub fn get_statistic (&self, statistic: UnitStatistic) -> (u16, u16) {
         self.statistics.get_statistic (statistic)
     }
 
     pub fn set_statistic (&mut self, statistic: UnitStatistic, value: u16) {
         self.statistics.set_statistic (statistic, value);
+
+        self.update_is_alive ();
     }
 
     fn change_statistic_flat (&mut self, statistic: UnitStatistic, change: u16, is_add: bool) {
@@ -275,15 +291,14 @@ impl Unit {
 
     pub fn apply_inactive_skills (&mut self) {
         if let Some (s) = self.skill_passive_id {
-            let status_passive_id: ID = self.scene.get_skill (&s)
-                    .get_status_id ();
+            let status_passive_id: ID = self.scene.get_skill (&s).get_status_id ();
             let status_passive: Status = *self.scene.get_status (&status_passive_id);
             self.add_status (status_passive);
         }
 
         let statuses_toggle: Vec<Status> = self.skills.iter ()
-                .filter_map (|s: &Skill| 
-                    if s.is_toggle () {
+                .filter_map (|s: &Skill|
+                    if s.is_toggled () {
                         let status_id: ID = s.get_status_id ();
                         let status: Status = *self.scene.get_status (&status_id);
 
@@ -308,9 +323,9 @@ impl Unit {
                 let modifier: Modifier = self.scene.get_modifier_builder (&m)
                         .build (true);
                 let appliable: Box<dyn Appliable> = Box::new (modifier);
-    
+
                 self.add_appliable (appliable);
-    
+
                 modifier_id
             }
             None => None,
@@ -326,7 +341,7 @@ impl Unit {
     pub fn try_add_passive (&mut self, skill_id: &ID, distance: usize) -> bool {
         if let Rank::Follower ( .. ) = self.rank {
             let status_id: &ID = &self.scene.get_skill (skill_id)
-                    .get_status_id();
+                    .get_status_id ();
             let org: u16 = self.get_statistic (ORG).0;
             let multiplier: f32 = (org / PERCENT_100) as f32;
             let threshold: usize = ((THRESHOLD_SKILL_PASSIVE as f32) * multiplier) as usize;
@@ -365,8 +380,8 @@ impl Unit {
     pub fn start_turn (&mut self) {
         let mut appliables: Vec<Box<dyn Appliable>> = Vec::new ();
 
-        for (_, collection) in self.statuses.iter () {
-            for status in collection.iter () {
+        for collection in self.statuses.values () {
+            for status in collection {
                 if status.is_every_turn () {
                     let appliable: Box<dyn Appliable> = status.get_change ()
                             .appliable (Rc::clone (&self.scene));
@@ -389,13 +404,13 @@ impl Unit {
         self.weapon_active
     }
 
-    pub fn act_attack (&mut self) -> (u16, Option<Box<dyn Appliable>>) {
+    pub fn act_attack (&mut self) -> (u16, &Weapon) {
         let drain_spl: u16 = (DRAIN_SPL * MULTIPLIER_ATTACK) as u16;
 
         self.change_statistic_flat (SPL, drain_spl, false);
         self.update_is_alive ();
 
-        (self.get_statistic (MOV).0, self.get_weapon ().try_yield_appliable (Rc::clone (&self.scene)))
+        (self.get_statistic (MOV).0, self.get_weapon ())
     }
 
     pub fn take_damage (&mut self, damage_mrl: u16, damage_hlt: u16, damage_spl: u16) -> Option<Box<dyn Appliable>> {
@@ -414,13 +429,17 @@ impl Unit {
                 .unwrap_or_else (|| panic! ("Skill {:?} not found", skill_id));
         let status_id_old: Option<ID> = {
             let skill: &mut Skill = &mut self.skills[index];
-    
-            if skill.is_toggle () {
+
+            if skill.is_toggled () {
                 let (status_id_old, _): (ID, ID) = skill.switch_status ();
 
                 Some (status_id_old)
-            } else {
+            } else if skill.is_timed () {
+                skill.start_cooldown ();
+
                 None
+            } else {
+                unreachable! ()
             }
         };
 
@@ -438,8 +457,7 @@ impl Unit {
         assert! (self.magic_ids.contains (magic_id));
 
         let mag: u16 = self.get_statistic (MAG).0;
-        let cost: u16 = self.scene.get_magic (magic_id)
-                .get_cost ();
+        let cost: u16 = self.scene.get_magic (magic_id).get_cost ();
         let drain_hlt: u16 = u16::max ((cost * DRAIN_HLT).saturating_sub (mag), 1);
         let drain_org: u16 = u16::max ((cost * PERCENT_1).saturating_sub (mag / PERCENT_1), PERCENT_1);
         let drain_spl: u16 = (DRAIN_SPL * MULTIPLIER_MAGIC) as u16;
@@ -467,10 +485,8 @@ impl Unit {
             let mut recover_spl: u16 = 0;
 
             for city_id in city_ids {
-                let change_hlt: u16 = self.scene.get_city (city_id)
-                        .get_manpower ();
-                let change_spl: u16 = self.scene.get_city (city_id)
-                        .get_equipment ();
+                let change_hlt: u16 = self.scene.get_city (city_id).get_manpower ();
+                let change_spl: u16 = self.scene.get_city (city_id).get_equipment ();
 
                 recover_hlt += change_hlt;
                 recover_spl += change_spl;
@@ -513,6 +529,30 @@ impl Unit {
         self.skill_passive_id
     }
 
+    pub fn get_skill_ids (&self) -> Vec<ID> {
+        self.skills.iter ().map (|s: &Skill| s.get_id ()).collect ()
+    }
+
+    pub fn get_skill_ids_actionable (&self) -> Vec<ID> {
+        self.skills.iter ().filter_map (|s: &Skill|
+            if s.is_timed () {
+                if s.try_yield_appliable (Rc::clone (&self.scene)).is_some () {
+                    Some (s.get_id ())
+                } else {
+                    None
+                }
+            } else if s.is_toggled () {
+                Some (s.get_id ())
+            } else {
+                None
+            }
+        ).collect ()
+    }
+
+    pub fn get_magic_ids (&self) -> &[ID] {
+        &self.magic_ids
+    }
+
     pub fn get_leader_id (&self) -> ID {
         match self.rank {
             Rank::Leader => self.id,
@@ -551,8 +591,8 @@ impl Changeable for Unit {
             Change::Modifier ( .. ) => {
                 let modifier: Modifier = appliable.modifier ();
 
-                if modifier.can_stack () || !self.modifiers.contains (&modifier){
-                    for adjustment in modifier.get_adjustments ().iter () {
+                if modifier.can_stack () || !self.modifiers.contains (&modifier) {
+                    for adjustment in modifier.get_adjustments () {
                         if let Statistic::Unit (s) = adjustment.0 {
                             self.change_statistic_percentage (s, adjustment.1, adjustment.2);
                         }
@@ -568,7 +608,7 @@ impl Changeable for Unit {
             Change::Effect ( .. ) => {
                 let effect: Effect = appliable.effect ();
 
-                for adjustment in effect.get_adjustments ().iter () {
+                for adjustment in effect.get_adjustments () {
                     if let Statistic::Unit (s) = adjustment.0 {
                         if effect.can_stack_or_is_flat () {
                             self.change_statistic_flat (s, adjustment.1, adjustment.2);
@@ -600,29 +640,25 @@ impl Changeable for Unit {
 
                     true
                 }
-                Trigger::OnHit => {
-                    if let Target::Enemy = status.get_target () {
-                        let collection: Vec<Status> = vec![status];
+                Trigger::OnHit => if let Target::Enemy = status.get_target () {
+                    let collection: Vec<Status> = vec![status];
 
-                        self.statuses.insert (trigger, collection);
-    
-                        true
-                    } else {
-                        false
-                    }
+                    self.statuses.insert (trigger, collection);
+
+                    true
+                } else {
+                    false
                 }
-                Trigger::None => {
-                    if let Target::This = status.get_target () {
-                        let collection: &mut Vec<Status> = self.statuses.get_mut (&trigger)
-                                .unwrap_or_else (|| panic! ("Collection not found for trigger {:?}", trigger));
+                Trigger::None => if let Target::This = status.get_target () {
+                    let collection: &mut Vec<Status> = self.statuses.get_mut (&trigger)
+                            .unwrap_or_else (|| panic! ("Collection not found for trigger {:?}", trigger));
 
-                        collection.push (status);
-                        self.add_appliable (appliable);
+                    collection.push (status);
+                    self.add_appliable (appliable);
 
-                        true
-                    } else {
-                        false
-                    }
+                    true
+                } else {
+                    false
                 }
                 _ => false,
             }
@@ -636,7 +672,7 @@ impl Changeable for Unit {
         if let Some (i) = index {
             let modifier: Modifier = self.modifiers.swap_remove (i);
 
-            for adjustment in modifier.get_adjustments ().iter () {
+            for adjustment in modifier.get_adjustments () {
                 if let Statistic::Unit (s) = adjustment.0 {
                     self.change_statistic_percentage (s, adjustment.1, !adjustment.2);
                 }
@@ -692,6 +728,20 @@ impl Changeable for Unit {
                 }
             }
         }
+
+        for skill in self.skills.iter_mut () {
+            skill.decrement_duration ();
+        }
+
+        for weapon in self.weapons.iter_mut () {
+            weapon.decrement_durations ();
+        }
+    }
+}
+
+impl Display for Unit {
+    fn fmt (&self, f: &mut Formatter<'_>) -> Result {
+        write! (f, "{}: {}\n{:?}\n{:?}", self.id, self.statistics, self.modifiers, self.statuses)
     }
 }
 
@@ -912,14 +962,14 @@ mod tests {
         let spl_0_0 = unit_0.get_statistic (SPL).0;
         let response = unit_0.act_attack ();
         assert_eq! (response.0, 10);
-        assert! (response.1.is_none ());
+        assert_eq! (response.1.get_id (), 0);
         let spl_0_1 = unit_0.get_statistic (SPL).0;
         assert! (spl_0_0 > spl_0_1);
         // Test OnAttack attack
         unit_0.add_status (status);
         let response = unit_0.act_attack ();
         assert_eq! (response.0, 10);
-        assert! (response.1.is_some ());
+        assert_eq! (response.1.get_id (), 0);
         let spl_0_2 = unit_0.get_statistic (SPL).0;
         assert! (spl_0_1 > spl_0_2);
     }
@@ -948,11 +998,14 @@ mod tests {
         // Test OnHit attack
         unit_0.add_status (status);
         let weapon = *unit_2.get_weapon ();
-        let (damage_mrl, damage_hlt, damage_spl) = UnitStatistics::calculate_damage (&statistics_2, &statistics_0, &weapon);
+        let (damage_mrl, damage_hlt, damage_spl) =
+            UnitStatistics::calculate_damage (&statistics_2, &statistics_0, &weapon);
         let mrl_0_0 = unit_0.get_statistic (MRL).0;
         let hlt_0_0 = unit_0.get_statistic (HLT).0;
         let spl_0_0 = unit_0.get_statistic (SPL).0;
-        assert! (unit_0.take_damage (damage_mrl, damage_hlt, damage_spl).is_some ());
+        assert! (unit_0
+            .take_damage (damage_mrl, damage_hlt, damage_spl)
+            .is_some ());
         let mrl_0_1 = unit_0.get_statistic (MRL).0;
         let hlt_0_1 = unit_0.get_statistic (HLT).0;
         let spl_0_1 = unit_0.get_statistic (SPL).0;
@@ -962,8 +1015,11 @@ mod tests {
         // Test switch attack
         assert_eq! (unit_2.switch_weapon (), 1);
         let weapon = *unit_2.get_weapon ();
-        let (damage_mrl, damage_hlt, damage_spl) = UnitStatistics::calculate_damage (&statistics_2, &statistics_0, &weapon);
-        assert! (unit_0.take_damage (damage_mrl, damage_hlt, damage_spl).is_some ());
+        let (damage_mrl, damage_hlt, damage_spl) =
+            UnitStatistics::calculate_damage (&statistics_2, &statistics_0, &weapon);
+        assert! (unit_0
+            .take_damage (damage_mrl, damage_hlt, damage_spl)
+            .is_some ());
         let mrl_0_2 = unit_0.get_statistic (MRL).0;
         let hlt_0_2 = unit_0.get_statistic (HLT).0;
         let spl_0_2 = unit_0.get_statistic (SPL).0;
@@ -976,12 +1032,21 @@ mod tests {
     fn unit_act_skill () {
         let (mut unit_0, _, _) = generate_units ();
 
+        // Test timed skill
         let spl_0_0 = unit_0.get_statistic (SPL).0;
         let response = unit_0.act_skill (&0);
         assert_eq! (response.0, 10);
         assert_eq! (response.1.get_id (), 0);
+        assert_eq! (unit_0.skills[0].get_duration (), 2);
         let spl_0_1 = unit_0.get_statistic (SPL).0;
         assert! (spl_0_0 > spl_0_1);
+        // Test toggled skill
+        let response = unit_0.act_skill (&2);
+        assert_eq! (response.0, 10);
+        assert_eq! (response.1.get_id (), 2);
+        assert_eq! (unit_0.skills[0].get_status_id (), 5);
+        let spl_0_2 = unit_0.get_statistic (SPL).0;
+        assert! (spl_0_1 > spl_0_2);
     }
 
     #[test]
@@ -1036,6 +1101,7 @@ mod tests {
         unit_0.change_statistic_flat (MRL, 500, false);
         unit_0.change_statistic_flat (HLT, 500, false);
         unit_0.change_statistic_flat (SPL, 500, false);
+        unit_0.skills[0].start_cooldown ();
 
         // Test encircled recover
         let mrl_0_0 = unit_0.get_statistic (MRL).0;
@@ -1048,6 +1114,7 @@ mod tests {
         assert_eq! (mrl_0_0 + RECOVER_MRL, mrl_0_1);
         assert! (hlt_0_0 > hlt_0_1);
         assert_eq! (spl_0_0, spl_0_1);
+        assert_eq! (unit_0.skills[0].get_duration (), 1);
         // Test normal recover
         unit_0.end_turn (&[1], None);
         let mrl_0_2 = unit_0.get_statistic (MRL).0;
@@ -1056,6 +1123,20 @@ mod tests {
         assert_eq! (mrl_0_1 + RECOVER_MRL, mrl_0_2);
         assert! (hlt_0_1 < hlt_0_2);
         assert! (spl_0_1 < spl_0_2);
+        assert_eq! (unit_0.skills[0].get_duration (), 0);
+    }
+
+    #[test]
+    fn unit_get_skill_ids_actionable () {
+        let scene = generate_scene ();
+        let (unit_0, unit_1, _) = generate_units ();
+        let unit_3 = scene.get_unit_builder (&3).build (Rc::clone (&scene));
+
+        // Test empty skills
+        assert! (unit_1.get_skill_ids_actionable ().is_empty ());
+        // Test timed skills
+        assert_eq! (unit_0.get_skill_ids_actionable ().len (), 2);
+        assert_eq! (unit_3.get_skill_ids_actionable ().len (), 3);
     }
 
     #[test]

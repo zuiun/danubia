@@ -18,7 +18,7 @@ pub struct Status {
 impl Status {
     pub const fn new (id: ID, change: Change, trigger: Trigger, duration: u16, target: Target, is_every_turn: bool, next_id: Option<ID>) -> Self {
         assert! (duration > 0);
-        assert! (matches! (target, Target::This) || matches! (target, Target::Enemy) || matches! (target, Target::Map));
+        assert! (matches! (target, Target::This) || matches! (target, Target::Enemy) || matches! (target, Target::Map ( .. )));
 
         let duration: Capacity = if duration < DURATION_PERMANENT {
             Capacity::Quantity (duration, duration)
@@ -64,6 +64,12 @@ impl Status {
 
     pub fn get_next_id (&self) -> Option<ID> {
         self.next_id
+    }
+
+    pub fn set_applier_id (&mut self, unit_id: ID) {
+        if let Target::Map ( .. ) = self.target {
+            self.target = Target::Map (unit_id);
+        }
     }
 }
 

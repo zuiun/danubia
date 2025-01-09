@@ -1,7 +1,5 @@
 mod information;
 pub use self::information::Information;
-mod turn;
-pub use self::turn::Turn;
 
 pub type ID = usize;
 
@@ -46,7 +44,7 @@ pub enum Target {
     Enemy,
     Enemies,
     // All,
-    Map,
+    Map (ID), // applier unit
 }
 
 // #[derive (Debug)]

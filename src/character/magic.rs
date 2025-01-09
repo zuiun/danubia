@@ -28,10 +28,7 @@ pub struct Magic {
 
 impl Magic {
     pub const fn new (id: ID, status_id: ID, target: Target, area: Area, range: u8, cost: u16, element: Element) -> Self {
-        assert! (matches! (target,
-            Target::This
-            | Target::Map
-        ));
+        assert! (matches! (target, Target::This | Target::Map ( .. )));
 
         Self { id, status_id, target, area, range, cost, element }
     }

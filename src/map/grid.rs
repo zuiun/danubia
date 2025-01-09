@@ -4,7 +4,7 @@ use crate::common::{ID, ID_UNINITIALISED};
 use crate::dynamic::{Appliable, Applier, Changeable, Modifier, Status, Trigger};
 use crate::Scene;
 use std::collections::{HashSet, VecDeque};
-// use std::fmt;
+use std::fmt::{Display, Formatter, Result};
 use std::rc::Rc;
 
 pub type Location = (usize, usize); // row, column
@@ -148,7 +148,7 @@ impl Grid {
     fn is_placeable (&self, location: &Location) -> bool {
         assert! (is_in_bounds (&self.tiles, location));
 
-        !self.is_impassable(location) && !self.is_occupied (location)
+        !self.is_impassable (location) && !self.is_occupied (location)
     }
 
     pub fn find_nearest_placeable (&self, location: &Location) -> Location {
@@ -313,10 +313,11 @@ impl Grid {
     //     todo! ()
     // }
 
-    pub fn find_unit_cities (&self, unit_id: &ID, faction_id: &ID) -> Vec<ID> {
+    pub fn find_unit_cities (&self, unit_id: &ID) -> Vec<ID> {
         assert! (is_rectangular (&self.tiles));
 
         let location: Location = *self.get_unit_location (unit_id);
+        let faction_id: ID = self.get_unit_faction (unit_id);
         let mut locations: VecDeque<Location> = VecDeque::new ();
         let mut is_visited: Vec<Vec<bool>> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
         let mut city_ids: Vec<ID> = Vec::new ();
@@ -336,7 +337,7 @@ impl Grid {
                 if let Some (n) = self.try_connect (&location, direction) {
                     let controller_id: &ID = self.get_location_faction (&n);
 
-                    if !is_visited[n.0][n.1] && controller_id == faction_id {
+                    if !is_visited[n.0][n.1] && *controller_id == faction_id {
                         locations.push_back (n);
                         is_visited[n.0][n.1] = true;
                     }
@@ -590,6 +591,18 @@ impl Grid {
         }
     }
 
+    pub fn decrement_durations (&mut self, unit_id: &ID) {
+        for row in self.tiles.iter_mut () {
+            for tile in row.iter_mut () {
+                if let Some (a) = tile.get_applier_id () {
+                    if a == *unit_id {
+                        tile.decrement_durations ();
+                    }
+                }
+            }
+        }
+    }
+
     pub fn get_city_id (&self, location: &Location) -> Option<ID> {
         assert! (is_rectangular (&self.tiles));
         assert! (is_in_bounds (&self.tiles, location));
@@ -652,28 +665,28 @@ impl Grid {
     }
 }
 
-// impl fmt::Display for Grid {
-//     fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         let mut display: String = String::from ("");
+impl Display for Grid {
+    fn fmt (&self, f: &mut Formatter) -> Result {
+        let mut display: String = String::from ("");
 
-//         for (i, row) in self.tiles.iter ().enumerate () {
-//             for (j, tile) in row.iter ().enumerate () {
-//                 if self.is_occupied (&(i, j)) {
-//                     display.push_str (&format! ("{}o{} ",
-//                             self.get_location_unit (&(i, j))
-//                                     .unwrap_or_else (|| panic! ("Unit not found for location ({}, {})", i, j)),
-//                             tile.get_height ()));
-//                 } else {
-//                     display.push_str (&format! ("{}_{} ", self.scene.get_terrain (&tile.get_terrain_id ()), tile.get_height ()));
-//                 }
-//             }
+        for (i, row) in self.tiles.iter ().enumerate () {
+            for (j, tile) in row.iter ().enumerate () {
+                if self.is_occupied (&(i, j)) {
+                    display.push_str (&format! ("{}o{} ",
+                            self.get_location_unit (&(i, j))
+                                    .unwrap_or_else (|| panic! ("Unit not found for location ({}, {})", i, j)),
+                            tile.get_height ()));
+                } else {
+                    display.push_str (&format! ("{}_{} ", tile.get_terrain_id (), tile.get_height ()));
+                }
+            }
 
-//             display.push ('\n');
-//         }
+            display.push ('\n');
+        }
 
-//         write! (f, "{}", display)
-//     }
-// }
+        write! (f, "{}", display)
+    }
+}
 
 #[cfg (test)]
 mod tests {
@@ -924,23 +937,23 @@ mod tests {
 
         // Test no supply
         grid.place_unit (0, (0, 1));
-        assert! (grid.find_unit_cities (&0, &0).is_empty ());
+        assert! (grid.find_unit_cities (&0).is_empty ());
         grid.move_unit (0, &[Direction::Down]);
-        assert! (grid.find_unit_cities (&0, &0).is_empty ());
+        assert! (grid.find_unit_cities (&0).is_empty ());
         // Test contested supply
         grid.place_unit (2, (0, 0));
-        assert! (grid.find_unit_cities (&0, &0).is_empty ());
-        assert_eq! (grid.find_unit_cities (&2, &1).len (), 1);
+        assert! (grid.find_unit_cities (&0).is_empty ());
+        assert_eq! (grid.find_unit_cities (&2).len (), 1);
         // Test normal supply
         grid.place_unit (1, (0, 2));
-        assert_eq! (grid.find_unit_cities (&0, &0).len (), 1);
-        assert_eq! (grid.find_unit_cities (&1, &0).len (), 1);
-        assert_eq! (grid.find_unit_cities (&2, &1).len (), 1);
+        assert_eq! (grid.find_unit_cities (&0).len (), 1);
+        assert_eq! (grid.find_unit_cities (&1).len (), 1);
+        assert_eq! (grid.find_unit_cities (&2).len (), 1);
         // Test multiple supply
         grid.place_unit (3, (1, 0));
-        assert_eq! (grid.find_unit_cities (&0, &0).len (), 2);
-        assert_eq! (grid.find_unit_cities (&1, &0).len (), 2);
-        assert_eq! (grid.find_unit_cities (&2, &1).len (), 1);
+        assert_eq! (grid.find_unit_cities (&0).len (), 2);
+        assert_eq! (grid.find_unit_cities (&1).len (), 2);
+        assert_eq! (grid.find_unit_cities (&2).len (), 1);
     }
 
     #[test]
@@ -1072,7 +1085,9 @@ mod tests {
         let status_2 = *scene.get_status (&2);
         let status_3 = *scene.get_status (&3);
 
+        // Test non-Map status
         assert! (!grid.add_status (&(0, 0), status_0));
+        // Test Map status
         assert! (grid.add_status (&(0, 0), status_2));
         let cost_down_0: u8 = grid.adjacencies[0][0][Direction::Down as usize];
         let cost_left_0: u8 = grid.adjacencies[1][1][Direction::Left as usize];
@@ -1143,5 +1158,32 @@ mod tests {
         let response = grid.get_faction_locations (&1).unwrap ();
         assert_eq! (response.len (), 1);
         assert! (response.contains (&(1, 1)));
+    }
+
+    #[test]
+    fn grid_decrement_durations () {
+        let scene = generate_scene ();
+        let mut grid = generate_grid ();
+        let mut status_2 = *scene.get_status (&2);
+        let mut status_11 = *scene.get_status (&11);
+
+        status_2.set_applier_id (0);
+        status_11.set_applier_id (1);
+        grid.add_status (&(0, 0), status_2);
+        grid.add_status (&(1, 1), status_11);
+
+        grid.decrement_durations (&0);
+        assert! (grid.try_yield_appliable (&(0, 0)).is_some ());
+        assert! (grid.get_modifier (&(1, 1)).is_some ());
+        grid.decrement_durations (&0);
+        assert! (grid.try_yield_appliable (&(0, 0)).is_some ());
+        assert! (grid.get_modifier (&(1, 1)).is_some ());
+        grid.decrement_durations (&0);
+        assert! (grid.try_yield_appliable (&(0, 0)).is_none ());
+        assert! (grid.get_modifier (&(1, 1)).is_some ());
+        grid.decrement_durations (&1);
+        assert! (grid.get_modifier (&(1, 1)).is_some ());
+        grid.decrement_durations (&1);
+        assert! (grid.get_modifier (&(1, 1)).is_none ());
     }
 }

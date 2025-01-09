@@ -40,15 +40,15 @@ pub const CITIES: &[City] = &[
 ];
 // TODO: dmg, area, range
 pub const WEAPONS: &[Weapon] = &[
-    Weapon::new ([0, 2, 1, 0], Area::Single, 1), // Sabre
-    Weapon::new ([0, 0, 3, 0], Area::Path (0), 2), // Lance
-    Weapon::new ([0, 0, 2, 0], Area::Single, 2), // Pike
-    Weapon::new ([0, 1, 2, 0], Area::Path (1), 1), // Glaive
-    Weapon::new ([0, 1, 1, 1], Area::Single, 4), // Pistol
-    Weapon::new ([0, 0, 2, 1], Area::Path (1), 8), // Musket
-    Weapon::new ([0, 0, 3, 1], Area::Path (2), 12), // Rifle
-    Weapon::new ([0, 0, 1, 0], Area::Single, 1), // Bayonet
-    Weapon::new ([0, 0, 1, 2], Area::Radial (3), 12), // Mortar
+    Weapon::new (0, [0, 2, 1, 0], Area::Single, 1), // Sabre
+    Weapon::new (1, [0, 0, 3, 0], Area::Path (0), 2), // Lance
+    Weapon::new (2, [0, 0, 2, 0], Area::Single, 2), // Pike
+    Weapon::new (3, [0, 1, 2, 0], Area::Path (1), 1), // Glaive
+    Weapon::new (4, [0, 1, 1, 1], Area::Single, 4), // Pistol
+    Weapon::new (5, [0, 0, 2, 1], Area::Path (1), 8), // Musket
+    Weapon::new (6, [0, 0, 3, 1], Area::Path (2), 12), // Rifle
+    Weapon::new (7, [0, 0, 1, 0], Area::Single, 1), // Bayonet
+    Weapon::new (8, [0, 0, 1, 2], Area::Radial (3), 12), // Mortar
 ];
 pub const MAGICS: &[Magic] = &[
 

@@ -1,5 +1,5 @@
 use super::Tool;
-use crate::common::{DURATION_PERMANENT, Target, Timed, ID};
+use crate::common::{DURATION_PERMANENT, ID, Target, Timed};
 use crate::dynamic::{Appliable, Applier, Status};
 use crate::map::Area;
 use crate::Scene;
@@ -21,7 +21,7 @@ pub struct Skill {
     target: Target,
     area: Area,
     range: u8,
-    activity: Activity
+    activity: Activity,
 }
 
 impl Skill {
@@ -40,6 +40,8 @@ impl Skill {
     }
 
     pub fn switch_status (&mut self) -> (ID, ID) {
+        assert! (self.is_toggled ());
+
         let status_id_old: ID = self.status_id;
         let status_id_new: ID = if let Activity::Toggled (t0, t1) = self.activity {
             if status_id_old == t0 {
@@ -60,16 +62,26 @@ impl Skill {
         (status_id_old, status_id_new)
     }
 
+    pub fn start_cooldown (&mut self) {
+        assert! (self.is_timed ());
+
+        if let Activity::Timed (c, m) = self.activity {
+            if c == 0 {
+                self.activity = Activity::Timed (m, m);
+            }
+        }
+    }
+
     pub fn is_timed (&self) -> bool {
-        matches! (self.activity, Activity::Timed { .. })
+        matches! (self.activity, Activity::Timed ( .. ))
     }
 
     pub fn is_passive (&self) -> bool {
-        matches! (self.activity, Activity::Passive { .. })
+        matches! (self.activity, Activity::Passive)
     }
 
-    pub fn is_toggle (&self) -> bool {
-        matches! (self.activity, Activity::Toggled { .. })
+    pub fn is_toggled (&self) -> bool {
+        matches! (self.activity, Activity::Toggled ( .. ))
     }
 
     pub fn get_status_id (&self) -> ID {
@@ -91,7 +103,11 @@ impl Applier for Skill {
     fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
         let status: Status = *scene.get_status (&self.status_id);
 
-        status.try_yield_appliable (scene)
+        if self.is_timed () && self.get_duration () > 0 {
+            None
+        } else {
+            status.try_yield_appliable (scene)
+        }
     }
 
     fn get_target (&self) -> Target {
@@ -141,10 +157,35 @@ mod tests {
     }
 
     #[test]
+    fn skill_switch_status () {
+        let scene = generate_scene ();
+        let mut skill_2 = *scene.get_skill (&2);
+
+        assert_eq! (skill_2.switch_status (), (0, 1));
+        assert_eq! (skill_2.get_status_id (), 1);
+        assert_eq! (skill_2.switch_status (), (1, 0));
+        assert_eq! (skill_2.get_status_id (), 0);
+    }
+
+    #[test]
+    fn skill_start_cooldown () {
+        let (mut skill_0, _) = generate_skills ();
+
+        // Test normal start
+        skill_0.start_cooldown ();
+        assert_eq! (skill_0.get_duration (), 2);
+        //  Test interrupted start
+        skill_0.activity = Activity::Timed (1, 2);
+        skill_0.start_cooldown ();
+        assert_eq! (skill_0.get_duration (), 1);
+    }
+
+    #[test]
     fn skill_decrement_duration () {
         let (mut skill_0, mut skill_1) = generate_skills ();
 
         // Test timed skill
+        skill_0.start_cooldown ();
         assert! (!skill_0.decrement_duration ());
         assert_eq! (skill_0.get_duration (), 1);
         assert! (!skill_0.decrement_duration ());

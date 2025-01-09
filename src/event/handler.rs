@@ -10,7 +10,7 @@ pub struct Handler {
     // Safety guarantee: Handler will never borrow_mut Observer
     id_observers: HashMap<ID, Rc<RefCell<dyn Observer>>>,
     message_observers: CrossJoinMap<ID, ID>,
-    id: ID
+    id: ID,
 }
 
 impl Handler {
@@ -49,14 +49,12 @@ impl Handler {
 
     pub fn notify (&self, message: Message) -> Vec<Response> {
         match self.message_observers.get_first (&message.discriminant ()) {
-            Some (c) => {
-                c.iter ().filter_map (|o: &ID|
-                    self.id_observers.get (o)
-                            .unwrap_or_else (|| panic! ("Observer not found for ID {:?}", o))
-                            .borrow ()
-                            .respond (message)
-                ).collect::<Vec<Response>> ()
-            }
+            Some (c) => c.iter ().filter_map (|o: &ID|
+                self.id_observers.get (o)
+                        .unwrap_or_else (|| panic! ("Observer not found for ID {:?}", o))
+                        .borrow ()
+                        .respond (message)
+            ).collect::<Vec<Response>> (),
             None => Vec::new (),
         }
     }
@@ -64,17 +62,16 @@ impl Handler {
     pub fn reduce_responses (responses: &[Response]) -> &Response {
         assert! (responses.len () == 1);
 
-        responses.first ()
-                .expect ("Response not found")
+        responses.first ().expect ("Response not found")
     }
 }
 
 #[cfg (test)]
 mod tests {
-    use std::cell::{Cell, RefCell};
-    use std::rc::{Rc, Weak};
     use super::*;
     use crate::common::ID_UNINITIALISED;
+    use std::cell::{Cell, RefCell};
+    use std::rc::{Rc, Weak};
 
     #[derive (Debug)]
     struct Thing {
@@ -111,7 +108,6 @@ mod tests {
 
                     Some (Response::TestSubtract (data))
                 }
-                // _ => None
             }
         }
 
@@ -120,7 +116,7 @@ mod tests {
                 false
             } else {
                 self.observer_id.replace (observer_id);
-    
+
                 true
             }
         }

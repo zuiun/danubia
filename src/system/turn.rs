@@ -1,4 +1,4 @@
-use super::ID;
+use crate::common::ID;
 use std::cmp::Ordering;
 
 #[derive (Debug)]
@@ -56,8 +56,8 @@ impl PartialOrd for Turn {
 impl Ord for Turn {
     fn cmp (&self, other: &Self) -> Ordering {
         self.delay.cmp (&other.delay)
-            .then_with (|| self.mov.cmp (&other.mov))
-            .then_with (|| self.unit_id.cmp (&other.unit_id))
-            .reverse ()
+                .then_with (|| other.mov.cmp (&self.mov))
+                .then_with (|| self.unit_id.cmp (&other.unit_id))
+                .reverse ()
     }
 }

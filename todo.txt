@@ -1,5 +1,6 @@
 Features:
-game loop
+print Grid
+do not fail move when unit tries to move over itself - this may be more difficult to fix
 rework event system into game events (weather, spawning reinforcements, etc)
 logging (sync::mspc seems promising)
 
@@ -14,6 +15,8 @@ consistent semantics for &parameters/returns
 associated structs/enums should probably have their parent in their names
 consider renaming single letter variables (used for deconstruction)
 can_stack shouldn't necessarily require a ModifierBuilder
+some panics should be marked unreachable
+Validator should return Err instead of panicking
 
 Balancing:
 When in combat, morale/manpower/equipment drain should always be greater than recovery
