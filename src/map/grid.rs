@@ -50,6 +50,7 @@ pub struct Grid {
     adjacencies: Vec<Vec<Adjacency>>,
     unit_locations: InnerJoinMap<ID, Location>,
     faction_locations: OuterJoinMap<ID, Location>,
+    unit_id_passable: Option<ID>,
 }
 
 impl Grid {
@@ -70,6 +71,7 @@ impl Grid {
         let adjacencies: Vec<Vec<Adjacency>> = Grid::build_adjacencies (&tiles);
         let mut faction_locations: OuterJoinMap<ID, Location> = OuterJoinMap::new ();
         let unit_locations: InnerJoinMap<ID, Location> = InnerJoinMap::new ();
+        let unit_id_passable: Option<ID> = None;
 
         for i in 0 .. tiles.len () {
             for j in 0 .. tiles[0].len () {
@@ -80,7 +82,7 @@ impl Grid {
         assert! (is_rectangular (&tiles));
         assert! (is_rectangular (&adjacencies));
 
-        Self { scene, tiles, adjacencies, unit_locations, faction_locations }
+        Self { scene, tiles, adjacencies, unit_locations, faction_locations, unit_id_passable }
     }
 
     fn build_adjacencies (tiles: &Vec<Vec<Tile>>) -> Vec<Vec<Adjacency>> {
@@ -142,7 +144,14 @@ impl Grid {
     pub fn is_occupied (&self, location: &Location) -> bool {
         assert! (is_in_bounds (&self.tiles, location));
 
-        self.get_location_unit (location).is_some ()
+        match self.get_location_unit (location) {
+            Some (u) => if let Some (p) = self.unit_id_passable {
+                *u != p
+            } else {
+                true
+            }
+            None => false
+        }
     }
 
     fn is_placeable (&self, location: &Location) -> bool {
@@ -275,6 +284,10 @@ impl Grid {
         }
     }
 
+    pub fn remove_unit (&mut self, unit_id: &ID) {
+        self.unit_locations.remove_first (unit_id);
+    }
+
     pub fn move_unit (&mut self, unit_id: ID, movements: &[Direction]) -> Option<(Location, ID)> {
         let mut locations: Vec<Location> = Vec::new ();
         let faction_id: ID = self.get_unit_faction (&unit_id);
@@ -282,14 +295,17 @@ impl Grid {
         let mut end: Location = start;
 
         // Temporarily remove unit
-        self.unit_locations.remove_first (&unit_id);
+        // self.unit_locations.remove_first (&unit_id);
+        self.unit_id_passable = Some (unit_id);
 
         for direction in movements.iter () {
             end = match self.try_move (&end, *direction) {
                 Some (e) => e.0,
                 None => {
                     // TODO: This is probably worth a panic
-                    self.unit_locations.insert ((unit_id, end));
+                    // self.unit_locations.insert ((unit_id, end));
+                    self.unit_locations.replace_first (unit_id, end);
+                    self.unit_id_passable = None;
 
                     return None
                 }
@@ -301,9 +317,11 @@ impl Grid {
             self.faction_locations.replace (location, faction_id);
         }
 
-        self.unit_locations.insert ((unit_id, end));
-
         let terrain_id: ID = self.tiles[end.0][end.1].get_terrain_id ();
+
+        // self.unit_locations.insert ((unit_id, end));
+        self.unit_locations.replace_first (unit_id, end);
+        self.unit_id_passable = None;
 
         Some ((end, terrain_id))
     }
@@ -377,53 +395,39 @@ impl Grid {
                     let (i, j): (usize, usize) = (i as usize, i as usize);
 
                     match d {
-                        Direction::Up => {
-                            let left: Location = (location.0.saturating_sub (1), location.1 + j);
-                            let right: Location = (location.0.saturating_sub (1), location.1.saturating_sub (j));
+                        Direction::Up => if let Some (i) = location.0.checked_sub (1) {
+                            let left: Location = (i, location.1.saturating_sub (j));
+                            let right: Location = (i, location.1 + j);
 
-                            if left != location {
-                                starts.insert (left);
-                            }
-
-                            if right != location {
-                                starts.insert (right);
-                            }
+                            starts.insert (left);
+                            starts.insert (right);
+                        } else {
+                            break
                         }
                         Direction::Right => {
-                            let up: Location = (location.0.saturating_sub (i), location.1 + 1);
-                            let down: Location = (location.0 + i, location.1 + 1);
+                            let j: usize = location.1 + 1;
+                            let up: Location = (location.0.saturating_sub (i), j);
+                            let down: Location = (location.0 + i, j);
 
-                            if up != location {
-                                starts.insert (up);
-                            }
-
-                            if down != location {
-                                starts.insert (down);
-                            }
+                            starts.insert (up);
+                            starts.insert (down);
                         }
-                        Direction::Left => {
-                            let up: Location = (location.0.saturating_sub (i), location.1.saturating_sub (1));
-                            let down: Location = (location.0 + i, location.1.saturating_sub (1));
+                        Direction::Left => if let Some (j) = location.1.checked_sub (1) {
+                            let up: Location = (location.0.saturating_sub (i), j);
+                            let down: Location = (location.0 + i, j);
 
-                            if up != location {
-                                starts.insert (up);
-                            }
-
-                            if down != location {
-                                starts.insert (down);
-                            }
+                            starts.insert (up);
+                            starts.insert (down);
+                        } else {
+                            break
                         }
                         Direction::Down => {
-                            let left: Location = (location.0.saturating_sub (1), location.1.saturating_sub (j));
-                            let right: Location = (location.0 + 1, location.1 + j);
+                            let i: usize = location.0 + 1;
+                            let left: Location = (i, location.1.saturating_sub (j));
+                            let right: Location = (i, location.1 + j);
 
-                            if left != location {
-                                starts.insert (left);
-                            }
-
-                            if right != location {
-                                starts.insert (right);
-                            }
+                            starts.insert (left);
+                            starts.insert (right);
                         }
                         _ => panic! ("Invalid direction {:?}", d),
                     }
@@ -433,26 +437,18 @@ impl Grid {
                     let (i, j): (usize, usize) = (i as usize, i as usize);
 
                     match d {
-                        Direction::Up => {
-                            locations.extend (starts.iter ().map (|l: &Location|
-                                (l.0.saturating_sub (i), l.1)
-                            ));
-                        }
-                        Direction::Right => {
-                            locations.extend (starts.iter ().map (|l: &Location|
-                                (l.0, l.1 + j)
-                            ));
-                        }
-                        Direction::Left => {
-                            locations.extend (starts.iter ().map (|l: &Location|
-                                (l.0, l.1.saturating_sub (j))
-                            ));
-                        }
-                        Direction::Down => {
-                            locations.extend (starts.iter ().map (|l: &Location|
-                                (l.0 + i, l.1)
-                            ));
-                        }
+                        Direction::Up => locations.extend (
+                            starts.iter ().map (|l: &Location| (l.0.saturating_sub (i), l.1))
+                        ),
+                        Direction::Right => locations.extend (
+                            starts.iter ().map (|l: &Location| (l.0, l.1 + j))
+                        ),
+                        Direction::Left => locations.extend (
+                            starts.iter ().map (|l: &Location| (l.0, l.1.saturating_sub (j)))
+                        ),
+                        Direction::Down => locations.extend (
+                            starts.iter ().map (|l: &Location| (l.0 + i, l.1))
+                        ),
                         _ => panic! ("Invalid direction {:?}", d),
                     }
                 }
@@ -488,25 +484,32 @@ impl Grid {
         is_added
     }
 
-    pub fn try_spawn_recruit (&mut self, location: Location) -> Option<(ID, ID)> {
+    pub fn try_spawn_recruit (&mut self, location: Location, faction_id: &ID) -> Option<(ID, ID)> {
         assert! (is_rectangular (&self.tiles));
         assert! (is_in_bounds (&self.tiles, &location));
 
         let tile: &Tile = &self.tiles[location.0][location.1];
 
-        if let Some (c) = tile.get_city_id () {
+        // TODO: This whole chain of None looks goofy
+        if let Some (city_id) = tile.get_city_id () {
             if !tile.is_recruited () {
-                let city: &City = self.scene.get_city (&c);
+                let city: &City = self.scene.get_city (&city_id);
 
-                if let Some (r) = city.get_recruit_id () {
-                    let spawn: Location = self.find_nearest_placeable (&location);
-                    let terrain_id: ID = self.place_unit (r, spawn)?;
+                if let Some (recruit_id) = city.get_recruit_id () {
+                    let faction_id_recruit: ID = self.get_unit_faction (&recruit_id);
 
-                    self.tiles[location.0][location.1].set_recruited (true);
+                    if faction_id_recruit == *faction_id {
+                        let spawn: Location = self.find_nearest_placeable (&location);
+                        let terrain_id: ID = self.place_unit (recruit_id, spawn)?;
 
-                    Some ((r, terrain_id))
+                        self.tiles[location.0][location.1].set_recruited (true);
+
+                        Some ((recruit_id, terrain_id))
+                    } else {
+                        None
+                    }
                 } else {
-                    panic! ("Recruit not found for city {}", c)
+                    None
                 }
             } else {
                 None
@@ -663,6 +666,10 @@ impl Grid {
     fn get_unit_faction (&self, unit_id: &ID) -> ID {
         self.scene.get_unit_builder (unit_id).get_faction_id ()
     }
+
+    pub fn set_unit_id_passable (&mut self, unit_id_passable: Option<ID>) {
+        self.unit_id_passable = unit_id_passable;
+    }
 }
 
 impl Display for Grid {
@@ -672,12 +679,12 @@ impl Display for Grid {
         for (i, row) in self.tiles.iter ().enumerate () {
             for (j, tile) in row.iter ().enumerate () {
                 if self.is_occupied (&(i, j)) {
-                    display.push_str (&format! ("{}o{} ",
+                    display.push_str (&format! ("{}u{}h ",
                             self.get_location_unit (&(i, j))
                                     .unwrap_or_else (|| panic! ("Unit not found for location ({}, {})", i, j)),
                             tile.get_height ()));
                 } else {
-                    display.push_str (&format! ("{}_{} ", tile.get_terrain_id (), tile.get_height ()));
+                    display.push_str (&format! ("{}_{}h ", tile.get_cost (), tile.get_height ()));
                 }
             }
 
@@ -1104,12 +1111,12 @@ mod tests {
         let mut grid = generate_grid ();
 
         // Test empty spawn
-        assert! (grid.try_spawn_recruit ((0, 1)).is_none ());
+        assert! (grid.try_spawn_recruit ((0, 1), &0).is_none ());
         // Test normal spawn
-        assert_eq! (grid.try_spawn_recruit ((0, 0)).unwrap (), (1, 0));
+        assert_eq! (grid.try_spawn_recruit ((0, 0), &0).unwrap (), (1, 0));
         assert_eq! (grid.get_unit_location (&1), &(0, 0));
         // Test repeated spawn
-        assert! (grid.try_spawn_recruit ((0, 0)).is_none ());
+        assert! (grid.try_spawn_recruit ((0, 0), &0).is_none ());
     }
 
     #[test]

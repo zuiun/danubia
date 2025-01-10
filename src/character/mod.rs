@@ -12,7 +12,6 @@ pub use self::skill::Activity;
 pub use self::skill::Skill;
 mod unit;
 pub use self::unit::UnitStatistic;
-pub use self::unit::Rank;
 pub use self::unit::UnitStatistics;
 pub use self::unit::Unit;
 pub use self::unit::UnitBuilder;

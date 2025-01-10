@@ -1,4 +1,4 @@
-use crate::character::{Activity, Element, FactionBuilder, Magic, Rank, Skill, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
+use crate::character::{Activity, Element, FactionBuilder, Magic, Skill, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
 use crate::common::{Target, DURATION_PERMANENT, ID_UNINITIALISED};
 use crate::dynamic::{Change, Effect, ModifierBuilder, Statistic, Status, Trigger};
 use crate::map::{Area, City, Terrain, TileBuilder};
@@ -62,15 +62,15 @@ pub const TERRAINS: &[Terrain] = &[
     Terrain::new (None, 0), // impassable
 ];
 pub const CITIES: &[City] = &[
-    City::new (100, 1, 1, Some (1)),
-    City::new (100, 2, 1, None), // recover_spl
-    City::new (100, 1, 2, None), // recover_hlt
-    City::new (100, 2, 2, None),
+    City::new (10, 1, 1, Some (1)),
+    City::new (10, 2, 1, None),
+    City::new (10, 1, 2, Some (3)),
+    City::new (10, 2, 2, None),
 ];
 pub const WEAPONS: &[Weapon] = &[
-    Weapon::new (0, [2, 1, 1, 0], Area::Single, 1), // single
-    Weapon::new (1, [2, 0, 2, 0], Area::Path (0), 2), // path
-    Weapon::new (2, [1, 1, 0, 1], Area::Radial (2), 2), // radial
+    Weapon::new (0, [20, 1, 1, 0], Area::Single, 1), // single
+    Weapon::new (1, [20, 0, 2, 0], Area::Path (0), 2), // path
+    Weapon::new (2, [10, 1, 0, 1], Area::Radial (2), 2), // radial
 ];
 pub const MAGICS: &[Magic] = &[
     Magic::new (0, 8, Target::This, Area::Single, 0, 10, Element::Dark), // def_self
@@ -95,23 +95,23 @@ pub const FACTION_BUILDERS: &[FactionBuilder] = &[
 pub const UNIT_BUILDERS: &[UnitBuilder] = &[
     UnitBuilder::new (0,
         UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-        &[0], Some (1), &[0, 2, 3], [true, true, true], 0, Rank::Leader
+        &[0], Some (1), &[0, 2, 3], [true, true, true], 0, None
     ),
     UnitBuilder::new (1,
         UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-        &[0], None, &[], [false, true, false], 0, Rank::Follower (ID_UNINITIALISED)
+        &[0], None, &[], [false, true, false], 0, Some (ID_UNINITIALISED)
     ),
     UnitBuilder::new (2,
         UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-        &[1, 2], None, &[0, 2, 3], [false, false, false], 1, Rank::Leader
+        &[1, 2], Some (1), &[0, 2, 3], [false, false, false], 1, None
     ),
     UnitBuilder::new (3,
         UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-        &[0], None, &[4, 5, 6], [false, false, false], 0, Rank::Leader
+        &[0], Some (1), &[4, 5, 6], [false, false, false], 0, Some (ID_UNINITIALISED)
     ),
     UnitBuilder::new (4,
         UnitStatistics::new (1000, 1000, 1000, 20, 20, 20, 10, 1000),
-        &[0], None, &[0, 2, 3], [false, false, false], 2, Rank::Leader
+        &[0], Some (1), &[0, 2, 3], [false, false, false], 2, None
     ),
 ];
 pub const TILE_BUILDERS: &[&[TileBuilder]] = &[

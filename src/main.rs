@@ -3,7 +3,7 @@ use danubia::Scene;
 use std::io::{self, StdinLock};
 
 fn main () {
-    println! ("Hello world!");
+    // println! ("Hello world!");
     let scene: Scene = Scene::debug ();
     let stdin: StdinLock = io::stdin ().lock ();
     let reader: Reader<StdinLock> = Reader::new (stdin);

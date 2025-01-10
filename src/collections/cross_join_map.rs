@@ -15,6 +15,7 @@ pub struct CrossJoinMap<T, U> {
 
 impl<T, U> CrossJoinMap<T, U>
 where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
+    #[allow (clippy::new_without_default)]
     pub fn new () -> Self {
         let map_first: HashMap<T, HashSet<U>> = HashMap::new ();
         let map_second: HashMap<U, HashSet<T>> = HashMap::new ();
@@ -46,11 +47,11 @@ where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
             Some (c) => c,
             None => return false,
         };
-        let is_removed_first: bool = collection_first.remove (key_second);
         let collection_second: &mut HashSet<T> = match self.map_second.get_mut (key_second) {
             Some (c) => c,
             None => return false,
         };
+        let is_removed_first: bool = collection_first.remove (key_second);
         let is_removed_second: bool = collection_second.remove (key_first);
 
         assert_eq! (is_removed_first, is_removed_second);
@@ -93,12 +94,12 @@ where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
     }
 }
 
-impl<T, U> Default for CrossJoinMap<T, U>
-where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
-    fn default () -> Self {
-        Self::new ()
-    }
-}
+// impl<T, U> Default for CrossJoinMap<T, U>
+// where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
+//     fn default () -> Self {
+//         Self::new ()
+//     }
+// }
 
 #[cfg (test)]
 mod tests {

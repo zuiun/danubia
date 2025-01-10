@@ -26,11 +26,7 @@ pub struct Skill {
 
 impl Skill {
     pub const fn new (id: ID, status_id: ID, target: Target, area: Area, range: u8, activity: Activity) -> Self {
-        assert! (matches! (target,
-            Target::This
-            | Target::Ally
-            | Target::Allies
-        ));
+        assert! (matches! (target, Target::This | Target::Ally | Target::Allies));
 
         Self { id, status_id, target, area, range, activity }
     }
@@ -56,7 +52,7 @@ impl Skill {
                 panic! ("Invalid status {}", status_id_old)
             }
         } else {
-            panic! ("Invalid activity {:?}", self.activity)
+            unreachable! ()
         };
 
         (status_id_old, status_id_new)

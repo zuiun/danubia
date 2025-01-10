@@ -1,4 +1,5 @@
 use super::Validator;
+use std::error::Error;
 use std::fmt::Debug;
 use std::io::{self, BufRead, Write};
 
@@ -28,30 +29,27 @@ impl<R: BufRead> Reader<R> {
     //     }
     // }
 
-    fn read_line (&mut self) -> String {
+    fn read_line (&mut self) -> Result<String, Box<dyn Error>> {
         let mut input: String = String::new ();
 
-        self.stream.read_line (&mut input)
-                .unwrap_or_else (|e| panic! ("{}", e));
+        self.stream.read_line (&mut input)?;
 
-        input.to_lowercase ()
+        Ok (input.trim ().to_lowercase ())
     }
 
     pub fn read_validate<T> (&mut self, validator: &impl Validator<T>) -> Option<T> {
-        print! ("{}: ", validator.get_prompt ());
-        io::stdout ().flush ().expect ("Stdout flush failed");
-
         loop {
-            let input: String = self.read_line ();
-            let input: &str = input.trim ();
-            let result: Result<Option<T>, String> = validator.validate (input);
+            print! ("{}: ", validator.get_prompt ());
+            io::stdout ().flush ().expect ("Stdout flush failed");
 
-            println! ("{}", input);
+            if let Ok (i) = self.read_line () {
+                let result: Result<Option<T>, Box<dyn Error>> = validator.validate (&i);
 
-            if let Err (e) = result {
-                println! ("{:?}", e);
-            } else {
-                return result.unwrap_or_else (|e| panic! ("{}", e))
+                if let Err (e) = result {
+                    println! ("{:?}", e);
+                } else {
+                    break result.unwrap_or_else (|e| panic! ("{}", e))
+                }
             }
         }
     }
@@ -74,8 +72,8 @@ mod tests {
     }
 
     impl Validator<bool> for LessThanFiveValidator {
-        fn validate (&self, input: &str) -> Result<Option<bool>, String> {
-            let input: u8 = input.parse ().unwrap_or_else (|e| panic! ("{}", e));
+        fn validate (&self, input: &str) -> Result<Option<bool>, Box<dyn Error>> {
+            let input: u8 = input.parse ()?;
 
             Ok (Some (input < 5))
         }
@@ -110,8 +108,8 @@ mod tests {
     fn reader_read_line () {
         let mut reader = generate_reader (&b"0123456789"[..]);
 
-        assert_eq! (reader.read_line (), "0123456789");
-        assert_eq! (reader.read_line (), "");
+        assert_eq! (reader.read_line ().unwrap (), "0123456789");
+        assert_eq! (reader.read_line ().unwrap (), "");
     }
 
     #[test]

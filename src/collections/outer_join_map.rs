@@ -17,6 +17,7 @@ pub struct OuterJoinMap<T, U> {
 
 impl<T, U> OuterJoinMap<T, U>
 where T: Debug + Clone + Eq + Hash, U: Debug + Clone + Eq + Hash {
+    #[allow (clippy::new_without_default)]
     pub fn new () -> Self {
         let map_first: HashMap<T, HashSet<U>> = HashMap::new ();
         let map_second: HashMap<U, T> = HashMap::new ();
@@ -100,12 +101,12 @@ where T: Debug + Clone + Eq + Hash, U: Debug + Clone + Eq + Hash {
     }
 }
 
-impl<T, U> Default for OuterJoinMap<T, U>
-where T: Debug + Clone + Eq + Hash, U: Debug + Clone + Eq + Hash {
-    fn default () -> Self {
-        Self::new ()
-    }
-}
+// impl<T, U> Default for OuterJoinMap<T, U>
+// where T: Debug + Clone + Eq + Hash, U: Debug + Clone + Eq + Hash {
+//     fn default () -> Self {
+//         Self::new ()
+//     }
+// }
 
 #[cfg (test)]
 mod tests {

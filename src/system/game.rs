@@ -44,6 +44,7 @@ pub struct Game<R: BufRead> {
     turns: BinaryHeap<Turn>,
     number_turns: usize,
     reader: Reader<R>,
+    unit_ids_dirty: Vec<ID>,
 }
 
 impl<R: BufRead> Game<R> {
@@ -62,8 +63,9 @@ impl<R: BufRead> Game<R> {
         let turns: BinaryHeap<Turn> = BinaryHeap::new ();
         let number_turns: usize = 0;
         let reader: Reader<R> = reader;
+        let unit_ids_dirty: Vec<ID> = Vec::new ();
 
-        Self { scene, handler, grid, units, factions, turns, number_turns, reader }
+        Self { scene, handler, grid, units, factions, turns, number_turns, reader, unit_ids_dirty }
     }
 
     fn apply_terrain (&mut self, unit_id: ID, terrain_id: ID, location: Location) {
@@ -77,39 +79,35 @@ impl<R: BufRead> Game<R> {
         }
     }
 
-    fn place_unit (&mut self, unit_id: ID, location: Location) {
-        let terrain_id: ID = self.grid.place_unit (unit_id, location)
-                .unwrap_or_else (|| panic! ("Terrain not found for location {:?}", location));
+    fn add_turn (&mut self, unit_id: ID) {
         let mov: u16 = self.units[unit_id].get_statistic (UnitStatistic::MOV).0;
         let delay: u8 = get_delay (mov, MULTIPLIER_WAIT);
         let turn: Turn = Turn::new (unit_id, delay, mov);
 
-        self.apply_terrain (unit_id, terrain_id, location);
-        self.units[unit_id].apply_inactive_skills ();
         self.turns.push (turn);
     }
 
-    fn move_unit (&mut self, unit_id: ID, movements: &[Direction]) -> Location {
-        let (location, terrain_id): (Location, ID) = self.grid
-                .move_unit (unit_id, movements)
-                .unwrap_or_else (|| panic! ("Invalid movements {:?}", movements));
+    fn place_unit (&mut self, unit_id: ID, location: Location) {
+        let terrain_id: ID = self.grid.place_unit (unit_id, location)
+                .unwrap_or_else (|| panic! ("Terrain not found for location {:?}", location));
 
         self.apply_terrain (unit_id, terrain_id, location);
-
-        location
+        self.units[unit_id].apply_inactive_skills ();
+        self.add_turn (unit_id);
     }
 
     fn try_spawn_recruit (&mut self, unit_id: ID) {
         let location: Location = *self.grid.get_unit_location (&unit_id);
         let leader_id: ID = self.units[unit_id].get_leader_id ();
-        let faction_id: ID = self.scene.get_unit_builder (&unit_id).get_faction_id ();
+        let faction_id: ID = self.units[unit_id].get_faction_id ();
 
-        if let Some ((r, t)) = self.grid.try_spawn_recruit (location) {
-            let modifier_terrain_id: Option<ID> = self.scene.get_terrain (&t).get_modifier_id ();
+        if let Some ((recruit_id, terrain_id)) = self.grid.try_spawn_recruit (location, &faction_id) {
+            let modifier_terrain_id: Option<ID> = self.scene.get_terrain (&terrain_id).get_modifier_id ();
 
-            self.factions[faction_id].add_follower (r, leader_id);
-            self.units[r].set_leader (unit_id);
-            self.units[r].change_modifier_terrain (modifier_terrain_id);
+            self.factions[faction_id].add_follower (recruit_id, leader_id);
+            self.units[recruit_id].set_leader_id (unit_id);
+            self.units[recruit_id].change_modifier_terrain (modifier_terrain_id);
+            self.add_turn (recruit_id);
             // self.units[r].apply_inactive_skills ();
         }
     }
@@ -123,12 +121,21 @@ impl<R: BufRead> Game<R> {
         let status_passive_id: ID = self.scene.get_skill (&skill_passive_id).get_status_id ();
 
         for follower_id in follower_ids {
-            if *follower_id != unit_id {
-                let distance: usize = self.grid.find_distance_between (follower_id, &leader_id);
+            let distance: usize = self.grid.find_distance_between (follower_id, &leader_id);
 
-                self.units[*follower_id].try_add_passive (&status_passive_id, distance);
-            }
+            self.units[*follower_id].try_add_passive (&status_passive_id, distance);
         }
+    }
+
+    fn move_unit (&mut self, unit_id: ID, movements: &[Direction]) -> Location {
+        let (location, terrain_id): (Location, ID) = self.grid
+                .move_unit (unit_id, movements)
+                .unwrap_or_else (|| panic! ("Invalid movements {:?}", movements));
+
+        self.apply_terrain (unit_id, terrain_id, location);
+        self.try_spawn_recruit (unit_id);
+
+        location
     }
 
     fn kill_unit (&mut self, unit_id: ID) {
@@ -136,7 +143,9 @@ impl<R: BufRead> Game<R> {
         let faction_id: ID = self.scene.get_unit_builder (&unit_id).get_faction_id ();
         let mut others: Vec<Turn> = Vec::new ();
 
+        println! ("{} died", unit_id);
         self.factions[faction_id].remove_follower (&unit_id);
+        self.grid.remove_unit (&unit_id);
 
         while let Some (t) = self.turns.pop () {
             if t.get_unit_id () == unit_id {
@@ -161,7 +170,7 @@ impl<R: BufRead> Game<R> {
         }).collect ()
     }
 
-    fn choose_targets_units (&mut self, unit_id: ID, potential_ids: &[ID], target: Target, search: Search) -> Vec<ID> {
+    fn find_units_area (&mut self, unit_id: ID, potential_ids: &[ID], target: Target, search: Search) -> Vec<ID> {
         assert! (!potential_ids.is_empty ());
 
         let target_ids: Vec<ID> = match target {
@@ -170,8 +179,13 @@ impl<R: BufRead> Game<R> {
                 println! ("Potential targets: {:?}", potential_ids);
 
                 let validator: IDValidator = IDValidator::new (potential_ids);
+                let target_id: Option<ID> = self.reader.read_validate (&validator);
 
-                vec![self.reader.read_validate (&validator).expect ("Invalid input")]
+                if let Some (target_id) = target_id {
+                    vec![target_id]
+                } else {
+                    Vec::new ()
+                }
             }
             Target::Allies | Target::Enemies => match search {
                 Search::Single => panic! ("Invalid search {:?} for target {:?}", search, target),
@@ -179,54 +193,72 @@ impl<R: BufRead> Game<R> {
                     println! ("Potential targets: {:?}", potential_ids);
 
                     let validator: IDValidator = IDValidator::new (potential_ids);
-                    let target_id: ID = self.reader.read_validate (&validator).expect ("Invalid input");
-                    let location: &Location = self.grid.get_unit_location (&target_id);
-                    let target_ids: Vec<ID> = self.grid.find_units (location, Search::Radial (r));
-                    let faction_id: ID = self.units[unit_id].get_faction_id ();
+                    let target_id: Option<ID> = self.reader.read_validate (&validator);
 
-                    if let Target::Allies = target {
-                        self.filter_unit_allegiance (&target_ids, faction_id, true)
-                    } else if let Target::Enemies = target {
-                        self.filter_unit_allegiance (&target_ids, faction_id, false)
+                    if let Some (target_id) = target_id {
+                        let location: &Location = self.grid.get_unit_location (&target_id);
+                        let target_ids: Vec<ID> = self.grid.find_units (location, Search::Radial (r));
+                        let faction_id: ID = self.units[unit_id].get_faction_id ();
+
+                        if let Target::Allies = target {
+                            self.filter_unit_allegiance (&target_ids, faction_id, true)
+                        } else if let Target::Enemies = target {
+                            self.filter_unit_allegiance (&target_ids, faction_id, false)
+                        } else {
+                            panic! ("Invalid target {:?}", target)
+                        }
                     } else {
-                        panic! ("Invalid target {:?}", target)
+                        Vec::new ()
                     }
                 }
-                Search::Path (w, r, _) => {
+                Search::Path (w, r, _) => loop {
                     println! ("Potential targets: {:?}", potential_ids);
 
                     let validator: DirectionValidator = DirectionValidator::new ();
-                    let direction: Direction = self.reader.read_validate (&validator).expect ("Invalid input");
-                    let location: &Location = self.grid.get_unit_location (&unit_id);
-                    let target_ids: Vec<ID> = self.grid.find_units (location, Search::Path (w, r, direction));
-                    let faction_id: ID = self.units[unit_id].get_faction_id ();
+                    let direction: Option<Direction> = self.reader.read_validate (&validator);
 
-                    if let Target::Allies = target {
-                        self.filter_unit_allegiance (&target_ids, faction_id, true)
-                    } else if let Target::Enemies = target {
-                        self.filter_unit_allegiance (&target_ids, faction_id, false)
+                    if let Some (direction) = direction {
+                        let location: &Location = self.grid.get_unit_location (&unit_id);
+                        let target_ids: Vec<ID> = self.grid.find_units (location, Search::Path (w, r, direction));
+                        let faction_id: ID = self.units[unit_id].get_faction_id ();
+
+                        if target_ids.is_empty () {
+                            println! ("No available targets");
+                        } else if let Target::Allies = target {
+                            break self.filter_unit_allegiance (&target_ids, faction_id, true)
+                        } else if let Target::Enemies = target {
+                            break self.filter_unit_allegiance (&target_ids, faction_id, false)
+                        } else {
+                            panic! ("Invalid target {:?}", target)
+                        }
                     } else {
-                        panic! ("Invalid target {:?}", target)
+                        break Vec::new ()
                     }
                 }
             },
             _ => panic! ("Invalid target {:?}", target),
         };
 
-        println! ("Targets: {:?}", target_ids);
+        if target_ids.is_empty () {
+            println! ("Cancelled");
 
-        let validator: ConfirmationValidator = ConfirmationValidator::new ();
-        let confirmation: bool = self.reader.read_validate (&validator).expect ("Invalid input");
-
-        if confirmation {
             target_ids
         } else {
-            Vec::new ()
+            println! ("Targets: {:?}", target_ids);
+    
+            let validator: ConfirmationValidator = ConfirmationValidator::new ();
+            let confirmation: bool = self.reader.read_validate (&validator).expect ("Invalid input");
+    
+            if confirmation {
+                target_ids
+            } else {
+                Vec::new ()
+            }
         }
     }
 
-    fn find_targets_units (&mut self, unit_id: ID, target: Target, area: Area, range: u8) -> Vec<ID> {
-        let potential_ids: Vec<ID> = if let Target::Map ( .. ) = target {
+    fn find_units_range (&mut self, unit_id: ID, target: Target, area: Area, range: u8) -> Vec<ID> {
+        if let Target::Map ( .. ) = target {
             panic! ("Invalid target {:?}", target)
         } else if let Target::This = target {
             vec![unit_id]
@@ -255,7 +287,11 @@ impl<R: BufRead> Game<R> {
                 Target::Enemy | Target::Enemies => self.filter_unit_allegiance (&neighbour_ids, faction_id, false),
                 _ => panic! ("Invalid target {:?}", target),
             }
-        };
+        }
+    }
+
+    fn find_units (&mut self, unit_id: ID, target: Target, area: Area, range: u8) -> Vec<ID> {
+        let potential_ids: Vec<ID> = self.find_units_range (unit_id, target, area, range);
         let search: Search = match area {
             Area::Single => Search::Single,
             Area::Radial (r) => Search::Radial (r),
@@ -263,15 +299,15 @@ impl<R: BufRead> Game<R> {
         };
 
         if potential_ids.is_empty () {
-            println! ("No valid targets");
+            println! ("No available targets");
 
             Vec::new ()
         } else {
-            self.choose_targets_units (unit_id, &potential_ids, target, search)
+            self.find_units_area (unit_id, &potential_ids, target, search)
         }
     }
 
-    fn choose_targets_locations (&mut self, unit_id: ID, potential_locations: &[Location], search: Search) -> Vec<Location> {
+    fn find_locations_area (&mut self, unit_id: ID, potential_locations: &[Location], search: Search) -> Vec<Location> {
         assert! (!potential_locations.is_empty ());
 
         let target_locations: Vec<Location> = match search {
@@ -279,43 +315,64 @@ impl<R: BufRead> Game<R> {
                 println! ("Potential targets: {:?}", potential_locations);
 
                 let validator: LocationValidator = LocationValidator::new (potential_locations);
+                let target_location: Option<Location> = self.reader.read_validate (&validator);
 
-                vec![self.reader.read_validate (&validator).expect ("Invalid input")]
+                if let Some (target_location) = target_location {
+                    vec![target_location]
+                } else {
+                    Vec::new ()
+                }
             }
             Search::Radial (r) => {
                 println! ("Potential targets: {:?}", potential_locations);
 
                 let validator: LocationValidator = LocationValidator::new (potential_locations);
-                let target_location: Location = self.reader.read_validate (&validator).expect ("Invalid input");
+                let target_location: Option<Location> = self.reader.read_validate (&validator);
 
-                self.grid.find_locations (&target_location, Search::Radial (r))
+                if let Some (target_location) = target_location {
+                    self.grid.find_locations (&target_location, Search::Radial (r))
+                } else {
+                    Vec::new ()
+                }
             }
             Search::Path (w, r, _) => {
                 println! ("Potential targets: {:?}", potential_locations);
 
                 let validator: DirectionValidator = DirectionValidator::new ();
-                let direction: Direction = self.reader.read_validate (&validator).expect ("Invalid input");
-                let location: &Location = self.grid.get_unit_location (&unit_id);
+                let direction: Option<Direction> = self.reader.read_validate (&validator);
 
-                self.grid.find_locations (location, Search::Path (w, r, direction))
+                if let Some (direction) = direction {
+                    let location: &Location = self.grid.get_unit_location (&unit_id);
+
+                    self.grid.find_locations (location, Search::Path (w, r, direction))
+                } else {
+                    Vec::new ()
+                }
             }
         };
 
-        println! ("Targets: {:?}", target_locations);
+        if target_locations.is_empty () {
+            println! ("Cancelled");
 
-        let validator: ConfirmationValidator = ConfirmationValidator::new ();
-        let confirmation: bool = self.reader.read_validate (&validator).expect ("Invalid input");
-
-        if confirmation {
             target_locations
         } else {
-            Vec::new ()
+            println! ("Targets: {:?}", target_locations);
+    
+            let validator: ConfirmationValidator = ConfirmationValidator::new ();
+            let confirmation: bool = self.reader.read_validate (&validator).expect ("Invalid input");
+    
+            if confirmation {
+                target_locations
+            } else {
+                Vec::new ()
+            }
         }
     }
 
-    fn find_targets_locations (&mut self, unit_id: ID, area: Area, range: u8) -> Vec<Location> {
+    fn find_locations_range (&mut self, unit_id: ID, area: Area, range: u8) -> Vec<Location> {
         let location: &Location = self.grid.get_unit_location (&unit_id);
-        let potential_locations: Vec<Location> = if let Area::Path (w) = area {
+
+        if let Area::Path (w) = area {
             let neighbour_locations_up: Vec<Location> = self.grid.find_locations (location, Search::Path (w, range, Direction::Up));
             let neighbour_locations_right: Vec<Location> = self.grid.find_locations (location, Search::Path (w, range, Direction::Right));
             let neighbour_locations_left: Vec<Location> = self.grid.find_locations (location, Search::Path (w, range, Direction::Left));
@@ -330,14 +387,18 @@ impl<R: BufRead> Game<R> {
             neighbour_locations.into_iter ().collect ()
         } else {
             self.grid.find_locations (location, Search::Radial (range))
-        };
+        }
+    }
+
+    fn find_locations (&mut self, unit_id: ID, area: Area, range: u8) -> Vec<Location> {
+        let potential_locations: Vec<Location> = self.find_locations_range (unit_id, area, range);
         let search: Search = match area {
             Area::Single => Search::Single,
             Area::Radial (r) => Search::Radial (r),
             Area::Path (w) => Search::Path (w, range, Direction::Length), // Placeholder direction
         };
 
-        self.choose_targets_locations (unit_id, &potential_locations, search)
+        self.find_locations_area (unit_id, &potential_locations, search)
     }
 
     fn start_turn (&mut self, unit_id: ID) {
@@ -368,6 +429,8 @@ impl<R: BufRead> Game<R> {
             if let Some (a) = appliable_on_hit {
                 self.units[attacker_id].add_appliable (a);
             }
+
+            self.unit_ids_dirty.push (*defender_id);
         }
 
         mov
@@ -424,9 +487,13 @@ impl<R: BufRead> Game<R> {
         let mut mov: u16 = self.units[unit_id].get_statistic (UnitStatistic::MOV).0;
         let validator: ActionValidator = ActionValidator::new ();
 
+        // print!("\x1B[2J\x1B[1;1H"); // Clears the terminal
         println! ("Start {}'s turn", unit_id);
 
         let (mov, delay_multiplier): (u16, f32) = loop {
+            print! ("{}", self.grid);
+            println! ("Turn order: {:?}\n", self.turns);
+
             if let Some (action) = self.reader.read_validate (&validator) {
                 match action {
                     Action::Attack => {
@@ -436,7 +503,7 @@ impl<R: BufRead> Game<R> {
                             let target: Target = self.units[unit_id].get_weapon ().get_target ();
                             let area: Area = self.units[unit_id].get_weapon ().get_area ();
                             let range: u8 = self.units[unit_id].get_weapon ().get_range ();
-                            let target_ids: Vec<ID> = self.find_targets_units (unit_id, target, area, range);
+                            let target_ids: Vec<ID> = self.find_units (unit_id, target, area, range);
 
                             if !target_ids.is_empty () {
                                 let mov: u16 = self.act_attack (unit_id, &target_ids);
@@ -466,27 +533,32 @@ impl<R: BufRead> Game<R> {
                             println! ("Unit cannot use skill (is routed)")
                         } else {
                             let skill_ids: Vec<ID> = self.units[unit_id].get_skill_ids_actionable ();
-                            let validator: IDValidator = IDValidator::new (&skill_ids);
 
-                            println! ("Available skills: {:?}", skill_ids);
+                            if skill_ids.is_empty () {
+                                println! ("No skills available");
+                            } else {
+                                let validator: IDValidator = IDValidator::new (&skill_ids);
 
-                            if let Some (skill_id) = self.reader.read_validate (&validator) {
-                                let skill: &Skill = self.scene.get_skill (&skill_id);
-                                let target: Target = skill.get_target ();
-                                let area: Area = skill.get_area ();
-                                let range: u8 = skill.get_range ();
-                                let target_ids: Vec<ID> = self.find_targets_units (unit_id, target, area, range);
+                                println! ("Available skills: {:?}", skill_ids);
 
-                                if !target_ids.is_empty () {
-                                    let mov: u16 = self.act_skill (unit_id, &target_ids, skill_id);
+                                if let Some (skill_id) = self.reader.read_validate (&validator) {
+                                    let skill: &Skill = self.scene.get_skill (&skill_id);
+                                    let target: Target = skill.get_target ();
+                                    let area: Area = skill.get_area ();
+                                    let range: u8 = skill.get_range ();
+                                    let target_ids: Vec<ID> = self.find_units (unit_id, target, area, range);
 
-                                    println! ("Using skill {} on {:?}", skill_id, target_ids);
+                                    if !target_ids.is_empty () {
+                                        let mov: u16 = self.act_skill (unit_id, &target_ids, skill_id);
 
-                                    for target_id in target_ids {
-                                        println! ("Target: {}", self.units[target_id]);
+                                        println! ("Using skill {} on {:?}", skill_id, target_ids);
+
+                                        for target_id in target_ids {
+                                            println! ("Target: {}", self.units[target_id]);
+                                        }
+
+                                        break (mov, MULTIPLIER_SKILL)
                                     }
-
-                                    break (mov, MULTIPLIER_SKILL)
                                 }
                             }
                         }
@@ -496,50 +568,55 @@ impl<R: BufRead> Game<R> {
                             println! ("Unit cannot use magic (is routed)")
                         } else {
                             let magic_ids: &[ID] = self.units[unit_id].get_magic_ids ();
-                            let validator: IDValidator = IDValidator::new (magic_ids);
+                            
+                            if magic_ids.is_empty () {
+                                println! ("No available magics");
+                            } else {
+                                let validator: IDValidator = IDValidator::new (magic_ids);
 
-                            println! ("Available magics: {:?}", magic_ids);
+                                println! ("Available magics: {:?}", magic_ids);
 
-                            if let Some (magic_id) = self.reader.read_validate (&validator) {
-                                let magic: &Magic = self.scene.get_magic (&magic_id);
-                                let target: Target = magic.get_target ();
-                                let area: Area = magic.get_area ();
-                                let range: u8 = magic.get_range ();
+                                if let Some (magic_id) = self.reader.read_validate (&validator) {
+                                    let magic: &Magic = self.scene.get_magic (&magic_id);
+                                    let target: Target = magic.get_target ();
+                                    let area: Area = magic.get_area ();
+                                    let range: u8 = magic.get_range ();
 
-                                match target {
-                                    Target::This => {
-                                        let target_ids: Vec<ID> = self.find_targets_units (unit_id, target, area, range);
+                                    match target {
+                                        Target::This => {
+                                            let target_ids: Vec<ID> = self.find_units (unit_id, target, area, range);
 
-                                        if !target_ids.is_empty () {
-                                            let mov: u16 = self.act_magic (unit_id, None, magic_id);
+                                            if !target_ids.is_empty () {
+                                                let mov: u16 = self.act_magic (unit_id, None, magic_id);
 
-                                            println! ("Using magic {} on self", magic_id);
+                                                println! ("Using magic {} on self", magic_id);
 
-                                            for target_id in target_ids {
-                                                println! ("Target: {}", self.units[target_id]);
+                                                for target_id in target_ids {
+                                                    println! ("Target: {}", self.units[target_id]);
+                                                }
+
+                                                break (mov, MULTIPLIER_MAGIC)
                                             }
-
-                                            break (mov, MULTIPLIER_MAGIC)
                                         }
-                                    }
-                                    Target::Map ( .. ) => {
-                                        let target_locations: Vec<Location> =
-                                            self.find_targets_locations (unit_id, area, range);
+                                        Target::Map ( .. ) => {
+                                            let target_locations: Vec<Location> =
+                                                self.find_locations (unit_id, area, range);
 
-                                        if !target_locations.is_empty () {
-                                            let mov: u16 = self.act_magic (unit_id, Some (&target_locations), magic_id);
+                                            if !target_locations.is_empty () {
+                                                let mov: u16 = self.act_magic (unit_id, Some (&target_locations), magic_id);
 
-                                            println! ("Using magic {} on {:?}", magic_id, target_locations);
+                                                println! ("Using magic {} on {:?}", magic_id, target_locations);
 
-                                            // TODO: Consider implementing indexing on Grid
-                                            // for target_location in target_locations {
-                                            //     println! ("Target: {}", self.grid[target_location]);
-                                            // }
+                                                // TODO: Consider implementing indexing on Grid
+                                                // for target_location in target_locations {
+                                                //     println! ("Target: {}", self.grid[target_location]);
+                                                // }
 
-                                            break (mov, MULTIPLIER_MAGIC)
+                                                break (mov, MULTIPLIER_MAGIC)
+                                            }
                                         }
+                                        _ => panic! ("Invalid target {:?}", target),
                                     }
-                                    _ => panic! ("Invalid target {:?}", target),
                                 }
                             }
                         }
@@ -550,9 +627,11 @@ impl<R: BufRead> Game<R> {
                         let validator: MovementValidator = MovementValidator::new ();
 
                         println! ("Current location: {:?}", start);
+                        self.grid.set_unit_id_passable (Some (unit_id));
 
                         while let Some (direction) = self.reader.read_validate (&validator) {
                             if let Direction::Length = direction {
+                                // self.grid.set_unit_id_passable (None);
                                 println! ("{:?}", movements);
                                 self.move_unit (unit_id, &movements);
                                 println! ("{:?}, {} MOV remaining", self.grid.get_unit_location (&unit_id), mov);
@@ -576,7 +655,8 @@ impl<R: BufRead> Game<R> {
             }
         };
 
-        println! ("End {}'s turn", unit_id);
+        println! ("End {}'s turn\n", unit_id);
+        self.send_passive (unit_id);
 
         (mov, delay_multiplier)
     }
@@ -597,13 +677,17 @@ impl<R: BufRead> Game<R> {
         if turn.update (delay, mov) {
             self.turns.push (turn);
         } else {
-            let reduction: u8 = self.turns.peek ().expect ("Turn not found").get_delay ();
+            let reduction: u8 = turn.get_delay ();
             let turns: Vec<Turn> = self.turns.drain ().collect ();
 
             for mut turn in turns {
                 turn.reduce_delay (reduction);
                 self.turns.push (turn);
             }
+
+            turn.reduce_delay (reduction);
+            turn.update (delay, mov);
+            self.turns.push (turn);
         }
     }
 
@@ -618,6 +702,17 @@ impl<R: BufRead> Game<R> {
         } else {
             (u16::MAX, f32::MAX)
         };
+
+        if delay_multiplier == MULTIPLIER_ATTACK {
+            let unit_ids_attacked: Vec<ID> = self.unit_ids_dirty.drain ( .. ).collect ();
+
+            for unit_id in unit_ids_attacked {
+                if !self.units[unit_id].is_alive () {
+                    self.kill_unit (unit_id);
+                }
+            }
+        }
+
         let delay: u8 = if self.units[unit_id].is_alive () {
             self.end_turn (unit_id);
 
@@ -639,7 +734,6 @@ impl<R: BufRead> Game<R> {
 
     pub fn do_game (&mut self) {
         self.place_unit (0, (0, 0));
-        self.place_unit (1, (0, 1));
         self.place_unit (2, (1, 0));
 
         loop {
@@ -671,18 +765,6 @@ mod tests {
     }
 
     #[test]
-    fn game_move_unit () {
-        let mut game = generate_game (&b""[..]);
-
-        game.place_unit (0, (0, 0));
-        assert_eq! (game.move_unit (0, &[Direction::Right, Direction::Down, Direction::Left]), (1, 0));
-        assert_eq! (game.grid.get_unit_location (&0), &(1, 0));
-        // -10% ATK from passive, +20% ATK from toggle, +20% ATK from terrain
-        assert_eq! (game.units[0].get_statistic (ATK).0, 26);
-        // check moved, modifier, appliable
-    }
-
-    #[test]
     fn game_try_spawn_recruit () {
         let mut game = generate_game (&b""[..]);
 
@@ -700,16 +782,29 @@ mod tests {
         game.place_unit (0, (0, 0));
         game.place_unit (1, (0, 1));
         game.factions[0].add_follower (1, 0);
-        game.send_passive (0);
-
+        game.units[1].set_leader_id (0);
+        
         // Test near send
+        game.send_passive (1);
         // -10% ATK from passive
         assert_eq! (game.units[1].get_statistic (ATK).0, 18);
         // Test far send
-        game.move_unit (1, &[Direction::Down]);
-        game.send_passive (0);
-        // +20% ATK from terrain
-        assert_eq! (game.units[1].get_statistic (ATK).0, 24);
+        game.grid.remove_unit (&1);
+        game.place_unit (1, (0, 2));
+        game.send_passive (1);
+        assert_eq! (game.units[1].get_statistic (ATK).0, 20);
+    }
+
+    #[test]
+    fn game_move_unit () {
+        let mut game = generate_game (&b""[..]);
+
+        game.place_unit (0, (0, 0));
+        assert_eq! (game.move_unit (0, &[Direction::Right, Direction::Down, Direction::Left]), (1, 0));
+        assert_eq! (game.grid.get_unit_location (&0), &(1, 0));
+        // -10% ATK from passive, +20% ATK from toggle, +20% ATK from terrain
+        assert_eq! (game.units[0].get_statistic (ATK).0, 26);
+        assert_eq! (game.grid.get_unit_location (&3), &(0, 0));
     }
 
     #[test]
@@ -745,80 +840,112 @@ mod tests {
     }
 
     #[test]
-    fn game_choose_targets_units () {
+    fn game_find_units_area () {
         let mut game = generate_game (&b"z\n1\nz\n0\nz\n0\nz\n2\nz"[..]);
 
         game.place_unit (0, (0, 0));
         game.place_unit (1, (1, 1));
         game.place_unit (2, (1, 0));
 
-        let results: Vec<ID> = game.choose_targets_units (0, &[0], Target::This, Search::Single);
+        let results: Vec<ID> = game.find_units_area (0, &[0], Target::This, Search::Single);
         assert_eq! (results.len (), 1);
         assert! (results.contains (&0));
-        let results: Vec<ID> = game.choose_targets_units (0, &[1], Target::Ally, Search::Path (0, 1, Direction::Length));
+        let results: Vec<ID> = game.find_units_area (0, &[1], Target::Ally, Search::Path (0, 1, Direction::Length));
         assert_eq! (results.len (), 1);
         assert! (results.contains (&1));
-        let results: Vec<ID> = game.choose_targets_units (0, &[0, 1], Target::Allies, Search::Radial (1));
+        let results: Vec<ID> = game.find_units_area (0, &[0, 1], Target::Allies, Search::Radial (1));
         assert_eq! (results.len (), 1);
         assert! (results.contains (&0));
-        let results: Vec<ID> = game.choose_targets_units (0, &[0, 1], Target::Allies, Search::Radial (2));
+        let results: Vec<ID> = game.find_units_area (0, &[0, 1], Target::Allies, Search::Radial (2));
         assert_eq! (results.len (), 2);
         assert! (results.contains (&0));
         assert! (results.contains (&1));
-        let results: Vec<ID> = game.choose_targets_units (0, &[2], Target::Enemy, Search::Radial (1));
+        let results: Vec<ID> = game.find_units_area (0, &[2], Target::Enemy, Search::Radial (1));
         assert_eq! (results.len (), 1);
         assert! (results.contains (&2));
     }
 
     #[test]
-    fn game_find_targets_units () {
-        let mut game = generate_game (&b"z\n0\nz\n0\nz\n0\nz\n2\nz\nd\nz\nd\nz"[..]);
+    fn game_find_units_range () {
+        let mut game = generate_game (&b""[..]);
 
         game.place_unit (0, (0, 0));
         game.place_unit (1, (1, 1));
         game.place_unit (2, (1, 0));
 
-        let results: Vec<ID> = game.find_targets_units (0, Target::This, Area::Single, 1);
+        let results: Vec<ID> = game.find_units_range (0, Target::This, Area::Single, 1);
         assert_eq! (results.len (), 1);
         assert! (results.contains (&0));
-        let results: Vec<ID> = game.find_targets_units (0, Target::Ally, Area::Single, 1);
+        let results: Vec<ID> = game.find_units_range (0, Target::Ally, Area::Single, 1);
         assert_eq! (results.len (), 1);
         assert! (results.contains (&0));
-        let results: Vec<ID> = game.find_targets_units (0, Target::Allies, Area::Radial (1), 0);
+        let results: Vec<ID> = game.find_units_range (0, Target::Allies, Area::Radial (1), 0);
         assert_eq! (results.len (), 1);
         assert! (results.contains (&0));
-        let results: Vec<ID> = game.find_targets_units (0, Target::Allies, Area::Radial (2), 0);
+        let results: Vec<ID> = game.find_units_range (0, Target::Allies, Area::Radial (2), 0);
+        assert_eq! (results.len (), 1);
+        assert! (results.contains (&0));
+        let results: Vec<ID> = game.find_units_range (0, Target::Enemy, Area::Radial (0), 1);
+        assert_eq! (results.len (), 1);
+        assert! (results.contains (&2));
+        let results: Vec<ID> = game.find_units_range (2, Target::Enemies, Area::Path (0), 1);
         assert_eq! (results.len (), 2);
         assert! (results.contains (&0));
         assert! (results.contains (&1));
-        let results: Vec<ID> = game.find_targets_units (0, Target::Enemy, Area::Radial (0), 1);
+        let results: Vec<ID> = game.find_units_range (0, Target::Enemies, Area::Path (0), 1);
         assert_eq! (results.len (), 1);
         assert! (results.contains (&2));
-        let results: Vec<ID> = game.find_targets_units (2, Target::Enemies, Area::Path (0), 1);
+    }
+
+    #[test]
+    fn game_find_units () {
+        let mut game = generate_game (&b"z\n0\nz\n0\nz\n0\nz\n2\nz\nd\nz\nd\nx\nz"[..]);
+
+        game.place_unit (0, (0, 0));
+        game.place_unit (1, (1, 1));
+        game.place_unit (2, (1, 0));
+
+        let results: Vec<ID> = game.find_units (0, Target::This, Area::Single, 1);
+        assert_eq! (results.len (), 1);
+        assert! (results.contains (&0));
+        let results: Vec<ID> = game.find_units (0, Target::Ally, Area::Single, 1);
+        assert_eq! (results.len (), 1);
+        assert! (results.contains (&0));
+        let results: Vec<ID> = game.find_units (0, Target::Allies, Area::Radial (1), 0);
+        assert_eq! (results.len (), 1);
+        assert! (results.contains (&0));
+        let results: Vec<ID> = game.find_units (0, Target::Allies, Area::Radial (2), 0);
+        assert_eq! (results.len (), 2);
+        assert! (results.contains (&0));
+        assert! (results.contains (&1));
+        let results: Vec<ID> = game.find_units (0, Target::Enemy, Area::Radial (0), 1);
+        assert_eq! (results.len (), 1);
+        assert! (results.contains (&2));
+        let results: Vec<ID> = game.find_units (2, Target::Enemies, Area::Path (0), 1);
         assert_eq! (results.len (), 1);
         assert! (results.contains (&1));
-        let results: Vec<ID> = game.find_targets_units (0, Target::Enemies, Area::Path (0), 1); // Test empty find
+        let results: Vec<ID> = game.find_units (0, Target::Enemies, Area::Path (0), 1); // Test empty find
         assert! (results.is_empty ());
     }
 
     #[test]
-    fn game_choose_targets_locations () {
+    fn game_find_locations_area () {
         let mut game = generate_game (&b"0, 0\nz\nd\nz\n0, 0\nz\n1, 0\nz"[..]);
 
         game.place_unit (0, (0, 0));
 
-        let results: Vec<Location> = game.choose_targets_locations (0, &[(0, 0)], Search::Single);
+        let results: Vec<Location> = game.find_locations_area (0, &[(0, 0)], Search::Single);
         assert_eq! (results.len (), 1);
         assert! (results.contains (&(0, 0)));
-        let results: Vec<Location> = game.choose_targets_locations (0, &[(0, 0), (0, 1)], Search::Path (0, 1, Direction::Length));
+        let results: Vec<Location> = game.find_locations_area (0, &[(0, 0), (0, 1)], Search::Path (0, 1, Direction::Length));
         assert_eq! (results.len (), 1);
         assert! (results.contains (&(0, 1)));
-        let results: Vec<Location> = game.choose_targets_locations (0, &[(0, 0), (0, 1), (1, 0)], Search::Radial (1));
+        let results: Vec<Location> = game.find_locations_area (0, &[(0, 0), (0, 1), (1, 0)], Search::Radial (1));
         assert_eq! (results.len (), 3);
         assert! (results.contains (&(0, 0)));
         assert! (results.contains (&(0, 1)));
         assert! (results.contains (&(1, 0)));
-        let results: Vec<Location> = game.choose_targets_locations (0, &[(1, 0), (0, 1), (0, 0)], Search::Radial (1));
+        let results: Vec<Location> = game.find_locations_area (0, &[(1, 0), (0, 1), (0, 0)], Search::Radial (1));
         assert_eq! (results.len (), 3);
         assert! (results.contains (&(1, 0)));
         assert! (results.contains (&(0, 0)));
@@ -826,42 +953,81 @@ mod tests {
     }
 
     #[test]
-    fn game_find_targets_locations () {
+    fn game_find_locations_range () {
         let mut game = generate_game (&b"0, 1\nz\nd\nz\nd\nz\nd\nz\nd\nz\n0, 0\nz\n1, 0\nz\n0, 1\nz"[..]);
 
         game.place_unit (0, (0, 0));
 
-        let results: Vec<Location> = game.find_targets_locations (0, Area::Single, 1);
+        let results: Vec<Location> = game.find_locations_range (0, Area::Single, 1);
+        assert_eq! (results.len (), 3);
+        assert! (results.contains (&(0, 0)));
+        assert! (results.contains (&(0, 1)));
+        assert! (results.contains (&(1, 0)));
+        let results: Vec<Location> = game.find_locations_range (0, Area::Path (0), 1);
+        assert_eq! (results.len (), 2);
+        assert! (results.contains (&(0, 1)));
+        assert! (results.contains (&(1, 0)));
+        let results: Vec<Location> = game.find_locations_range (0, Area::Path (0), 2);
+        assert_eq! (results.len (), 3);
+        assert! (results.contains (&(0, 1)));
+        assert! (results.contains (&(0, 2)));
+        assert! (results.contains (&(1, 0)));
+        let results: Vec<Location> = game.find_locations_range (0, Area::Path (1), 1);
+        assert_eq! (results.len (), 3);
+        assert! (results.contains (&(0, 1)));
+        assert! (results.contains (&(1, 1)));
+        assert! (results.contains (&(1, 0)));
+        let results: Vec<Location> = game.find_locations_range (0, Area::Path (2), 2);
+        assert_eq! (results.len (), 5);
+        assert! (results.contains (&(0, 1)));
+        assert! (results.contains (&(0, 2)));
+        assert! (results.contains (&(1, 1)));
+        assert! (results.contains (&(1, 2)));
+        assert! (results.contains (&(1, 0)));
+        let results: Vec<Location> = game.find_locations_range (0, Area::Radial (1), 1);
+        assert_eq! (results.len (), 3);
+        assert! (results.contains (&(0, 0)));
+        assert! (results.contains (&(0, 1)));
+        assert! (results.contains (&(1, 0)));
+    }
+
+    #[test]
+    fn game_find_locations () {
+        let mut game = generate_game (&b"0, 1\nz\nd\nz\nd\nz\nd\nz\nd\nz\n0, 0\nz\n1, 0\nz\n0, 1\nz"[..]);
+
+        game.place_unit (0, (0, 0));
+
+        let results: Vec<Location> = game.find_locations (0, Area::Single, 1);
         assert_eq! (results.len (), 1);
         assert! (results.contains (&(0, 1)));
-        let results: Vec<Location> = game.find_targets_locations (0, Area::Path (0), 1);
+        let results: Vec<Location> = game.find_locations (0, Area::Path (0), 1);
         assert_eq! (results.len (), 1);
         assert! (results.contains (&(0, 1)));
-        let results: Vec<Location> = game.find_targets_locations (0, Area::Path (0), 2);
+        let results: Vec<Location> = game.find_locations (0, Area::Path (0), 2);
         assert_eq! (results.len (), 2);
         assert! (results.contains (&(0, 1)));
         assert! (results.contains (&(0, 2)));
-        let results: Vec<Location> = game.find_targets_locations (0, Area::Path (1), 1);
+        let results: Vec<Location> = game.find_locations (0, Area::Path (1), 1);
         assert_eq! (results.len (), 2);
         assert! (results.contains (&(0, 1)));
         assert! (results.contains (&(1, 1)));
-        let results: Vec<Location> = game.find_targets_locations (0, Area::Path (2), 2);
+        let results: Vec<Location> = game.find_locations (0, Area::Path (2), 2);
         assert_eq! (results.len (), 4);
         assert! (results.contains (&(0, 1)));
         assert! (results.contains (&(0, 2)));
         assert! (results.contains (&(1, 1)));
         assert! (results.contains (&(1, 2)));
-        let results: Vec<Location> = game.find_targets_locations (0, Area::Radial (1), 1);
+        let results: Vec<Location> = game.find_locations (0, Area::Radial (1), 1);
         assert_eq! (results.len (), 3);
         assert! (results.contains (&(0, 0)));
         assert! (results.contains (&(0, 1)));
         assert! (results.contains (&(1, 0)));
-        let results: Vec<Location> = game.find_targets_locations (0, Area::Radial (1), 1);
+        let results: Vec<Location> = game.find_locations (0, Area::Radial (1), 1);
         assert_eq! (results.len (), 3);
         assert! (results.contains (&(1, 0)));
         assert! (results.contains (&(0, 0)));
         assert! (results.contains (&(1, 1)));
-        let results: Vec<Location> = game.find_targets_locations (0, Area::Radial (1), 1);
+        let results: Vec<Location> = game.find_locations (0, Area::Radial (1), 1);
         assert_eq! (results.len (), 4);
         assert! (results.contains (&(0, 1)));
         assert! (results.contains (&(0, 0)));
@@ -984,13 +1150,12 @@ mod tests {
 
     #[test]
     fn game_act () {
-        let input = b"q\nd\ns\na\nz\nq\nw\na\nz\na\n2\nz\n\
-                q\na\nx\nw\nw\nw\ns\n0\nz\n\
-                q\na\nz\nd\n0\nz";
+        let input = b"z\nd\ns\na\nz\nz\nw\na\nz\na\n2\nz\n\
+                z\na\nx\nc\nc\nc\ns\n0\nz\n\
+                z\na\nz\nd\n0\nz";
         let mut game = generate_game (&input[..]);
 
         game.place_unit (0, (0, 0));
-        game.place_unit (1, (0, 2));
         game.place_unit (2, (1, 0));
 
         // TODO: This test is extremely cursory
@@ -1062,12 +1227,11 @@ mod tests {
     fn game_update_turns () {
         let mut game = generate_game (&b""[..]);
 
-        game.factions[0].add_follower (1, 0);
+        // Test normal update
         game.turns.push (Turn::new (0, 0, 0));
         game.turns.push (Turn::new (1, 1, 0));
         game.turns.push (Turn::new (2, 2, 0));
         game.turns.push (Turn::new (3, 3, 0));
-
         let turn: Turn = game.turns.pop ().unwrap ();
         assert_eq! (turn.get_unit_id (), 0);
         game.update_turns (turn, 1, 1); // Test MOV update (0)
@@ -1087,6 +1251,29 @@ mod tests {
         game.update_turns (turn, 8, 0); // Test delay update (3)
         assert_eq! (game.turns.pop ().unwrap ().get_unit_id (), 3);
         assert_eq! (game.turns.pop ().unwrap ().get_unit_id (), 2);
+        // Test reduce update
+        game.turns.push (Turn::new (0, 250, 0));
+        game.turns.push (Turn::new (1, 251, 0));
+        game.turns.push (Turn::new (2, 252, 0));
+        game.turns.push (Turn::new (3, 253, 0));
+        let turn: Turn = game.turns.pop ().unwrap ();
+        assert_eq! (turn.get_unit_id (), 0);
+        game.update_turns (turn, 5, 0);
+        let turn: Turn = game.turns.pop ().unwrap ();
+        assert_eq! (turn.get_unit_id (), 1);
+        game.update_turns (turn, 5, 0);
+        let turn: Turn = game.turns.pop ().unwrap ();
+        assert_eq! (turn.get_unit_id (), 2);
+        assert_eq! (turn.get_delay (), 1);
+        let turn: Turn = game.turns.pop ().unwrap ();
+        assert_eq! (turn.get_unit_id (), 3);
+        assert_eq! (turn.get_delay (), 2);
+        let turn: Turn = game.turns.pop ().unwrap ();
+        assert_eq! (turn.get_unit_id (), 0);
+        assert_eq! (turn.get_delay (), 4);
+        let turn: Turn = game.turns.pop ().unwrap ();
+        assert_eq! (turn.get_unit_id (), 1);
+        assert_eq! (turn.get_delay (), 5);
     }
 
     // #[test]

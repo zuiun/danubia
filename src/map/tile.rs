@@ -32,22 +32,21 @@ impl Tile {
     pub fn get_cost (&self) -> u8 {
         let cost: u8 = self.scene.get_terrain (&self.terrain_id).get_cost ();
 
-        match self.modifier {
-            Some (m) => {
-                let adjustment: Adjustment = m.get_adjustments ()[0];
+        if let Some (modifier) = self.modifier {
+            let (statistic, value, is_add): Adjustment = modifier.get_adjustments ()[0];
 
-                match adjustment.0 {
-                    Statistic::Tile (f) => if f {
-                        adjustment.1 as u8
-                    } else if adjustment.2 {
-                        cost + (adjustment.1 as u8)
-                    } else {
-                        u8::max (cost.saturating_sub (adjustment.1 as u8), COST_MINIMUM)
-                    }
-                    _ => panic! ("Invalid statistic {:?}", adjustment.0),
+            match statistic {
+                Statistic::Tile (is_flat) => if is_flat {
+                    value as u8
+                } else if is_add {
+                    cost + (value as u8)
+                } else {
+                    u8::max (cost.saturating_sub (value as u8), COST_MINIMUM)
                 }
+                _ => panic! ("Invalid statistic {:?}", statistic),
             }
-            None => cost,
+        } else {
+            cost
         }
     }
 
@@ -192,8 +191,7 @@ impl Changeable for Tile {
 
         if let Some (mut s) = self.status {
             self.status = if s.decrement_duration () {
-                s.get_next_id ()
-                        .map (|n: ID| *self.scene.get_status (&n))
+                s.get_next_id ().map (|n: ID| *self.scene.get_status (&n))
             } else {
                 Some (s)
             };

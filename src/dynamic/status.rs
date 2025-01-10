@@ -32,15 +32,15 @@ impl Status {
         Self { id, change, trigger, duration, target, is_every_turn, is_expired, next_id }
     }
 
-    pub fn replace (&mut self, other: &Self) {
-        self.id = other.id;
-        self.change = other.change;
-        self.trigger = other.trigger;
-        self.duration = other.duration;
-        self.target = other.target;
-        self.is_every_turn = other.is_every_turn;
-        self.next_id = other.next_id;
-    }
+    // pub fn replace (&mut self, other: &Self) {
+    //     self.id = other.id;
+    //     self.change = other.change;
+    //     self.trigger = other.trigger;
+    //     self.duration = other.duration;
+    //     self.target = other.target;
+    //     self.is_every_turn = other.is_every_turn;
+    //     self.next_id = other.next_id;
+    // }
 
     pub fn get_id (&self) -> ID {
         self.id

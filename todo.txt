@@ -1,28 +1,33 @@
 Features:
-print Grid
-do not fail move when unit tries to move over itself - this may be more difficult to fix
+prettify Grid (arguably unnecessary)
 rework event system into game events (weather, spawning reinforcements, etc)
+^ unit death is best handled by events, but I can't think of a good architecture for it:
+- Implement Observer for Game, with all the disgusting RefCell that would entail
+- Have Game own a reference to Handler, though this has a more tolerable RefCell situation
 logging (sync::mspc seems promising)
 
 Code:
-move all test generation functions out of their modules - it clutters crate visibility < last one is generate_scene
+generate_scene clutters crate visibility; lists should honestly not be part of lib
 start documenting functions...
 Needs more error checking (for example, if a a fallible function is called, check that it succeeded)
 ^ Functions that can fail should return Option or Result (maybe Result<Option>)
 ^ If I start writing my own error types, I can also take advantage of ?
+^ My goal is that the engine can never fail, unless pathologically bad input (handled by Validator, which does Err)
 Go through and remove as many pubs as possible
 consistent semantics for &parameters/returns
 associated structs/enums should probably have their parent in their names
 consider renaming single letter variables (used for deconstruction)
-can_stack shouldn't necessarily require a ModifierBuilder
+can_stack might not require a ModifierBuilder
 some panics should be marked unreachable
-Validator should return Err instead of panicking
+find_locations_* and find_units_* has a lot of duplicated logic, but they may be too different to forcibly marry? it would be bad OOP probably
+consider separating OnHit from None statuses (likely faster and more memory efficient - OnHit will always be Some or None)
 
 Balancing:
 When in combat, morale/manpower/equipment drain should always be greater than recovery
+^ we now face the problem where there is potentially nowhere near enough recovery
 
 Initialisation:
-As far as I can tell, no further initialisation than what is already written is unnecessary, at least until I add saving/loading
+As far as I can tell, no further initialisation is necessary, at least until I add saving/loading
 
 Optimisations:
 Cache:
@@ -31,3 +36,4 @@ Cache:
   ^ an alternate solution is multithreading: calculate the reachable tiles for units that move later than the current one while waiting for I/O
   ^ this also works for targeting
 - Choosing targets for Path uses a double search, which could be cached?
+Many of my Vecs are fixed-size and I already know what size they should be (reserve? with_capacity?)

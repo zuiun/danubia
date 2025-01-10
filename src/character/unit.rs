@@ -18,13 +18,17 @@ const DEF_MAX: u16 = 200; // 200
 const MAG_MAX: u16 = 200; // 200
 const MOV_MAX: u16 = 100; // 100
 const ORG_MAX: u16 = 2 * PERCENT_100; // 200.0%
-const DRAIN_SPL: f32 = 50.0; // 5.0%
-const RECOVER_MRL: u16 = 1_0; // 1.0%
+const DRAIN_SPL: f32 = 5_0.0; // 5.0%
+#[allow (clippy::inconsistent_digit_grouping)]
+const RECOVER_MRL: u16 = 10_0; // 10.0%
 const DRAIN_HLT: u16 = 4; // 4
 #[allow (clippy::inconsistent_digit_grouping)]
 const THRESHOLD_RETREAT_MRL: u16 = 40_0; // 40.0%
 #[allow (clippy::inconsistent_digit_grouping)]
 const THRESHOLD_ROUT_MRL: u16 = 20_0; // 20.0%
+const MULTIPLIER_FIGHT: u16 = 1;
+const MULTIPLIER_RETREAT: u16 = 2;
+const MULTIPLIER_ROUT: u16 = 4;
 const THRESHOLD_SKILL_PASSIVE: usize = 1; // TODO: probably needs to be balanced
 const UNIT_STATISTICS: [UnitStatistic; UnitStatistic::Length as usize] = [
     MRL,
@@ -49,13 +53,6 @@ pub enum UnitStatistic {
     MOV, // manoeuvre – speed and movement
     ORG, // cohesion – modifier for physical damage, resistance, and leader passive (permillage)
     Length,
-}
-
-#[derive (Debug)]
-#[derive (Clone, Copy)]
-pub enum Rank {
-    Leader,
-    Follower (ID), // leader
 }
 
 #[derive (Debug)]
@@ -200,12 +197,31 @@ impl UnitStatistics {
 
             ((def_defender as f32) * multiplier) as u16
         };
-        let damage_base: u16 = u16::max ((damage_weapon * multiplier) as u16 - reducer, 1);
+        let damage_base: u16 = u16::max (((damage_weapon * multiplier) as u16).saturating_sub (reducer), 1);
         let damage_mrl: u16 = (damage_base * (slh_weapon + 1)) + damage_bonus;
         let damage_hlt: u16 = damage_base + (damage_bonus * (prc_weapon + 1));
         let damage_spl: u16 = damage_base + damage_bonus + slh_weapon + prc_weapon + dcy_weapon;
+        let multiplier_defeat: u16 = if defender.is_retreat () {
+            MULTIPLIER_RETREAT
+        } else if defender.is_rout () {
+            MULTIPLIER_ROUT
+        } else {
+            MULTIPLIER_FIGHT
+        };
 
-        (damage_mrl, damage_hlt, damage_spl)
+        (damage_mrl, damage_hlt * multiplier_defeat, damage_spl * multiplier_defeat)
+    }
+
+    pub fn is_retreat (&self) -> bool {
+        let mrl: u16 = self.get_statistic (MRL).0;
+
+        mrl < THRESHOLD_RETREAT_MRL
+    }
+
+    pub fn is_rout (&self) -> bool {
+        let mrl: u16 = self.get_statistic (MRL).0;
+
+        mrl < THRESHOLD_ROUT_MRL
     }
 }
 
@@ -240,31 +256,27 @@ pub struct Unit {
     magic_ids: Vec<ID>,
     weapon_active: usize,
     faction_id: ID,
-    rank: Rank,
+    leader_id: Option<ID>,
     is_alive: bool,
 }
 
 impl Unit {
     #[allow (clippy::too_many_arguments)]
-    pub fn new (id: ID, scene: Rc<Scene>, statistics: UnitStatistics, weapons: &[ID], skill_passive_id: Option<ID>, skill_ids: &[ID], magics_usable: &[bool; Element::Length as usize], faction_id: ID, rank: Rank) -> Self {
+    pub fn new (id: ID, scene: Rc<Scene>, statistics: UnitStatistics, weapons: &[ID], skill_passive_id: Option<ID>, skill_ids: &[ID], magics_usable: &[bool; Element::Length as usize], faction_id: ID, leader_id: Option<ID>) -> Self {
         let modifier_terrain_id: Option<ID> = None;
         let modifiers: Vec<Modifier> = Vec::new ();
         let mut statuses: HashMap<Trigger, Vec<Status>> = HashMap::new ();
         let weapons: Vec<Weapon> = weapons.iter ().map (|w: &ID| *scene.get_weapon (w)).collect ();
         let skills: Vec<Skill> = skill_ids.iter ().map (|s: &ID| *scene.get_skill (s)).collect ();
-        let mut magic_ids: Vec<ID> = Vec::new ();
+        let magic_ids: Vec<ID> = scene.magics_iter ().filter (|magic: &&Magic|
+            magics_usable[magic.get_element () as usize] && statistics.get_statistic (MAG).0 >= magic.get_cost ()
+        ).map (|magic: &Magic| magic.get_id ()).collect ();
         let weapon_active: usize = 0;
         let is_alive: bool = true;
 
         statuses.insert (Trigger::None, Vec::new ());
 
-        for magic in scene.magics_iter () {
-            if magics_usable[magic.get_element () as usize] && statistics.get_statistic (MAG).0 >= magic.get_cost () {
-                magic_ids.push (magic.get_id ());
-            }
-        }
-
-        Self { id, scene, statistics, modifier_terrain_id, modifiers, statuses, magic_ids, skill_passive_id, skills, weapons, weapon_active, faction_id, rank, is_alive }
+        Self { id, scene, statistics, modifier_terrain_id, modifiers, statuses, magic_ids, skill_passive_id, skills, weapons, weapon_active, faction_id, leader_id, is_alive }
     }
 
     pub fn get_statistic (&self, statistic: UnitStatistic) -> (u16, u16) {
@@ -296,17 +308,16 @@ impl Unit {
             self.add_status (status_passive);
         }
 
-        let statuses_toggle: Vec<Status> = self.skills.iter ()
-                .filter_map (|s: &Skill|
-                    if s.is_toggled () {
-                        let status_id: ID = s.get_status_id ();
-                        let status: Status = *self.scene.get_status (&status_id);
+        let statuses_toggle: Vec<Status> = self.skills.iter ().filter_map (|s: &Skill|
+            if s.is_toggled () {
+                let status_id: ID = s.get_status_id ();
+                let status: Status = *self.scene.get_status (&status_id);
 
-                        Some (status)
-                    } else {
-                        None
-                    }
-                ).collect ();
+                Some (status)
+            } else {
+                None
+            }
+        ).collect ();
 
         for status_toggle in statuses_toggle {
             self.add_status (status_toggle);
@@ -318,28 +329,23 @@ impl Unit {
             self.remove_modifier (&m);
         }
 
-        self.modifier_terrain_id = match modifier_id {
-            Some (m) => {
-                let modifier: Modifier = self.scene.get_modifier_builder (&m)
-                        .build (true);
-                let appliable: Box<dyn Appliable> = Box::new (modifier);
+        self.modifier_terrain_id = modifier_id.and_then (|m: ID| {
+            let modifier: Modifier = self.scene.get_modifier_builder (&m)
+                    .build (true);
+            let appliable: Box<dyn Appliable> = Box::new (modifier);
 
-                self.add_appliable (appliable);
+            self.add_appliable (appliable);
 
-                modifier_id
-            }
-            None => None,
-        };
+            modifier_id
+        });
     }
 
-    pub fn set_leader (&mut self, leader_id: ID) {
-        if let Rank::Follower ( .. ) = self.rank {
-            self.rank = Rank::Follower (leader_id);
-        }
+    pub fn set_leader_id (&mut self, leader_id: ID) {
+        self.leader_id = self.leader_id.map (|_| leader_id);
     }
 
     pub fn try_add_passive (&mut self, skill_id: &ID, distance: usize) -> bool {
-        if let Rank::Follower ( .. ) = self.rank {
+        if self.leader_id.is_some () {
             let status_id: &ID = &self.scene.get_skill (skill_id)
                     .get_status_id ();
             let org: u16 = self.get_statistic (ORG).0;
@@ -366,15 +372,21 @@ impl Unit {
     }
 
     pub fn is_retreat (&self) -> bool {
-        let mrl: u16 = self.get_statistic (MRL).0;
-
-        mrl < THRESHOLD_RETREAT_MRL
+        self.statistics.is_retreat ()
     }
 
     pub fn is_rout (&self) -> bool {
-        let mrl: u16 = self.get_statistic (MRL).0;
+        self.statistics.is_rout ()
+    }
 
-        mrl < THRESHOLD_ROUT_MRL
+    pub fn is_alive (&self) -> bool {
+        self.is_alive
+    }
+
+    fn update_is_alive (&mut self) -> bool {
+        self.is_alive = self.get_statistic (HLT).0 > 0 && self.get_statistic (MRL).0 > 0;
+
+        self.is_alive
     }
 
     pub fn start_turn (&mut self) {
@@ -554,20 +566,7 @@ impl Unit {
     }
 
     pub fn get_leader_id (&self) -> ID {
-        match self.rank {
-            Rank::Leader => self.id,
-            Rank::Follower (l) => l,
-        }
-    }
-
-    pub fn is_alive (&self) -> bool {
-        self.is_alive
-    }
-
-    fn update_is_alive (&mut self) -> bool {
-        self.is_alive = self.get_statistic (HLT).0 > 0;
-
-        self.is_alive
+        self.leader_id.map_or (self.id, |leader_id: ID| leader_id)
     }
 }
 
@@ -754,17 +753,17 @@ pub struct UnitBuilder {
     skill_ids: &'static [ID],
     magics_usable: [bool; Element::Length as usize],
     faction_id: ID,
-    rank: Rank,
+    leader_id: Option<ID>,
 }
 
 impl UnitBuilder {
     #[allow (clippy::too_many_arguments)]
-    pub const fn new (id: ID, statistics: UnitStatistics, weapon_ids: &'static [ID], skill_passive_id: Option<ID>, skill_ids: &'static [ID], magics_usable: [bool; Element::Length as usize], faction_id: ID, rank: Rank) -> Self {
-        Self { id, statistics, weapon_ids, skill_passive_id, skill_ids, magics_usable, faction_id, rank }
+    pub const fn new (id: ID, statistics: UnitStatistics, weapon_ids: &'static [ID], skill_passive_id: Option<ID>, skill_ids: &'static [ID], magics_usable: [bool; Element::Length as usize], faction_id: ID, leader_id: Option<ID>) -> Self {
+        Self { id, statistics, weapon_ids, skill_passive_id, skill_ids, magics_usable, faction_id, leader_id }
     }
 
     pub fn build (&self, scene: Rc<Scene>) -> Unit {
-        Unit::new (self.id, scene, self.statistics, self.weapon_ids, self.skill_passive_id, self.skill_ids, &self.magics_usable, self.faction_id, self.rank)
+        Unit::new (self.id, scene, self.statistics, self.weapon_ids, self.skill_passive_id, self.skill_ids, &self.magics_usable, self.faction_id, self.leader_id)
     }
 
     pub fn get_id (&self) -> ID {
@@ -896,15 +895,17 @@ mod tests {
     }
 
     #[test]
-    fn unit_set_leader () {
+    fn unit_set_leader_id () {
         let (mut unit_0, mut unit_1, _) = generate_units ();
 
         // Test leader set
-        unit_0.set_leader (1);
-        assert! (matches! (unit_0.rank, Rank::Leader));
+        unit_0.set_leader_id (1);
+        assert_eq! (unit_0.leader_id, None);
+        assert_eq! (unit_0.get_leader_id (), 0);
         // Test follower set
-        unit_1.set_leader (0);
-        assert! (matches! (unit_1.rank, Rank::Follower (0)));
+        unit_1.set_leader_id (0);
+        assert_eq! (unit_1.leader_id, Some (0));
+        assert_eq! (unit_1.get_leader_id (), 0);
     }
 
     #[test]

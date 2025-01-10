@@ -15,6 +15,7 @@ pub struct InnerJoinMap<T, U> {
 
 impl<T, U> InnerJoinMap<T, U>
 where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
+    #[allow (clippy::new_without_default)]
     pub fn new () -> Self {
         let map_first: HashMap<T, U> = HashMap::new ();
         let map_second: HashMap<U, T> = HashMap::new ();
@@ -104,12 +105,12 @@ where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
     }
 }
 
-impl<T, U> Default for InnerJoinMap<T, U>
-where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
-    fn default () -> Self {
-        Self::new ()
-    }
-}
+// impl<T, U> Default for InnerJoinMap<T, U>
+// where T: Clone + Eq + Hash, U: Clone + Eq + Hash {
+//     fn default () -> Self {
+//         Self::new ()
+//     }
+// }
 
 #[cfg (test)]
 mod tests {
