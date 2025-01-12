@@ -1,25 +1,29 @@
 use crate::common::Information;
 
 // TODO: Anything that has an ID also has an Information mapped to it
-pub const CITIES: [Information; 17] = [
+pub const CITIES: &[Information] = &[
+    Information::new ("debug_0", &[""]),
+    Information::new ("debug_1", &[""]),
+    Information::new ("debug_2", &[""]),
+    Information::new ("debug_3", &[""]),
     // Jassica
-    Information::new ("Ilyvó", ["", "", ""], 0),
-    Information::new ("Kismarton", ["", "", ""], 0),
-    Information::new ("Újvidék", ["", "", ""], 0),
-    Information::new ("Temesvár", ["", "", ""], 0),
-    Information::new ("Telsze", ["", "", ""], 0),
-    Information::new ("Kluż-Arad", ["", "", ""], 0),
-    Information::new ("Stanisławów", ["", "", ""], 0),
-    Information::new ("Jawaryn", ["", "", ""], 0),
+    Information::new ("Ilyvó", &[""]),
+    Information::new ("Kismarton", &[""]),
+    Information::new ("Újvidék", &[""]),
+    Information::new ("Temesvár", &[""]),
+    Information::new ("Telsze", &[""]),
+    Information::new ("Kluż-Arad", &[""]),
+    Information::new ("Stanisławów", &[""]),
+    Information::new ("Jawaryn", &[""]),
     // Dainava
-    Information::new ("Alytus", ["", "", ""], 0),
-    Information::new ("Rėzeknė", ["", "", ""], 0),
-    Information::new ("Debrecenas", ["", "", ""], 0),
-    Information::new ("Pėčas", ["", "", ""], 0),
-    Information::new ("Cešynas", ["", "", ""], 0),
+    Information::new ("Alytus", &[""]),
+    Information::new ("Rėzeknė", &[""]),
+    Information::new ("Debrecenas", &[""]),
+    Information::new ("Pėčas", &[""]),
+    Information::new ("Cešynas", &[""]),
     // Powiessern
-    Information::new ("Memel", ["", "", ""], 0),
-    Information::new ("Stolp", ["", "", ""], 0),
-    Information::new ("Carlstadt", ["", "", ""], 0),
-    Information::new ("Gnesen", ["", "", ""], 0),
+    Information::new ("Memel", &[""]),
+    Information::new ("Stolp", &[""]),
+    Information::new ("Carlstadt", &[""]),
+    Information::new ("Gnesen", &[""]),
 ];

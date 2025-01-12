@@ -74,7 +74,8 @@ impl City {
 mod tests {
     use super::*;
     use crate::common::Information;
-    use crate::lists::{game, information};
+    use crate::debug;
+    use crate::lists::information;
     use crate::tests::generate_scene;
 
     #[test]
@@ -118,8 +119,8 @@ mod tests {
 
     #[test]
     fn cities_balance () {
-        for i in 0 .. game::CITIES.len () {
-            let city: &City = &game::CITIES[i];
+        for i in 4 .. debug::CITIES.len () {
+            let city: &City = &debug::CITIES[i];
             let information: &Information = &information::CITIES[i];
             let name: &str = information.get_name ();
             let population: u16 = city.get_population ();

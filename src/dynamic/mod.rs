@@ -3,17 +3,16 @@ use crate::common::{ID, Target};
 use crate::Scene;
 use std::rc::Rc;
 
-mod change;
-pub use self::change::Change;
+mod appliable_kind;
+pub use self::appliable_kind::AppliableKind;
 mod effect;
 pub use self::effect::Effect;
 mod modifier;
 pub use self::modifier::Modifier;
-pub use self::modifier::ModifierBuilder;
 mod status;
 pub use self::status::Status;
 
-pub type Adjustment = (Statistic, u16, bool); // statistic, change (value depends on context), is add
+pub type Adjustment = (StatisticKind, u16, bool); // statistic, change (value depends on context), is add
 
 pub trait Appliable {
     /*
@@ -35,13 +34,13 @@ pub trait Appliable {
      */
     fn modifier (&self) -> Modifier;
     /*
-     * Creates a Change representation of self
+     * Creates an AppliableKind representation of self
      *
      * Pre: None
      * Post: None
-     * Return: Change = self's type
+     * Return: AppliableKind = self's kind
      */
-    fn change (&self) -> Change;
+    fn kind (&self) -> AppliableKind;
     /*
      * Gets self's statistic adjustments
      *
@@ -83,7 +82,7 @@ pub trait Applier {
     fn get_target (&self) -> Target;
 }
 
-pub trait Changeable {
+pub trait Dynamic {
     /*
      * Adds appliable to self
      * Fails if appliable isn't applicable to self
@@ -143,7 +142,7 @@ pub trait Changeable {
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
-pub enum Statistic {
+pub enum StatisticKind {
     Unit (UnitStatistic),
     Tile (bool), // false = set to constant, true = flat change
 }
@@ -155,5 +154,5 @@ pub enum Trigger {
     OnHit, // units only
     OnAttack, // units (weapons) only
     OnOccupy, // tiles only
-    None,
+    None, // units and tiles
 }

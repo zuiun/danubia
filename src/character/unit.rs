@@ -1,10 +1,9 @@
-use super::*;
+use super::{Element, Magic, Skill, Weapon, WeaponStatistic};
 use self::UnitStatistic::{MRL, HLT, SPL, ATK, DEF, MAG, MOV, ORG};
-use crate::common::{Capacity, Target, Timed, ID, MULTIPLIER_ATTACK, MULTIPLIER_MAGIC, MULTIPLIER_SKILL, MULTIPLIER_WAIT};
-use crate::dynamic::{Appliable, Applier, Change, Changeable, Effect, Modifier, Statistic, Status, Trigger};
+use crate::common::{Capacity, FACTOR_MAGIC, FACTOR_SKILL, FACTOR_WAIT, ID, Target, Timed};
+use crate::dynamic::{Appliable, AppliableKind, Applier, Dynamic, Effect, Modifier, StatisticKind, Status, Trigger};
 use crate::Scene;
-use std::collections::HashMap;
-use std::fmt::{Display, Formatter, Result};
+use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
 
 const PERCENT_1: u16 = 1_0;
@@ -20,16 +19,16 @@ const MOV_MAX: u16 = 100; // 100
 const ORG_MAX: u16 = 2 * PERCENT_100; // 200.0%
 const DRAIN_SPL: f32 = 5_0.0; // 5.0%
 #[allow (clippy::inconsistent_digit_grouping)]
-const RECOVER_MRL: u16 = 10_0; // 10.0%
+const RECOVER_MRL: u16 = 5_0; // 5.0%
 const DRAIN_HLT: u16 = 4; // 4
 #[allow (clippy::inconsistent_digit_grouping)]
 const THRESHOLD_RETREAT_MRL: u16 = 40_0; // 40.0%
 #[allow (clippy::inconsistent_digit_grouping)]
 const THRESHOLD_ROUT_MRL: u16 = 20_0; // 20.0%
-const MULTIPLIER_FIGHT: u16 = 1;
-const MULTIPLIER_RETREAT: u16 = 2;
-const MULTIPLIER_ROUT: u16 = 4;
-const THRESHOLD_SKILL_PASSIVE: usize = 1; // TODO: probably needs to be balanced
+const FACTOR_FIGHT: u16 = 1;
+const FACTOR_RETREAT: u16 = 2;
+const FACTOR_ROUT: u16 = 4;
+const THRESHOLD_SKILL_PASSIVE: usize = 1; // TODO: needs to be balanced
 const UNIT_STATISTICS: [UnitStatistic; UnitStatistic::Length as usize] = [
     MRL,
     HLT,
@@ -78,7 +77,7 @@ impl UnitStatistics {
         let def: Capacity = Capacity::Constant (def, DEF_MAX, def);
         let mag: Capacity = Capacity::Constant (mag, MAG_MAX, mag);
         let mov: Capacity = Capacity::Constant (mov, MOV_MAX, mov);
-        let org: Capacity = Capacity::Quantity (org, ORG_MAX);
+        let org: Capacity = Capacity::Constant (org, ORG_MAX, org);
         let statistics: [Capacity; UnitStatistic::Length as usize] = [mrl, hlt, spl, atk, def, mag, mov, org];
 
         Self (statistics)
@@ -93,7 +92,7 @@ impl UnitStatistics {
             DEF => matches! (self.0[DEF as usize], Capacity::Constant ( .. )),
             MAG => matches! (self.0[MAG as usize], Capacity::Constant ( .. )),
             MOV => matches! (self.0[MOV as usize], Capacity::Constant ( .. )),
-            ORG => matches! (self.0[ORG as usize], Capacity::Quantity ( .. )),
+            ORG => matches! (self.0[ORG as usize], Capacity::Constant ( .. )),
             _ => panic! ("Statistic not found"),
         }
     }
@@ -173,43 +172,44 @@ impl UnitStatistics {
 
         let damage_weapon: f32 = {
             let damage: f32 = (atk_attacker + dmg_weapon) as f32;
-            let multiplier: f32 = (spl_attacker.0 as f32) / (spl_attacker.1 as f32);
+            let factor: f32 = (spl_attacker.0 as f32) / (spl_attacker.1 as f32);
 
-            damage * multiplier
+            damage * factor
         };
-        let damage_bonus: u16 = {
-            let damage: u16 = u16::max (mag_attacker.checked_sub (mag_defender).unwrap_or (1), 1);
-            let multiplier: u16 = (dcy_weapon * 2) + 1;
+        let damage_magic: u16 = {
+            let add: u16 = (dcy_weapon * 2) + 1;
+            let damage: u16 = u16::max ((mag_attacker + add).saturating_sub (mag_defender), 1);
 
-            damage * multiplier
+            damage * add
         };
-        let multiplier: f32 = {
-            let multiplier_mrl: f32 = 1.0 - (mrl_defender.0 as f32) / (mrl_defender.1 as f32);
-            let multiplier_hlt: f32 = (hlt_attacker.0 as f32) / (hlt_attacker.1 as f32);
-            let multiplier_org: f32 = (org_attacker as f32) / (PERCENT_100 as f32);
+        let factor: f32 = {
+            let factor_mrl: f32 = 1.0 - (mrl_defender.0 as f32) / (mrl_defender.1 as f32);
+            let factor_hlt: f32 = (hlt_attacker.0 as f32) / (hlt_attacker.1 as f32);
+            let factor_org: f32 = (org_attacker as f32) / (PERCENT_100 as f32);
 
-            multiplier_mrl + multiplier_hlt + multiplier_org
+            factor_mrl + factor_hlt + factor_org + (dcy_weapon as f32)
         };
-        let reducer: u16 = {
-            let multiplier_spl: f32 = (spl_defender.0 as f32) / (spl_defender.1 as f32);
-            let multiplier_org: f32 = (org_defender as f32) / (PERCENT_100 as f32);
-            let multiplier: f32 = (multiplier_spl + multiplier_org) / 2.0;
+        let minus: u16 = {
+            let factor_spl: f32 = (spl_defender.0 as f32) / (spl_defender.1 as f32);
+            let factor_org: f32 = (org_defender as f32) / (PERCENT_100 as f32);
+            let factor_prc: f32 = (prc_weapon + 1) as f32;
+            let factor: f32 = (factor_spl + factor_org) / factor_prc;
 
-            ((def_defender as f32) * multiplier) as u16
+            ((def_defender as f32) * factor) as u16
         };
-        let damage_base: u16 = u16::max (((damage_weapon * multiplier) as u16).saturating_sub (reducer), 1);
-        let damage_mrl: u16 = (damage_base * (slh_weapon + 1)) + damage_bonus;
-        let damage_hlt: u16 = damage_base + (damage_bonus * (prc_weapon + 1));
-        let damage_spl: u16 = damage_base + damage_bonus + slh_weapon + prc_weapon + dcy_weapon;
-        let multiplier_defeat: u16 = if defender.is_retreat () {
-            MULTIPLIER_RETREAT
+        let damage_base: u16 = ((damage_weapon * factor) as u16).saturating_sub (minus);
+        let damage_mrl: u16 = (damage_base * (prc_weapon + 1)) + (damage_magic * (dcy_weapon + 1));
+        let damage_hlt: u16 = (damage_base * (slh_weapon + 1)) + damage_magic;
+        let damage_spl: u16 = damage_base + damage_magic;
+        let factor_defeat: u16 = if defender.is_retreat () {
+            FACTOR_RETREAT
         } else if defender.is_rout () {
-            MULTIPLIER_ROUT
+            FACTOR_ROUT
         } else {
-            MULTIPLIER_FIGHT
+            FACTOR_FIGHT
         };
 
-        (damage_mrl, damage_hlt * multiplier_defeat, damage_spl * multiplier_defeat)
+        (damage_mrl, damage_hlt * factor_defeat, damage_spl * factor_defeat)
     }
 
     pub fn is_retreat (&self) -> bool {
@@ -226,7 +226,7 @@ impl UnitStatistics {
 }
 
 impl Display for UnitStatistics {
-    fn fmt (&self, f: &mut Formatter) -> Result {
+    fn fmt (&self, f: &mut Formatter) -> fmt::Result {
         let mut display: String = String::from ("");
 
         for (i, statistic) in self.0.iter ().enumerate () {
@@ -249,7 +249,8 @@ pub struct Unit {
     statistics: UnitStatistics,
     modifier_terrain_id: Option<ID>,
     modifiers: Vec<Modifier>,
-    statuses: HashMap<Trigger, Vec<Status>>,
+    statuses: Vec<Status>,
+    status_on_hit: Option<Status>,
     weapons: Vec<Weapon>,
     skill_passive_id: Option<ID>,
     skills: Vec<Skill>,
@@ -265,7 +266,8 @@ impl Unit {
     pub fn new (id: ID, scene: Rc<Scene>, statistics: UnitStatistics, weapons: &[ID], skill_passive_id: Option<ID>, skill_ids: &[ID], magics_usable: &[bool; Element::Length as usize], faction_id: ID, leader_id: Option<ID>) -> Self {
         let modifier_terrain_id: Option<ID> = None;
         let modifiers: Vec<Modifier> = Vec::new ();
-        let mut statuses: HashMap<Trigger, Vec<Status>> = HashMap::new ();
+        let statuses: Vec<Status> = Vec::new ();
+        let status_on_hit: Option<Status> = None;
         let weapons: Vec<Weapon> = weapons.iter ().map (|w: &ID| *scene.get_weapon (w)).collect ();
         let skills: Vec<Skill> = skill_ids.iter ().map (|s: &ID| *scene.get_skill (s)).collect ();
         let magic_ids: Vec<ID> = scene.magics_iter ().filter (|magic: &&Magic|
@@ -274,9 +276,7 @@ impl Unit {
         let weapon_active: usize = 0;
         let is_alive: bool = true;
 
-        statuses.insert (Trigger::None, Vec::new ());
-
-        Self { id, scene, statistics, modifier_terrain_id, modifiers, statuses, magic_ids, skill_passive_id, skills, weapons, weapon_active, faction_id, leader_id, is_alive }
+        Self { id, scene, statistics, modifier_terrain_id, modifiers, statuses, status_on_hit, magic_ids, skill_passive_id, skills, weapons, weapon_active, faction_id, leader_id, is_alive }
     }
 
     pub fn get_statistic (&self, statistic: UnitStatistic) -> (u16, u16) {
@@ -324,20 +324,18 @@ impl Unit {
         }
     }
 
-    pub fn change_modifier_terrain (&mut self, modifier_id: Option<ID>) {
-        if let Some (m) = self.modifier_terrain_id {
-            self.remove_modifier (&m);
+    pub fn change_modifier_terrain (&mut self, modifier_terrain_id: Option<ID>) {
+        if let Some (modifier_terrain_id) = self.modifier_terrain_id {
+            self.remove_modifier (&modifier_terrain_id);
         }
 
-        self.modifier_terrain_id = modifier_id.and_then (|m: ID| {
-            let modifier: Modifier = self.scene.get_modifier_builder (&m)
-                    .build (true);
+        if let Some (modifier_terrain_id) = modifier_terrain_id {
+            let modifier: Modifier = *self.scene.get_modifier (&modifier_terrain_id);
             let appliable: Box<dyn Appliable> = Box::new (modifier);
 
+            self.modifier_terrain_id = Some (modifier_terrain_id);
             self.add_appliable (appliable);
-
-            modifier_id
-        });
+        }
     }
 
     pub fn set_leader_id (&mut self, leader_id: ID) {
@@ -349,8 +347,8 @@ impl Unit {
             let status_id: &ID = &self.scene.get_skill (skill_id)
                     .get_status_id ();
             let org: u16 = self.get_statistic (ORG).0;
-            let multiplier: f32 = (org / PERCENT_100) as f32;
-            let threshold: usize = ((THRESHOLD_SKILL_PASSIVE as f32) * multiplier) as usize;
+            let factor: f32 = (org / PERCENT_100) as f32;
+            let threshold: usize = ((THRESHOLD_SKILL_PASSIVE as f32) * factor) as usize;
 
             if distance > threshold {
                 self.remove_status (status_id);
@@ -392,14 +390,12 @@ impl Unit {
     pub fn start_turn (&mut self) {
         let mut appliables: Vec<Box<dyn Appliable>> = Vec::new ();
 
-        for collection in self.statuses.values () {
-            for status in collection {
-                if status.is_every_turn () {
-                    let appliable: Box<dyn Appliable> = status.get_change ()
-                            .appliable (Rc::clone (&self.scene));
+        for status in &self.statuses {
+            if status.is_every_turn () {
+                let appliable: Box<dyn Appliable> = status.get_kind ()
+                        .appliable (Rc::clone (&self.scene));
 
-                    appliables.push (appliable);
-                }
+                appliables.push (appliable);
             }
         }
 
@@ -417,7 +413,9 @@ impl Unit {
     }
 
     pub fn act_attack (&mut self) -> (u16, &Weapon) {
-        let drain_spl: u16 = (DRAIN_SPL * MULTIPLIER_ATTACK) as u16;
+        let org: u16 = self.get_statistic (ORG).0;
+        let dividend: f32 = (org / PERCENT_100) as f32;
+        let drain_spl: u16 = (DRAIN_SPL / dividend) as u16;
 
         self.change_statistic_flat (SPL, drain_spl, false);
         self.update_is_alive ();
@@ -435,7 +433,7 @@ impl Unit {
     }
 
     pub fn act_skill (&mut self, skill_id: &ID) -> (u16, &Skill) {
-        let drain_spl: u16 = (DRAIN_SPL * MULTIPLIER_SKILL) as u16;
+        let drain_spl: u16 = (DRAIN_SPL * FACTOR_SKILL) as u16;
         let index: usize = self.skills.iter ()
                 .position (|s: &Skill| s.get_id () == *skill_id)
                 .unwrap_or_else (|| panic! ("Skill {:?} not found", skill_id));
@@ -472,7 +470,7 @@ impl Unit {
         let cost: u16 = self.scene.get_magic (magic_id).get_cost ();
         let drain_hlt: u16 = u16::max ((cost * DRAIN_HLT).saturating_sub (mag), 1);
         let drain_org: u16 = u16::max ((cost * PERCENT_1).saturating_sub (mag / PERCENT_1), PERCENT_1);
-        let drain_spl: u16 = (DRAIN_SPL * MULTIPLIER_MAGIC) as u16;
+        let drain_spl: u16 = (DRAIN_SPL * FACTOR_MAGIC) as u16;
 
         self.change_statistic_flat (HLT, drain_hlt, false);
         self.change_statistic_flat (ORG, drain_org, false);
@@ -483,7 +481,7 @@ impl Unit {
     }
 
     pub fn act_wait (&mut self) -> u16 {
-        let drain_spl: u16 = (DRAIN_SPL * MULTIPLIER_WAIT) as u16;
+        let drain_spl: u16 = (DRAIN_SPL * FACTOR_WAIT) as u16;
 
         self.change_statistic_flat (SPL, drain_spl, false);
         // self.update_is_dead (); // No change to HLT
@@ -572,9 +570,7 @@ impl Unit {
 
 impl Applier for Unit {
     fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
-        self.statuses.get (&Trigger::OnHit).and_then (|c: &Vec<Status>|
-            c.first ().and_then (|s: &Status| s.try_yield_appliable (scene))
-        )
+        self.status_on_hit.and_then (|s: Status| s.try_yield_appliable (scene))
     }
 
     fn get_target (&self) -> Target {
@@ -582,17 +578,17 @@ impl Applier for Unit {
     }
 }
 
-impl Changeable for Unit {
+impl Dynamic for Unit {
     fn add_appliable (&mut self, appliable: Box<dyn Appliable>) -> bool {
-        let change: Change = appliable.change ();
+        let kind: AppliableKind = appliable.kind ();
 
-        match change {
-            Change::Modifier ( .. ) => {
+        match kind {
+            AppliableKind::Modifier ( .. ) => {
                 let modifier: Modifier = appliable.modifier ();
 
                 if modifier.can_stack () || !self.modifiers.contains (&modifier) {
                     for adjustment in modifier.get_adjustments () {
-                        if let Statistic::Unit (s) = adjustment.0 {
+                        if let StatisticKind::Unit (s) = adjustment.0 {
                             self.change_statistic_percentage (s, adjustment.1, adjustment.2);
                         }
                     }
@@ -604,11 +600,11 @@ impl Changeable for Unit {
                     false
                 }
             }
-            Change::Effect ( .. ) => {
+            AppliableKind::Effect ( .. ) => {
                 let effect: Effect = appliable.effect ();
 
                 for adjustment in effect.get_adjustments () {
-                    if let Statistic::Unit (s) = adjustment.0 {
+                    if let StatisticKind::Unit (s) = adjustment.0 {
                         if effect.can_stack_or_is_flat () {
                             self.change_statistic_flat (s, adjustment.1, adjustment.2);
                         } else {
@@ -624,42 +620,32 @@ impl Changeable for Unit {
 
     fn add_status (&mut self, status: Status) -> bool {
         let trigger: Trigger = status.get_trigger ();
+        let appliable: Box<dyn Appliable> = status.try_yield_appliable (Rc::clone (&self.scene))
+                .unwrap_or_else (|| panic! ("Appliable not found for status {:?}", status));
 
-        if let Trigger::OnOccupy = trigger {
-            false
-        } else {
-            let appliable: Box<dyn Appliable> = status.try_yield_appliable (Rc::clone (&self.scene))
-                    .unwrap_or_else (|| panic! ("Appliable not found for status {:?}", status));
+        match trigger {
+            Trigger::OnAttack => {
+                let weapon: &mut Weapon = &mut self.weapons[self.weapon_active];
 
-            match trigger {
-                Trigger::OnAttack => {
-                    let weapon: &mut Weapon = &mut self.weapons[self.weapon_active];
+                weapon.add_status (status);
 
-                    weapon.add_status (status);
+                true
+            }
+            Trigger::OnHit => if let Target::Enemy = status.get_target () {
+                self.status_on_hit = Some (status);
 
-                    true
-                }
-                Trigger::OnHit => if let Target::Enemy = status.get_target () {
-                    let collection: Vec<Status> = vec![status];
+                true
+            } else {
+                false
+            }
+            Trigger::OnOccupy => false,
+            Trigger::None => if let Target::This = status.get_target () {
+                self.statuses.push (status);
+                self.add_appliable (appliable);
 
-                    self.statuses.insert (trigger, collection);
-
-                    true
-                } else {
-                    false
-                }
-                Trigger::None => if let Target::This = status.get_target () {
-                    let collection: &mut Vec<Status> = self.statuses.get_mut (&trigger)
-                            .unwrap_or_else (|| panic! ("Collection not found for trigger {:?}", trigger));
-
-                    collection.push (status);
-                    self.add_appliable (appliable);
-
-                    true
-                } else {
-                    false
-                }
-                _ => false,
+                true
+            } else {
+                false
             }
         }
     }
@@ -672,8 +658,11 @@ impl Changeable for Unit {
             let modifier: Modifier = self.modifiers.swap_remove (i);
 
             for adjustment in modifier.get_adjustments () {
-                if let Statistic::Unit (s) = adjustment.0 {
-                    self.change_statistic_percentage (s, adjustment.1, !adjustment.2);
+                if let StatisticKind::Unit (statistic) = adjustment.0 {
+                    match statistic {
+                        ATK | DEF | MAG | MOV | ORG => self.change_statistic_percentage (statistic, adjustment.1, !adjustment.2),
+                        _ => (),
+                    }
                 }
             }
 
@@ -684,21 +673,27 @@ impl Changeable for Unit {
     }
 
     fn remove_status (&mut self, status_id: &ID) -> bool {
-        for (_, collection) in self.statuses.iter_mut () {
-            let index: Option<usize> = collection.iter ().position (|m: &Status| m.get_id () == *status_id);
+        let index: Option<usize> = self.statuses.iter ().position (|s: &Status| s.get_id () == *status_id);
 
-            if let Some (i) = index {
-                let status: Status = collection.swap_remove (i);
+        if let Some (i) = index {
+            let status: Status = self.statuses.swap_remove (i);
 
-                if let Change::Modifier (m, _) = status.get_change () {
-                    self.remove_modifier (&m);
-                }
-
-                return true
+            if let AppliableKind::Modifier (m) = status.get_kind () {
+                self.remove_modifier (&m);
             }
-        }
 
-        false
+            true
+        } else if let Some (status) = self.status_on_hit {
+            if status.get_id () == *status_id {
+                self.status_on_hit = None;
+
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
     }
 
     fn decrement_durations (&mut self) {
@@ -706,18 +701,23 @@ impl Changeable for Unit {
 
         self.modifiers.retain_mut (|m: &mut Modifier| !m.decrement_duration ());
 
-        for (_, collection) in self.statuses.iter_mut () {
-            for status in collection.iter_mut () {
-                if status.decrement_duration () {
-                    statuses_expired.push (*status);
-                }
+        for status in self.statuses.iter_mut () {
+            if status.decrement_duration () {
+                statuses_expired.push (*status);
             }
+        }
 
-            collection.retain (|s: &Status| !s.is_expired ());
+        self.statuses.retain (|s: &Status| !s.is_expired ());
+
+        if let Some (ref mut status) = self.status_on_hit {
+            if status.decrement_duration () {
+                statuses_expired.push (*status);
+                self.status_on_hit = None;
+            }
         }
 
         for status_expired in statuses_expired {
-            if let Change::Modifier (m, _) = status_expired.get_change () {
+            if let AppliableKind::Modifier (m) = status_expired.get_kind () {
                 self.remove_modifier (&m);
 
                 if let Some (n) = status_expired.get_next_id () {
@@ -739,7 +739,7 @@ impl Changeable for Unit {
 }
 
 impl Display for Unit {
-    fn fmt (&self, f: &mut Formatter<'_>) -> Result {
+    fn fmt (&self, f: &mut Formatter<'_>) -> fmt::Result {
         write! (f, "{}: {}\n{:?}\n{:?}", self.id, self.statistics, self.modifiers, self.statuses)
     }
 }
@@ -794,11 +794,9 @@ mod tests {
 
     fn generate_modifiers () -> (Box<Modifier>, Box<Modifier>) {
         let scene = generate_scene ();
-        let modifier_builder_3 = scene.get_modifier_builder (&3);
-        let modifier_3 = modifier_builder_3.build (true);
+        let modifier_3 = *scene.get_modifier (&3);
         let modifier_3 = Box::new (modifier_3);
-        let modifier_builder_4 = scene.get_modifier_builder (&4);
-        let modifier_4 = modifier_builder_4.build (false);
+        let modifier_4 = *scene.get_modifier (&4);
         let modifier_4 = Box::new (modifier_4);
 
         (modifier_3, modifier_4)
@@ -876,7 +874,7 @@ mod tests {
         let (mut unit_0, _, _) = generate_units ();
 
         unit_0.apply_inactive_skills ();
-        assert_eq! (unit_0.statuses.get (&Trigger::None).unwrap ().len (), 2);
+        assert_eq! (unit_0.statuses.len (), 2);
         assert_eq! (unit_0.modifiers.len (), 2);
     }
 
@@ -921,12 +919,12 @@ mod tests {
         // Test near add
         assert! (unit_1.try_add_passive (&status_passive_id, 1));
         assert_eq! (unit_1.skill_passive_id.unwrap (), status_passive_id);
-        assert_eq! (unit_1.statuses.get (&Trigger::None).unwrap ().len (), 1);
+        assert_eq! (unit_1.statuses.len (), 1);
         assert_eq! (unit_1.modifiers.len (), 1);
         // Test far add
         assert! (!unit_1.try_add_passive (&status_passive_id, 2));
         assert! (unit_1.skill_passive_id.is_none ());
-        assert! (unit_1.statuses.get (&Trigger::None).unwrap ().is_empty ());
+        assert! (unit_1.statuses.is_empty ());
         assert! (unit_1.modifiers.is_empty ());
     }
 
@@ -1142,8 +1140,11 @@ mod tests {
 
     #[test]
     fn unit_add_appliable () {
+        let scene = generate_scene ();
         let (mut unit_0, mut unit_1, _) = generate_units ();
         let (modifier_3, modifier_4) = generate_modifiers ();
+        let modifier_5 = *scene.get_modifier (&5);
+        let modifier_5 = Box::new (modifier_5);
         let (effect_0, effect_1) = generate_effects ();
 
         // Test additive modifier
@@ -1163,9 +1164,10 @@ mod tests {
         assert_eq! (unit_0.modifiers.len (), 4);
         assert_eq! (unit_0.get_statistic (ATK).0, 34);
         // Test non-stacking modifier
-        assert! (!unit_0.add_appliable (modifier_4));
-        assert_eq! (unit_0.modifiers.len (), 4);
-        assert_eq! (unit_0.get_statistic (ATK).0, 34);
+        assert! (unit_0.add_appliable (modifier_5.clone ()));
+        assert! (!unit_0.add_appliable (modifier_5));
+        assert_eq! (unit_0.modifiers.len (), 5);
+        assert_eq! (unit_0.get_statistic (ATK).0, 32);
         assert_eq! (unit_0.get_statistic (DEF).0, 18);
 
         // Test flat effect
@@ -1189,7 +1191,7 @@ mod tests {
         assert_eq! (unit_0.get_statistic (ATK).0, 24);
         // Test applier status
         assert! (unit_0.add_status (status_5));
-        assert_eq! (unit_0.statuses.get (&Trigger::OnHit).unwrap ().len (), 1);
+        assert! (unit_0.status_on_hit.is_some ());
         assert! (unit_0.try_yield_appliable (Rc::clone (&scene)).is_some ());
         // Test weapon status
         assert! (unit_0.add_status (status_6));
@@ -1217,19 +1219,19 @@ mod tests {
 
         // Test empty remove
         assert! (!unit_0.remove_status (&0));
-        assert! (unit_0.statuses.get (&Trigger::None).unwrap ().is_empty ());
+        assert! (unit_0.statuses.is_empty ());
         assert! (unit_0.modifiers.is_empty ());
         // Test non-empty remove
         unit_0.add_status (status_0);
         assert_eq! (unit_0.get_statistic (ATK).0, 24);
         assert! (unit_0.remove_status (&0));
         assert_eq! (unit_0.get_statistic (ATK).0, 20);
-        assert! (unit_0.statuses.get (&Trigger::None).unwrap ().is_empty ());
+        assert! (unit_0.statuses.is_empty ());
         assert! (unit_0.modifiers.is_empty ());
         // Test applier remove
         unit_0.add_status (status_5);
         assert! (unit_0.remove_status (&5));
-        assert! (unit_0.statuses.get (&Trigger::OnHit).unwrap ().is_empty ());
+        assert! (unit_0.status_on_hit.is_none ());
         assert! (unit_0.modifiers.is_empty ());
     }
 
@@ -1259,34 +1261,34 @@ mod tests {
 
         // Test empty status
         unit_1.decrement_durations ();
-        assert! (unit_1.statuses.get (&Trigger::None).unwrap ().is_empty ());
+        assert! (unit_1.statuses.is_empty ());
         // Test timed status
         unit_1.add_status (status_1);
         unit_1.decrement_durations ();
-        assert_eq! (unit_1.statuses.get (&Trigger::None).unwrap ().len (), 1);
+        assert_eq! (unit_1.statuses.len (), 1);
         unit_1.decrement_durations ();
-        assert_eq! (unit_1.statuses.get (&Trigger::None).unwrap ().len (), 1);
+        assert_eq! (unit_1.statuses.len (), 1);
         unit_1.decrement_durations ();
-        assert! (unit_1.statuses.get (&Trigger::None).unwrap ().is_empty ());
+        assert! (unit_1.statuses.is_empty ());
         // Test permanent status
         unit_1.add_status (status_0);
         unit_1.decrement_durations ();
-        assert_eq! (unit_1.statuses.get (&Trigger::None).unwrap ().len (), 1);
+        assert_eq! (unit_1.statuses.len (), 1);
         unit_1.decrement_durations ();
-        assert_eq! (unit_1.statuses.get (&Trigger::None).unwrap ().len (), 1);
+        assert_eq! (unit_1.statuses.len (), 1);
         unit_1.decrement_durations ();
-        assert_eq! (unit_1.statuses.get (&Trigger::None).unwrap ().len (), 1);
+        assert_eq! (unit_1.statuses.len (), 1);
         // Test linked status
         unit_1.add_status (status_5);
         unit_1.decrement_durations ();
-        assert_eq! (unit_1.statuses.get (&Trigger::OnHit).unwrap ().len (), 1);
-        assert_eq! (unit_1.statuses.get (&Trigger::OnHit).unwrap ()[0].get_next_id ().unwrap (), 0);
+        assert! (unit_1.status_on_hit.is_some ());
+        assert_eq! (unit_1.status_on_hit.unwrap ().get_next_id ().unwrap (), 0);
         unit_1.decrement_durations ();
-        assert_eq! (unit_1.statuses.get (&Trigger::OnHit).unwrap ().len (), 1);
-        assert_eq! (unit_1.statuses.get (&Trigger::OnHit).unwrap ()[0].get_next_id ().unwrap (), 0);
+        assert! (unit_1.status_on_hit.is_some ());
+        assert_eq! (unit_1.status_on_hit.unwrap ().get_next_id ().unwrap (), 0);
         unit_1.decrement_durations ();
-        assert! (unit_1.statuses.get (&Trigger::OnHit).unwrap ().is_empty ());
-        assert_eq! (unit_1.statuses.get (&Trigger::None).unwrap ().len (), 2);
-        assert! (unit_1.statuses.get (&Trigger::None).unwrap ()[1].get_next_id ().is_none ());
+        assert! (unit_1.status_on_hit.is_none ());
+        assert_eq! (unit_1.statuses.len (), 2);
+        assert! (unit_1.statuses[1].get_next_id ().is_none ());
     }
 }

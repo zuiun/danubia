@@ -1,12 +1,12 @@
-use super::{debug, game};
+use super::debug;
 use crate::character::{FactionBuilder, Magic, Skill, UnitBuilder, Weapon};
 use crate::common::ID;
-use crate::dynamic::{Effect, ModifierBuilder, Status};
+use crate::dynamic::{Effect, Modifier, Status};
 use crate::map::{City, Terrain, TileBuilder};
 
 #[derive (Debug)]
 pub struct Scene {
-    modifier_builders: &'static [ModifierBuilder],
+    modifiers: &'static [Modifier],
     effects: &'static [Effect],
     statuses: &'static [Status],
     terrains: &'static [Terrain],
@@ -20,25 +20,9 @@ pub struct Scene {
 }
 
 impl Scene {
-    #[allow (clippy::new_without_default)]
     pub fn new () -> Self {
-        let modifier_builders: &[ModifierBuilder] = game::MODIFIER_BUILDERS;
-        let effects: &[Effect] = game::EFFECTS;
-        let statuses: &[Status] = game::STATUSES;
-        let terrains: &[Terrain] = game::TERRAINS;
-        let cities: &[City] = game::CITIES;
-        let weapons: &[Weapon] = game::WEAPONS;
-        let magics: &[Magic] = game::MAGICS;
-        let skills: &[Skill] = game::SKILLS;
-        let faction_builders: &[FactionBuilder] = game::FACTION_BUILDERS;
-        let unit_builders: &[UnitBuilder] = game::UNIT_BUILDERS;
-        let tile_builders: &[&[TileBuilder]] = game::TILE_BUILDERS;
-
-        Self { modifier_builders, effects, statuses, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
-    }
-
-    pub fn debug () -> Self {
-        let modifier_builders: &[ModifierBuilder] = debug::MODIFIER_BUILDERS;
+        // TODO: Change this
+        let modifiers: &[Modifier] = debug::MODIFIERS;
         let effects: &[Effect] = debug::EFFECTS;
         let statuses: &[Status] = debug::STATUSES;
         let terrains: &[Terrain] = debug::TERRAINS;
@@ -50,13 +34,29 @@ impl Scene {
         let unit_builders: &[UnitBuilder] = debug::UNIT_BUILDERS;
         let tile_builders: &[&[TileBuilder]] = debug::TILE_BUILDERS;
 
-        Self { modifier_builders, effects, statuses, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
+        Self { modifiers, effects, statuses, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
     }
 
-    pub fn get_modifier_builder (&self, id: &ID) -> &ModifierBuilder {
-        assert! (*id < self.modifier_builders.len ());
+    // pub fn debug () -> Self {
+    //     let modifiers: &[Modifier] = debug::MODIFIERS;
+    //     let effects: &[Effect] = debug::EFFECTS;
+    //     let statuses: &[Status] = debug::STATUSES;
+    //     let terrains: &[Terrain] = debug::TERRAINS;
+    //     let cities: &[City] = debug::CITIES;
+    //     let weapons: &[Weapon] = debug::WEAPONS;
+    //     let magics: &[Magic] = debug::MAGICS;
+    //     let skills: &[Skill] = debug::SKILLS;
+    //     let faction_builders: &[FactionBuilder] = debug::FACTION_BUILDERS;
+    //     let unit_builders: &[UnitBuilder] = debug::UNIT_BUILDERS;
+    //     let tile_builders: &[&[TileBuilder]] = debug::TILE_BUILDERS;
 
-        &self.modifier_builders[*id]
+    //     Self { modifiers, effects, statuses, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
+    // }
+
+    pub fn get_modifier (&self, id: &ID) -> &Modifier {
+        assert! (*id < self.modifiers.len ());
+
+        &self.modifiers[*id]
     }
 
     pub fn get_effect (&self, id: &ID) -> &Effect {
@@ -131,5 +131,23 @@ impl Scene {
 
     pub fn get_tile_builders (&self) -> &[&[TileBuilder]] {
         self.tile_builders
+    }
+}
+
+impl Default for Scene {
+    fn default() -> Self {
+        let modifiers: &[Modifier] = debug::MODIFIERS;
+        let effects: &[Effect] = debug::EFFECTS;
+        let statuses: &[Status] = debug::STATUSES;
+        let terrains: &[Terrain] = debug::TERRAINS;
+        let cities: &[City] = debug::CITIES;
+        let weapons: &[Weapon] = debug::WEAPONS;
+        let magics: &[Magic] = debug::MAGICS;
+        let skills: &[Skill] = debug::SKILLS;
+        let faction_builders: &[FactionBuilder] = debug::FACTION_BUILDERS;
+        let unit_builders: &[UnitBuilder] = debug::UNIT_BUILDERS;
+        let tile_builders: &[&[TileBuilder]] = debug::TILE_BUILDERS;
+
+        Self { modifiers, effects, statuses, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
     }
 }

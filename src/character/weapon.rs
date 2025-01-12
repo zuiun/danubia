@@ -1,6 +1,6 @@
 use super::Tool;
 use crate::common::{ID, Target, Timed};
-use crate::dynamic::{Appliable, Applier, Change, Changeable, Status, Trigger};
+use crate::dynamic::{Appliable, AppliableKind, Applier, Dynamic, Status, Trigger};
 use crate::map::Area;
 use crate::Scene;
 use std::rc::Rc;
@@ -60,7 +60,7 @@ impl Tool for Weapon {
     }
 }
 
-impl Changeable for Weapon {
+impl Dynamic for Weapon {
     fn add_appliable (&mut self, _appliable: Box<dyn Appliable>) -> bool {
         unimplemented! ()
     }
@@ -68,20 +68,26 @@ impl Changeable for Weapon {
     fn add_status (&mut self, status: Status) -> bool {
         assert! (status.get_next_id ().is_none ()); // Weapons don't support linked statuses
 
-        if let Change::Modifier ( .. ) = status.get_change () {
-            if let Target::Enemy = status.get_target () {
-                if let Trigger::OnAttack = status.get_trigger () {
+        let kind: AppliableKind = status.get_kind ();
+
+        if let AppliableKind::Modifier ( .. ) = kind {
+            let target: Target = status.get_target ();
+
+            if let Target::Enemy = target {
+                let trigger: Trigger = status.get_trigger ();
+
+                if let Trigger::OnAttack = trigger {
                     self.status = Some (status);
 
                     true
                 } else {
-                    false
+                    panic! ("Invalid trigger {:?}", trigger)
                 }
             } else {
-                false
+                panic! ("Invalid target {:?}", target);
             }
         } else {
-            false
+            panic! ("Invalid appliable kind {:?}", kind)
         }
     }
 
@@ -104,11 +110,11 @@ impl Changeable for Weapon {
     }
 
     fn decrement_durations (&mut self) {
-        if let Some (mut s) = self.status {
-            self.status = if s.decrement_duration () {
+        if let Some (mut status) = self.status {
+            self.status = if status.decrement_duration () {
                 None
             } else {
-                Some (s)
+                Some (status)
             };
         }
     }

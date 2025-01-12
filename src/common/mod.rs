@@ -5,10 +5,10 @@ pub type ID = usize;
 
 pub const ID_UNINITIALISED: ID = ID::MAX;
 pub const DURATION_PERMANENT: u16 = u16::MAX;
-pub const MULTIPLIER_ATTACK: f32 = 1.0;
-pub const MULTIPLIER_SKILL: f32 = 1.4;
-pub const MULTIPLIER_MAGIC: f32 = 1.4;
-pub const MULTIPLIER_WAIT: f32 = 0.67;
+pub const FACTOR_ATTACK: f32 = 1.0;
+pub const FACTOR_SKILL: f32 = 1.4;
+pub const FACTOR_MAGIC: f32 = 1.4;
+pub const FACTOR_WAIT: f32 = 0.67;
 
 pub trait Timed {
     /*

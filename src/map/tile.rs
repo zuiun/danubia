@@ -1,6 +1,6 @@
 use super::{COST_IMPASSABLE, COST_MINIMUM};
-use crate::common::{Target, Timed, ID, ID_UNINITIALISED};
-use crate::dynamic::{Adjustment, Appliable, Applier, Change, Changeable, Modifier, Statistic, Status, Trigger};
+use crate::common::{ID, ID_UNINITIALISED, Target, Timed};
+use crate::dynamic::{Adjustment, Appliable, AppliableKind, Applier, Dynamic, Modifier, StatisticKind, Status, Trigger};
 use crate::Scene;
 use std::rc::Rc;
 
@@ -11,6 +11,7 @@ const CLIMB_MAX: u8 = 2;
 pub struct Tile {
     scene: Rc<Scene>,
     modifier: Option<Modifier>,
+    // modifier_weather: Option<Modifier>,
     status: Option<Status>,
     terrain_id: ID,
     height: u8,
@@ -36,7 +37,7 @@ impl Tile {
             let (statistic, value, is_add): Adjustment = modifier.get_adjustments ()[0];
 
             match statistic {
-                Statistic::Tile (is_flat) => if is_flat {
+                StatisticKind::Tile (is_flat) => if is_flat {
                     value as u8
                 } else if is_add {
                     cost + (value as u8)
@@ -101,45 +102,54 @@ impl Tile {
     }
 }
 
-impl Changeable for Tile {
+impl Dynamic for Tile {
     fn add_appliable (&mut self, appliable: Box<dyn Appliable>) -> bool {
-        if let Change::Modifier ( .. ) = appliable.change () {
+        let kind: AppliableKind = appliable.kind ();
+
+        if let AppliableKind::Modifier ( .. ) = appliable.kind () {
             let modifier: Modifier = appliable.modifier ();
             let adjustment: Adjustment = modifier.get_adjustments ()[0];
 
-            if let Statistic::Tile ( .. ) = adjustment.0 {
+            if let StatisticKind::Tile ( .. ) = adjustment.0 {
                 self.modifier = Some (modifier);
 
                 true
             } else {
-                false
+                panic! ("Invalid statistic kind {:?}", adjustment.0)
             }
         } else {
-            false
+            panic! ("Invalid appliable kind {:?}", kind)
         }
     }
 
     fn add_status (&mut self, status: Status) -> bool {
-        if let Change::Modifier ( .. ) = status.get_change () {
+        let kind: AppliableKind = status.get_kind ();
+
+        if let AppliableKind::Modifier ( .. ) = status.get_kind () {
             let appliable: Box<dyn Appliable> = status.try_yield_appliable (Rc::clone (&self.scene))
                     .unwrap_or_else (|| panic! ("Appliable not found for status {:?}", status));
+            let target: Target = status.get_target ();
 
-            if let Target::Map (a) = status.get_target () {
-                match status.get_trigger () {
-                    Trigger::OnOccupy => { self.modifier = None; }
-                    Trigger::None => { self.add_appliable (appliable); }
-                    _ => return false,
+            if let Target::Map (applier_id) = target {
+                let trigger: Trigger = status.get_trigger ();
+
+                if let Trigger::OnOccupy = trigger {
+                    self.modifier = None;
+                } else if let Trigger::None = trigger {
+                    self.add_appliable (appliable);
+                } else {
+                    panic! ("Invalid trigger {:?}", trigger)
                 }
 
                 self.status = Some (status);
-                self.applier_id = Some (a);
+                self.applier_id = Some (applier_id);
 
                 true
             } else {
-                false
+                panic! ("Invalid target {:?}", target)
             }
         } else {
-            false
+            panic! ("Invalid appliable kind {:?}", kind)
         }
     }
 
@@ -164,7 +174,7 @@ impl Changeable for Tile {
 
         if let Some (s) = status {
             if s.get_id () == *status_id {
-                if let Change::Modifier (m, _) = s.get_change () {
+                if let AppliableKind::Modifier (m) = s.get_kind () {
                     self.remove_modifier (&m);
                 }
 
@@ -229,19 +239,16 @@ impl TileBuilder {
 #[cfg (test)]
 mod tests {
     use super::*;
-    use crate::dynamic::ModifierBuilder;
+    use crate::dynamic::Modifier;
     use crate::tests::generate_scene;
 
     fn generate_modifiers () -> (Box<Modifier>, Box<Modifier>, Box<Modifier>) {
         let scene = generate_scene ();
-        let modifier_builder_0: &ModifierBuilder = scene.get_modifier_builder (&0);
-        let modifier_0 = modifier_builder_0.build (false);
+        let modifier_0 = *scene.get_modifier (&0);
         let modifier_0 = Box::new (modifier_0);
-        let modifier_builder_1: &ModifierBuilder = scene.get_modifier_builder (&1);
-        let modifier_1 = modifier_builder_1.build (false);
+        let modifier_1 = *scene.get_modifier (&1);
         let modifier_1 = Box::new (modifier_1);
-        let modifier_builder_2: &ModifierBuilder = scene.get_modifier_builder (&2);
-        let modifier_2 = modifier_builder_2.build (false);
+        let modifier_2 = *scene.get_modifier (&2);
         let modifier_2 = Box::new (modifier_2);
 
         (modifier_0, modifier_1, modifier_2)

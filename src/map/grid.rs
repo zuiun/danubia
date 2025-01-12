@@ -1,10 +1,10 @@
-use super::{City, Search, Tile, TileBuilder, COST_IMPASSABLE};
+use super::{City, COST_IMPASSABLE, Search, Tile, TileBuilder};
 use crate::collections::{InnerJoinMap, OuterJoinMap};
 use crate::common::{ID, ID_UNINITIALISED};
-use crate::dynamic::{Appliable, Applier, Changeable, Modifier, Status, Trigger};
+use crate::dynamic::{Appliable, Applier, Dynamic, Modifier, Status, Trigger};
 use crate::Scene;
 use std::collections::{HashSet, VecDeque};
-use std::fmt::{Display, Formatter, Result};
+use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
 
 pub type Location = (usize, usize); // row, column
@@ -170,10 +170,7 @@ impl Grid {
         locations.push_back (*location);
         is_visited[location.0][location.1] = true;
 
-        while !locations.is_empty () {
-            let location: Location = locations.pop_front ()
-                    .expect ("Location not found");
-
+        while let Some (location) = locations.pop_front () {
             if self.is_placeable (&location) {
                 return location
             }
@@ -326,10 +323,40 @@ impl Grid {
         Some ((end, terrain_id))
     }
 
-    // TODO: This eventually needs to be displayed on a GUI
-    // fn find_unit_movable (&self, unit_id: &ID) -> Vec<ID> {
-    //     todo! ()
-    // }
+    fn find_unit_movable_helper (&self, is_visited: &mut Vec<Vec<bool>>, location: &Location, mov: u16) {
+        is_visited[location.0][location.1] = true;
+
+        for direction in DIRECTIONS {
+            if let Some ((location, cost)) = self.try_move (location, direction) {
+                if let Some (mov) = mov.checked_sub (cost as u16) {
+                    self.find_unit_movable_helper (is_visited, &location, mov);
+                }
+            }
+        }
+    }
+
+    pub fn find_unit_movable (&self, unit_id: &ID, mov: u16) -> Vec<Location> {
+        let location: Location = *self.get_unit_location (unit_id);
+        let mut is_visited: Vec<Vec<bool>> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
+        let mut locations: Vec<Location> = Vec::new ();
+
+        self.find_unit_movable_helper (&mut is_visited, &location, mov);
+
+        for (i, row) in is_visited.iter ().enumerate () {
+            for (j, is_visited) in row.iter ().enumerate () {
+                if *is_visited {
+                    locations.push ((i, j))
+                }
+            }
+        }
+
+        locations
+        // is_visited.iter ().enumerate ().map (|(i, row)| {
+        //     row.iter ().enumerate ().filter_map (move |(j, is_visited)|
+        //         is_visited.then_some ((i, j))
+        //     )
+        // }).flatten ().collect ()
+    }
 
     pub fn find_unit_cities (&self, unit_id: &ID) -> Vec<ID> {
         assert! (is_rectangular (&self.tiles));
@@ -343,10 +370,7 @@ impl Grid {
         locations.push_back (location);
         is_visited[location.0][location.1] = true;
 
-        while !locations.is_empty () {
-            let location: Location = locations.pop_front ()
-                    .expect ("Location not found");
-
+        while let Some (location) = locations.pop_front () {
             if let Some (c) = self.tiles[location.0][location.1].get_city_id () {
                 city_ids.push (c);
             }
@@ -534,10 +558,7 @@ impl Grid {
         controlled.push (location);
         is_visited[location.0][location.1] = true;
 
-        while !locations.is_empty () {
-            let location: Location = locations.pop_front ()
-                    .expect ("Location not found");
-
+        while let Some (location) = locations.pop_front () {
             for direction in DIRECTIONS {
                 if let Some (n) = self.try_connect (&location, direction) {
                     let controller_id: ID = *self.get_location_faction (&n);
@@ -673,7 +694,7 @@ impl Grid {
 }
 
 impl Display for Grid {
-    fn fmt (&self, f: &mut Formatter) -> Result {
+    fn fmt (&self, f: &mut Formatter) -> fmt::Result {
         let mut display: String = String::from ("");
 
         for (i, row) in self.tiles.iter ().enumerate () {
@@ -939,6 +960,52 @@ mod tests {
     }
 
     #[test]
+    fn grid_find_unit_movable () {
+        let mut grid = generate_grid ();
+
+        grid.place_unit (0, (0, 0));
+
+        // Test empty move
+        let response = grid.find_unit_movable (&0, 1);
+        assert_eq! (response.len (), 1);
+        assert! (response.contains (&(0, 0)));
+        // Test normal move
+        let response = grid.find_unit_movable (&0, 2);
+        assert_eq! (response.len (), 2);
+        assert! (response.contains (&(0, 0)));
+        assert! (response.contains (&(0, 1)));
+        let response = grid.find_unit_movable (&0, 3);
+        assert_eq! (response.len (), 2);
+        assert! (response.contains (&(0, 0)));
+        assert! (response.contains (&(0, 1)));
+        let response = grid.find_unit_movable (&0, 4);
+        assert_eq! (response.len (), 4);
+        assert! (response.contains (&(0, 0)));
+        assert! (response.contains (&(0, 1)));
+        assert! (response.contains (&(0, 2)));
+        assert! (response.contains (&(1, 1)));
+        let response = grid.find_unit_movable (&0, 5);
+        assert_eq! (response.len (), 4);
+        assert! (response.contains (&(0, 0)));
+        assert! (response.contains (&(0, 1)));
+        assert! (response.contains (&(0, 2)));
+        assert! (response.contains (&(1, 1)));
+        let response = grid.find_unit_movable (&0, 6);
+        assert_eq! (response.len (), 4);
+        assert! (response.contains (&(0, 0)));
+        assert! (response.contains (&(0, 1)));
+        assert! (response.contains (&(0, 2)));
+        assert! (response.contains (&(1, 1)));
+        let response = grid.find_unit_movable (&0, 7);
+        assert_eq! (response.len (), 5);
+        assert! (response.contains (&(0, 0)));
+        assert! (response.contains (&(0, 1)));
+        assert! (response.contains (&(0, 2)));
+        assert! (response.contains (&(1, 1)));
+        assert! (response.contains (&(1, 0)));
+    }
+
+    #[test]
     fn grid_find_unit_cities () {
         let mut grid = generate_grid ();
 
@@ -1088,13 +1155,9 @@ mod tests {
     fn grid_add_status () {
         let scene = generate_scene ();
         let mut grid = generate_grid ();
-        let status_0 = *scene.get_status (&0);
         let status_2 = *scene.get_status (&2);
         let status_3 = *scene.get_status (&3);
 
-        // Test non-Map status
-        assert! (!grid.add_status (&(0, 0), status_0));
-        // Test Map status
         assert! (grid.add_status (&(0, 0), status_2));
         let cost_down_0: u8 = grid.adjacencies[0][0][Direction::Down as usize];
         let cost_left_0: u8 = grid.adjacencies[1][1][Direction::Left as usize];

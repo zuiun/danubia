@@ -8,7 +8,7 @@ mod magic;
 pub use self::magic::Element;
 pub use self::magic::Magic;
 mod skill;
-pub use self::skill::Activity;
+pub use self::skill::SkillKind;
 pub use self::skill::Skill;
 mod unit;
 pub use self::unit::UnitStatistic;

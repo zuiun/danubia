@@ -4,16 +4,16 @@ use std::cmp::Ordering;
 #[derive (Debug)]
 pub struct Turn {
     unit_id: ID,
-    delay: u8,
+    delay: u16,
     mov: u16,
 }
 
 impl Turn {
-    pub fn new (unit_id: ID, delay: u8, mov: u16) -> Self {
+    pub fn new (unit_id: ID, delay: u16, mov: u16) -> Self {
         Self { unit_id, delay, mov }
     }
 
-    pub fn update (&mut self, delay: u8, mov: u16) -> bool {
+    pub fn update (&mut self, delay: u16, mov: u16) -> bool {
         if let Some (d) = self.delay.checked_add (delay) {
             self.delay = d;
             self.mov = mov;
@@ -24,7 +24,7 @@ impl Turn {
         }
     }
 
-    pub fn reduce_delay (&mut self, reduction: u8) -> u8 {
+    pub fn reduce_delay (&mut self, reduction: u16) -> u16 {
         self.delay -= reduction;
 
         self.delay
@@ -34,7 +34,7 @@ impl Turn {
         self.unit_id
     }
 
-    pub fn get_delay (&self) -> u8 {
+    pub fn get_delay (&self) -> u16 {
         self.delay
     }
 }

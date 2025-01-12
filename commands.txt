@@ -1,3 +1,2 @@
-cargo clippy
-export LLVM_PROFILE_FILE="default-%p-%m.profraw"
+export LLVM_PROFILE_FILE="target/debug/llvm-cov-target/danubia-%p-%m.profraw"
 cargo llvm-cov --html

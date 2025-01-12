@@ -1,31 +1,29 @@
-use super::{Appliable, Effect, Modifier, ModifierBuilder};
+use super::{Appliable, Effect, Modifier};
 use crate::common::ID;
 use crate::Scene;
 use std::rc::Rc;
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
-pub enum Change {
-    Modifier (ID, bool), // modifier, is flat
+pub enum AppliableKind {
+    Modifier (ID), // modifier
     Effect (ID), // effect
 }
 
-impl Change {
+impl AppliableKind {
     pub fn modifier (&self, scene: Rc<Scene>) -> Modifier {
         match self {
-            Change::Modifier (m, s) => {
-                let modifier_builder: &ModifierBuilder = scene.get_modifier_builder (m);
-
-                modifier_builder.build (*s)
+            AppliableKind::Modifier (m) => {
+                *scene.get_modifier (m)
             }
-            Change::Effect ( .. ) => unimplemented! (),
+            AppliableKind::Effect ( .. ) => unimplemented! (),
         }
     }
 
     pub fn effect (&self, scene: Rc<Scene>) -> Effect {
         match self {
-            Change::Modifier ( .. ) => unimplemented! (),
-            Change::Effect (e) => {
+            AppliableKind::Modifier ( .. ) => unimplemented! (),
+            AppliableKind::Effect (e) => {
                 *scene.get_effect (e)
             }
         }
@@ -33,13 +31,13 @@ impl Change {
 
     pub fn appliable (&self, scene: Rc<Scene>) -> Box<dyn Appliable> {
         match self {
-            Change::Modifier ( .. ) => {
+            AppliableKind::Modifier ( .. ) => {
                 let modifier: Modifier = self.modifier (scene);
                 let appliable: Box<dyn Appliable> = Box::new (modifier);
 
                 appliable
             }
-            Change::Effect ( .. ) => {
+            AppliableKind::Effect ( .. ) => {
                 let effect: Effect = self.effect (scene);
                 let appliable: Box<dyn Appliable> = Box::new (effect);
 

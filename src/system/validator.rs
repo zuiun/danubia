@@ -16,7 +16,7 @@ pub struct ActionValidator {
 impl ActionValidator {
     #[allow (clippy::new_without_default)]
     pub fn new () -> Self {
-        let prompt: &str = "Enter move (z), switch weapon (c), wait (w), attack (a), skill (s), or magic (d)";
+        let prompt: &str = "Enter move (z), switch weapon (q), wait (w), attack (a), skill (s), magic (d), or quit (x)";
 
         Self { prompt }
     }
@@ -31,11 +31,12 @@ impl Validator<Action> for ActionValidator {
 
         match action {
             'a' => Ok (Some (Action::Attack)),
-            'c' => Ok (Some (Action::Weapon)),
+            'q' => Ok (Some (Action::Weapon)),
             's' => Ok (Some (Action::Skill)),
             'd' => Ok (Some (Action::Magic)),
             'z' => Ok (Some (Action::Move)),
             'w' => Ok (Some (Action::Wait)),
+            'x' => Ok (None),
             _ => Err (Box::from (String::from ("Invalid input"))),
         }
     }
@@ -259,11 +260,12 @@ mod tests {
         let validator = ActionValidator::new ();
 
         assert! (matches! (validator.validate ("a").unwrap ().unwrap (), Action::Attack));
-        assert! (matches! (validator.validate ("c").unwrap ().unwrap (), Action::Weapon));
+        assert! (matches! (validator.validate ("q").unwrap ().unwrap (), Action::Weapon));
         assert! (matches! (validator.validate ("s").unwrap ().unwrap (), Action::Skill));
         assert! (matches! (validator.validate ("d").unwrap ().unwrap (), Action::Magic));
         assert! (matches! (validator.validate ("z").unwrap ().unwrap (), Action::Move));
         assert! (matches! (validator.validate ("w").unwrap ().unwrap (), Action::Wait));
+        assert! (validator.validate ("x").unwrap ().is_none ());
     }
 
     #[test]

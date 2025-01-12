@@ -7,28 +7,29 @@ use std::rc::Rc;
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
-pub enum Activity {
+pub enum SkillKind {
     Timed (u16, u16), // current, maximum
     Passive,
-    Toggled (ID, ID), // status 1, status 2
+    Toggled (ID), // active status index
 }
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
 pub struct Skill {
     id: ID,
-    status_id: ID,
+    status_ids: &'static [ID],
     target: Target,
     area: Area,
     range: u8,
-    activity: Activity,
+    kind: SkillKind,
 }
 
 impl Skill {
-    pub const fn new (id: ID, status_id: ID, target: Target, area: Area, range: u8, activity: Activity) -> Self {
+    pub const fn new (id: ID, status_ids: &'static [ID], target: Target, area: Area, range: u8, kind: SkillKind) -> Self {
+        assert! (!status_ids.is_empty ());
         assert! (matches! (target, Target::This | Target::Ally | Target::Allies));
 
-        Self { id, status_id, target, area, range, activity }
+        Self { id, status_ids, target, area, range, kind }
     }
 
     pub fn get_id (&self) -> ID {
@@ -36,52 +37,47 @@ impl Skill {
     }
 
     pub fn switch_status (&mut self) -> (ID, ID) {
-        assert! (self.is_toggled ());
+        if let SkillKind::Toggled (status_idx_old) = self.kind {
+            let status_id_old: ID = self.status_ids[status_idx_old];
+            let status_idx_new: usize = (status_idx_old + 1) % self.status_ids.len ();
+            let status_id_new: ID = self.status_ids[status_idx_new];
 
-        let status_id_old: ID = self.status_id;
-        let status_id_new: ID = if let Activity::Toggled (t0, t1) = self.activity {
-            if status_id_old == t0 {
-                self.status_id = t1;
+            self.kind = SkillKind::Toggled (status_idx_new);
 
-                t1
-            } else if status_id_old == t1 {
-                self.status_id = t0;
-
-                t0
-            } else {
-                panic! ("Invalid status {}", status_id_old)
-            }
+            (status_id_old, status_id_new)
         } else {
-            unreachable! ()
-        };
-
-        (status_id_old, status_id_new)
+            panic! ("Invalid skill kind {:?}", self.kind)
+        }
     }
 
     pub fn start_cooldown (&mut self) {
-        assert! (self.is_timed ());
-
-        if let Activity::Timed (c, m) = self.activity {
+        if let SkillKind::Timed (c, m) = self.kind {
             if c == 0 {
-                self.activity = Activity::Timed (m, m);
+                self.kind = SkillKind::Timed (m, m);
             }
+        } else {
+            panic! ("Invalid skill kind {:?}", self.kind)
         }
     }
 
     pub fn is_timed (&self) -> bool {
-        matches! (self.activity, Activity::Timed ( .. ))
+        matches! (self.kind, SkillKind::Timed ( .. ))
     }
 
     pub fn is_passive (&self) -> bool {
-        matches! (self.activity, Activity::Passive)
+        matches! (self.kind, SkillKind::Passive)
     }
 
     pub fn is_toggled (&self) -> bool {
-        matches! (self.activity, Activity::Toggled ( .. ))
+        matches! (self.kind, SkillKind::Toggled ( .. ))
     }
 
     pub fn get_status_id (&self) -> ID {
-        self.status_id
+        if let SkillKind::Toggled (status_idx) = self.kind {
+            self.status_ids[status_idx]
+        } else {
+            self.status_ids[0]
+        }
     }
 }
 
@@ -97,7 +93,7 @@ impl Tool for Skill {
 
 impl Applier for Skill {
     fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
-        let status: Status = *scene.get_status (&self.status_id);
+        let status: Status = *scene.get_status (&self.get_status_id ());
 
         if self.is_timed () && self.get_duration () > 0 {
             None
@@ -113,28 +109,28 @@ impl Applier for Skill {
 
 impl Timed for Skill {
     fn get_duration (&self) -> u16 {
-        match self.activity {
-            Activity::Timed (c, _) => c,
-            Activity::Passive => DURATION_PERMANENT,
-            Activity::Toggled ( .. ) => DURATION_PERMANENT,
+        match self.kind {
+            SkillKind::Timed (c, _) => c,
+            SkillKind::Passive => DURATION_PERMANENT,
+            SkillKind::Toggled ( .. ) => DURATION_PERMANENT,
         }
     }
 
     fn decrement_duration (&mut self) -> bool {
-        match self.activity {
-            Activity::Timed (c, m) => {
+        match self.kind {
+            SkillKind::Timed (c, m) => {
                 if c == 0 {
                     true
                 } else {
                     let duration: u16 = c.saturating_sub (1);
 
-                    self.activity = Activity::Timed (duration, m);
+                    self.kind = SkillKind::Timed (duration, m);
 
                     false
                 }
             }
-            Activity::Passive => false,
-            Activity::Toggled ( .. ) => false,
+            SkillKind::Passive => false,
+            SkillKind::Toggled ( .. ) => false,
         }
     }
 }
@@ -171,7 +167,7 @@ mod tests {
         skill_0.start_cooldown ();
         assert_eq! (skill_0.get_duration (), 2);
         //  Test interrupted start
-        skill_0.activity = Activity::Timed (1, 2);
+        skill_0.kind = SkillKind::Timed (1, 2);
         skill_0.start_cooldown ();
         assert_eq! (skill_0.get_duration (), 1);
     }

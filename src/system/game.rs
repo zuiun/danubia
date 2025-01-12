@@ -1,14 +1,15 @@
 use super::{ActionValidator, ConfirmationValidator, DirectionValidator, IDValidator, LocationValidator, MovementValidator, Reader, Turn};
 use crate::character::{Faction, FactionBuilder, Magic, Skill, Tool, Unit, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
-use crate::common::{Target, ID, MULTIPLIER_ATTACK, MULTIPLIER_MAGIC, MULTIPLIER_SKILL, MULTIPLIER_WAIT};
-use crate::dynamic::{Appliable, Applier, Changeable, Status};
-use crate::event::Handler;
+use crate::common::{FACTOR_ATTACK, FACTOR_MAGIC, FACTOR_SKILL, FACTOR_WAIT, ID, Target};
+use crate::dynamic::{Appliable, Applier, Dynamic, Status};
+// use crate::event::Handler;
 use crate::map::{Area, Direction, Grid, Location, Search};
 use crate::Scene;
-use std::cell::RefCell;
+// use std::cell::RefCell;
 use std::collections::{BinaryHeap, HashSet};
 use std::io::BufRead;
 use std::rc::Rc;
+use std::sync::mpsc::Sender;
 
 /*
  * Calculated from build.rs
@@ -19,10 +20,10 @@ use std::rc::Rc;
  */
 const DELAYS: [u8; 101] = [21, 20, 19, 19, 18, 18, 17, 17, 16, 16, 15, 15, 14, 14, 14, 13, 13, 13, 12, 12, 11, 11, 11, 11, 10, 10, 10, 9, 9, 9, 9, 8, 8, 8, 8, 7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1];
 
-fn get_delay (mov: u16, delay_multiplier: f32) -> u8 {
+fn get_delay (mov: u16, delay_multiplier: f32) -> u16 {
     let delay: f32 = DELAYS[mov as usize] as f32;
 
-    (delay * delay_multiplier) as u8
+    (delay * delay_multiplier) as u16
 }
 
 pub enum Action {
@@ -37,22 +38,23 @@ pub enum Action {
 #[derive (Debug)]
 pub struct Game<R: BufRead> {
     scene: Rc<Scene>,
-    handler: Rc<RefCell<Handler>>,
+    // handler: Rc<RefCell<Handler>>,
     grid: Grid,
     units: Vec<Unit>,
     factions: Vec<Faction>,
     turns: BinaryHeap<Turn>,
     number_turns: usize,
-    reader: Reader<R>,
     unit_ids_dirty: Vec<ID>,
+    reader: Reader<R>,
+    sender: Sender<String>,
 }
 
 impl<R: BufRead> Game<R> {
-    pub fn new (scene: Scene, reader: Reader<R>) -> Self {
+    pub fn new (scene: Scene, reader: Reader<R>, sender: Sender<String>) -> Self {
         let scene: Rc<Scene> = Rc::new (scene);
-        let handler: Handler = Handler::new ();
-        let handler: RefCell<Handler> = RefCell::new (handler);
-        let handler: Rc<RefCell<Handler>> = Rc::new (handler);
+        // let handler: Handler = Handler::new ();
+        // let handler: RefCell<Handler> = RefCell::new (handler);
+        // let handler: Rc<RefCell<Handler>> = Rc::new (handler);
         let grid: Grid = Grid::new (Rc::clone (&scene));
         let units: Vec<Unit> = scene.unit_builders_iter ().map (|u: &UnitBuilder|
             u.build (Rc::clone (&scene))
@@ -62,10 +64,12 @@ impl<R: BufRead> Game<R> {
         ).collect ();
         let turns: BinaryHeap<Turn> = BinaryHeap::new ();
         let number_turns: usize = 0;
-        let reader: Reader<R> = reader;
         let unit_ids_dirty: Vec<ID> = Vec::new ();
+        let reader: Reader<R> = reader;
 
-        Self { scene, handler, grid, units, factions, turns, number_turns, reader, unit_ids_dirty }
+        let _ = sender.send (String::from ("Game initialisation complete"));
+
+        Self { scene, /* handler, */ grid, units, factions, turns, number_turns, unit_ids_dirty, reader, sender }
     }
 
     fn apply_terrain (&mut self, unit_id: ID, terrain_id: ID, location: Location) {
@@ -81,7 +85,7 @@ impl<R: BufRead> Game<R> {
 
     fn add_turn (&mut self, unit_id: ID) {
         let mov: u16 = self.units[unit_id].get_statistic (UnitStatistic::MOV).0;
-        let delay: u8 = get_delay (mov, MULTIPLIER_WAIT);
+        let delay: u16 = get_delay (mov, FACTOR_WAIT);
         let turn: Turn = Turn::new (unit_id, delay, mov);
 
         self.turns.push (turn);
@@ -297,14 +301,17 @@ impl<R: BufRead> Game<R> {
             Area::Radial (r) => Search::Radial (r),
             Area::Path (w) => Search::Path (w, range, Direction::Length), // Placeholder direction
         };
-
-        if potential_ids.is_empty () {
+        let _ = self.sender.send (format! ("Found potential targets: {:?}", potential_ids));
+        let target_ids: Vec<ID> = if potential_ids.is_empty () {
             println! ("No available targets");
 
             Vec::new ()
         } else {
             self.find_units_area (unit_id, &potential_ids, target, search)
-        }
+        };
+        let _ = self.sender.send (format! ("Found targets: {:?}", target_ids));
+
+        target_ids
     }
 
     fn find_locations_area (&mut self, unit_id: ID, potential_locations: &[Location], search: Search) -> Vec<Location> {
@@ -397,8 +404,11 @@ impl<R: BufRead> Game<R> {
             Area::Radial (r) => Search::Radial (r),
             Area::Path (w) => Search::Path (w, range, Direction::Length), // Placeholder direction
         };
+        let _ = self.sender.send (format! ("Found potential targets: {:?}", potential_locations));
+        let target_locations: Vec<Location> = self.find_locations_area (unit_id, &potential_locations, search);
+        let _ = self.sender.send (format! ("Found targets: {:?}", potential_locations));
 
-        self.find_locations_area (unit_id, &potential_locations, search)
+        target_locations
     }
 
     fn start_turn (&mut self, unit_id: ID) {
@@ -453,18 +463,18 @@ impl<R: BufRead> Game<R> {
     }
 
     fn act_magic (&mut self, user_id: ID, target: Option<&[Location]>, magic_id: ID) -> u16 {
-        let (mov, status_magic): (u16, Status) = {
+        let (mov, mut status_magic): (u16, Status) = {
             let (mov, magic): (u16, &Magic) = self.units[user_id].act_magic (&magic_id);
             let status_magic_id: ID = magic.get_status_id ();
-            let mut status_magic: Status = *self.scene.get_status (&status_magic_id);
-
-            status_magic.set_applier_id (user_id);
+            let status_magic: Status = *self.scene.get_status (&status_magic_id);
 
             (mov, status_magic)
         };
 
         match target {
             Some (target_locations) => {
+                status_magic.set_applier_id (user_id);
+
                 for target_location in target_locations {
                     self.grid.add_status (target_location, status_magic);
                 }
@@ -489,9 +499,11 @@ impl<R: BufRead> Game<R> {
 
         // print!("\x1B[2J\x1B[1;1H"); // Clears the terminal
         println! ("Start {}'s turn", unit_id);
+        let _ = self.sender.send (format! ("Start {}'s turn", unit_id));
 
         let (mov, delay_multiplier): (u16, f32) = loop {
             print! ("{}", self.grid);
+            println! ("Movable locations: {:?}", self.grid.find_unit_movable (&unit_id, mov));
             println! ("Turn order: {:?}\n", self.turns);
 
             if let Some (action) = self.reader.read_validate (&validator) {
@@ -508,6 +520,7 @@ impl<R: BufRead> Game<R> {
                             if !target_ids.is_empty () {
                                 let mov: u16 = self.act_attack (unit_id, &target_ids);
 
+                                let _ = self.sender.send (format! ("{}'s action: Attack", unit_id));
                                 println! ("Attacking {:?}", target_ids);
 
                                 for target_id in target_ids {
@@ -516,7 +529,7 @@ impl<R: BufRead> Game<R> {
 
                                 println! ("Self: {}", self.units[unit_id].get_statistics ());
 
-                                break (mov, MULTIPLIER_ATTACK)
+                                break (mov, FACTOR_ATTACK)
                             }
                         }
                     }
@@ -525,6 +538,7 @@ impl<R: BufRead> Game<R> {
                             println! ("Unit cannot rearm (is routed)")
                         } else {
                             self.units[unit_id].switch_weapon ();
+                            let _ = self.sender.send (format! ("{}'s action: Switch weapon", unit_id));
                             println! ("New weapon: {:?}", self.units[unit_id].get_weapon ());
                         }
                     }
@@ -540,6 +554,7 @@ impl<R: BufRead> Game<R> {
                                 let validator: IDValidator = IDValidator::new (&skill_ids);
 
                                 println! ("Available skills: {:?}", skill_ids);
+                                let _ = self.sender.send (format! ("{}'s action: Skill", unit_id));
 
                                 if let Some (skill_id) = self.reader.read_validate (&validator) {
                                     let skill: &Skill = self.scene.get_skill (&skill_id);
@@ -557,7 +572,7 @@ impl<R: BufRead> Game<R> {
                                             println! ("Target: {}", self.units[target_id]);
                                         }
 
-                                        break (mov, MULTIPLIER_SKILL)
+                                        break (mov, FACTOR_SKILL)
                                     }
                                 }
                             }
@@ -575,6 +590,7 @@ impl<R: BufRead> Game<R> {
                                 let validator: IDValidator = IDValidator::new (magic_ids);
 
                                 println! ("Available magics: {:?}", magic_ids);
+                                let _ = self.sender.send (format! ("{}'s action: Magic", unit_id));
 
                                 if let Some (magic_id) = self.reader.read_validate (&validator) {
                                     let magic: &Magic = self.scene.get_magic (&magic_id);
@@ -595,7 +611,7 @@ impl<R: BufRead> Game<R> {
                                                     println! ("Target: {}", self.units[target_id]);
                                                 }
 
-                                                break (mov, MULTIPLIER_MAGIC)
+                                                break (mov, FACTOR_MAGIC)
                                             }
                                         }
                                         Target::Map ( .. ) => {
@@ -606,13 +622,9 @@ impl<R: BufRead> Game<R> {
                                                 let mov: u16 = self.act_magic (unit_id, Some (&target_locations), magic_id);
 
                                                 println! ("Using magic {} on {:?}", magic_id, target_locations);
+                                                println! ("Targets: {:?}", target_locations);
 
-                                                // TODO: Consider implementing indexing on Grid
-                                                // for target_location in target_locations {
-                                                //     println! ("Target: {}", self.grid[target_location]);
-                                                // }
-
-                                                break (mov, MULTIPLIER_MAGIC)
+                                                break (mov, FACTOR_MAGIC)
                                             }
                                         }
                                         _ => panic! ("Invalid target {:?}", target),
@@ -626,6 +638,7 @@ impl<R: BufRead> Game<R> {
                         let mut movements: Vec<Direction> = Vec::new ();
                         let validator: MovementValidator = MovementValidator::new ();
 
+                        let _ = self.sender.send (format! ("{}'s action: Move", unit_id));
                         println! ("Current location: {:?}", start);
                         self.grid.set_unit_id_passable (Some (unit_id));
 
@@ -635,6 +648,7 @@ impl<R: BufRead> Game<R> {
                                 println! ("{:?}", movements);
                                 self.move_unit (unit_id, &movements);
                                 println! ("{:?}, {} MOV remaining", self.grid.get_unit_location (&unit_id), mov);
+                                let _ = self.sender.send (format! ("Movements: {:?}", movements));
 
                                 break
                             } else if let Some ((end, cost)) = self.grid.try_move (&start, direction) {
@@ -650,12 +664,19 @@ impl<R: BufRead> Game<R> {
                             }
                         }
                     }
-                    Action::Wait => break (self.act_wait (unit_id), MULTIPLIER_WAIT),
+                    Action::Wait => {
+                        let _ = self.sender.send (format! ("{}'s action: Wait", unit_id));
+
+                        break (self.act_wait (unit_id), FACTOR_WAIT)
+                    }
                 }
+            } else {
+                break (0, 0.0)
             }
         };
 
         println! ("End {}'s turn\n", unit_id);
+        let _ = self.sender.send (format! ("End {}'s turn", unit_id));
         self.send_passive (unit_id);
 
         (mov, delay_multiplier)
@@ -671,13 +692,13 @@ impl<R: BufRead> Game<R> {
         self.grid.expand_control (&unit_id);
     }
 
-    fn update_turns (&mut self, mut turn: Turn, delay: u8, mov: u16) {
+    fn update_turns (&mut self, mut turn: Turn, delay: u16, mov: u16) {
         self.number_turns += 1;
 
         if turn.update (delay, mov) {
             self.turns.push (turn);
         } else {
-            let reduction: u8 = turn.get_delay ();
+            let reduction: u16 = turn.get_delay ();
             let turns: Vec<Turn> = self.turns.drain ().collect ();
 
             for mut turn in turns {
@@ -691,7 +712,7 @@ impl<R: BufRead> Game<R> {
         }
     }
 
-    fn do_turn (&mut self) {
+    fn do_turn (&mut self) -> bool {
         let turn: Turn = self.turns.pop ().expect ("Turn not found");
         let unit_id: ID = turn.get_unit_id ();
 
@@ -703,7 +724,7 @@ impl<R: BufRead> Game<R> {
             (u16::MAX, f32::MAX)
         };
 
-        if delay_multiplier == MULTIPLIER_ATTACK {
+        if !self.unit_ids_dirty.is_empty () {
             let unit_ids_attacked: Vec<ID> = self.unit_ids_dirty.drain ( .. ).collect ();
 
             for unit_id in unit_ids_attacked {
@@ -713,19 +734,28 @@ impl<R: BufRead> Game<R> {
             }
         }
 
-        let delay: u8 = if self.units[unit_id].is_alive () {
-            self.end_turn (unit_id);
+        if mov > 0 {
+            let delay: u16 = if self.units[unit_id].is_alive () {
+                self.end_turn (unit_id);
+    
+                get_delay (mov, delay_multiplier)
+            } else {
+                u16::MAX
+            };
 
-            get_delay (mov, delay_multiplier)
-        } else {
-            u8::MAX
-        };
+            if self.units[unit_id].is_alive () {
+                self.update_turns (turn, delay, mov);
+            } else {
+                self.kill_unit (unit_id);
+            }
 
-        if self.units[unit_id].is_alive () {
-            self.update_turns (turn, delay, mov);
+            true
         } else {
-            self.kill_unit (unit_id);
+            let _ = self.sender.send (String::from ("Quitting game"));
+
+            false
         }
+        
     }
 
     pub fn load_scene (&mut self) {
@@ -736,8 +766,8 @@ impl<R: BufRead> Game<R> {
         self.place_unit (0, (0, 0));
         self.place_unit (2, (1, 0));
 
-        loop {
-            self.do_turn ()
+        while self.do_turn () {
+
         }
     }
 }
@@ -746,12 +776,14 @@ impl<R: BufRead> Game<R> {
 mod tests {
     use super::*;
     use UnitStatistic::{MRL, HLT, SPL, ATK, DEF, MAG, ORG};
+    use std::sync::mpsc;
 
     fn generate_game<R: BufRead> (stream: R) -> Game<R> {
-        let scene = Scene::debug ();
+        let scene = Scene::default ();
         let reader = Reader::new (stream);
+        let (sender, _) = mpsc::channel ();
 
-        Game::new (scene, reader)
+        Game::new (scene, reader, sender)
     }
 
     #[test]
@@ -1151,7 +1183,7 @@ mod tests {
     #[test]
     fn game_act () {
         let input = b"z\nd\ns\na\nz\nz\nw\na\nz\na\n2\nz\n\
-                z\na\nx\nc\nc\nc\ns\n0\nz\n\
+                z\na\nx\nq\nq\nq\ns\n0\nz\n\
                 z\na\nz\nd\n0\nz";
         let mut game = generate_game (&input[..]);
 
@@ -1252,10 +1284,10 @@ mod tests {
         assert_eq! (game.turns.pop ().unwrap ().get_unit_id (), 3);
         assert_eq! (game.turns.pop ().unwrap ().get_unit_id (), 2);
         // Test reduce update
-        game.turns.push (Turn::new (0, 250, 0));
-        game.turns.push (Turn::new (1, 251, 0));
-        game.turns.push (Turn::new (2, 252, 0));
-        game.turns.push (Turn::new (3, 253, 0));
+        game.turns.push (Turn::new (0, 65530, 0));
+        game.turns.push (Turn::new (1, 65531, 0));
+        game.turns.push (Turn::new (2, 65532, 0));
+        game.turns.push (Turn::new (3, 65533, 0));
         let turn: Turn = game.turns.pop ().unwrap ();
         assert_eq! (turn.get_unit_id (), 0);
         game.update_turns (turn, 5, 0);

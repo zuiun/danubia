@@ -44,7 +44,7 @@ impl Faction {
         if leader_id < ID_UNINITIALISED {
             self.leader_followers.insert ((leader_id, follower_id))
         } else {
-            false
+            panic! ("Invalid leader ID {}", leader_id)
         }
     }
 

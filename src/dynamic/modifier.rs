@@ -1,4 +1,4 @@
-use super::{Adjustment, Appliable, Change, Effect};
+use super::{Adjustment, Appliable, AppliableKind, Effect};
 use crate::common::{Capacity, Timed, DURATION_PERMANENT, ID, ID_UNINITIALISED};
 
 const ADJUSTMENTS_EMPTY: &[Adjustment] = &[];
@@ -13,7 +13,13 @@ pub struct Modifier {
 }
 
 impl Modifier {
-    pub const fn new (id: ID, adjustments: &'static [Adjustment], duration: Capacity, can_stack: bool) -> Self {
+    pub const fn new (id: ID, adjustments: &'static [Adjustment], duration: u16, can_stack: bool) -> Self {
+        let duration: Capacity = if duration < DURATION_PERMANENT {
+            Capacity::Quantity (duration, duration)
+        } else {
+            Capacity::Constant (DURATION_PERMANENT, DURATION_PERMANENT, DURATION_PERMANENT)
+        };
+
         Self { id, adjustments, duration, can_stack }
     }
 
@@ -32,11 +38,16 @@ impl Appliable for Modifier {
     }
 
     fn modifier (&self) -> Modifier {
-        Modifier::new (self.id, self.adjustments, self.duration, self.can_stack)
+        let id: ID = self.id;
+        let adjustments: &'static [Adjustment] = self.adjustments;
+        let duration: Capacity = self.duration;
+        let can_stack: bool = self.can_stack;
+
+        Modifier { id, adjustments, duration, can_stack }
     }
 
-    fn change (&self) -> Change {
-        Change::Modifier (self.id, self.can_stack)
+    fn kind (&self) -> AppliableKind {
+        AppliableKind::Modifier (self.id)
     }
 
     fn get_adjustments (&self) -> &[Adjustment] {
@@ -91,32 +102,6 @@ impl Default for Modifier {
     }
 }
 
-#[derive (Debug)]
-#[derive (Clone, Copy)]
-pub struct ModifierBuilder {
-    id: ID,
-    adjustments: &'static [Adjustment],
-    duration: u16,
-}
-
-impl ModifierBuilder {
-    pub const fn new (id: ID, adjustments: &'static [Adjustment], duration: u16) -> Self {
-        assert! (duration > 0);
-
-        Self { id, adjustments, duration }
-    }
-
-    pub fn build (&self, can_stack: bool) -> Modifier {
-        let duration: Capacity = if self.duration < DURATION_PERMANENT {
-            Capacity::Quantity (self.duration, self.duration)
-        } else {
-            Capacity::Constant (DURATION_PERMANENT, DURATION_PERMANENT, DURATION_PERMANENT)
-        };
-
-        Modifier::new (self.id, self.adjustments, duration, can_stack)
-    }
-}
-
 #[cfg (test)]
 mod tests {    
     use super::*;
@@ -124,10 +109,8 @@ mod tests {
 
     fn generate_modifiers () -> (Modifier, Modifier) {
         let scene = generate_scene ();
-        let modifier_builder_0 = scene.get_modifier_builder (&0);
-        let modifier_0 = modifier_builder_0.build (false);
-        let modifier_builder_1 = scene.get_modifier_builder (&1);
-        let modifier_1 = modifier_builder_1.build (false);
+        let modifier_0 = *scene.get_modifier (&0);
+        let modifier_1 = *scene.get_modifier (&1);
 
         (modifier_0, modifier_1)
     }

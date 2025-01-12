@@ -1,6 +1,8 @@
 mod game;
 pub use self::game::Action;
 pub use self::game::Game;
+mod logger;
+pub use self::logger::Logger;
 mod reader;
 pub use self::reader::Reader;
 mod turn;

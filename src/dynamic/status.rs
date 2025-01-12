@@ -1,4 +1,4 @@
-use super::{Appliable, Applier, Change, Trigger};
+use super::{Appliable, Applier, AppliableKind, Trigger};
 use crate::common::{Capacity, DURATION_PERMANENT, ID, Target, Timed};
 use std::rc::Rc;
 
@@ -6,7 +6,7 @@ use std::rc::Rc;
 #[derive (Clone, Copy)]
 pub struct Status {
     id: ID,
-    change: Change,
+    kind: AppliableKind,
     trigger: Trigger,
     duration: Capacity,
     target: Target,
@@ -16,7 +16,7 @@ pub struct Status {
 }
 
 impl Status {
-    pub const fn new (id: ID, change: Change, trigger: Trigger, duration: u16, target: Target, is_every_turn: bool, next_id: Option<ID>) -> Self {
+    pub const fn new (id: ID, kind: AppliableKind, trigger: Trigger, duration: u16, target: Target, is_every_turn: bool, next_id: Option<ID>) -> Self {
         assert! (duration > 0);
         assert! (matches! (target, Target::This) || matches! (target, Target::Enemy) || matches! (target, Target::Map ( .. )));
 
@@ -29,25 +29,15 @@ impl Status {
         };
         let is_expired: bool = false;
 
-        Self { id, change, trigger, duration, target, is_every_turn, is_expired, next_id }
+        Self { id, kind, trigger, duration, target, is_every_turn, is_expired, next_id }
     }
-
-    // pub fn replace (&mut self, other: &Self) {
-    //     self.id = other.id;
-    //     self.change = other.change;
-    //     self.trigger = other.trigger;
-    //     self.duration = other.duration;
-    //     self.target = other.target;
-    //     self.is_every_turn = other.is_every_turn;
-    //     self.next_id = other.next_id;
-    // }
 
     pub fn get_id (&self) -> ID {
         self.id
     }
 
-    pub fn get_change (&self) -> Change {
-        self.change
+    pub fn get_kind (&self) -> AppliableKind {
+        self.kind
     }
 
     pub fn get_trigger (&self) -> Trigger {
@@ -69,13 +59,15 @@ impl Status {
     pub fn set_applier_id (&mut self, unit_id: ID) {
         if let Target::Map ( .. ) = self.target {
             self.target = Target::Map (unit_id);
+        } else {
+            panic! ("Invalid target {:?}", self.target)
         }
     }
 }
 
 impl Applier for Status {
     fn try_yield_appliable (&self, scene: Rc<crate::Scene>) -> Option<Box<dyn Appliable>> {
-        let appliable: Box<dyn Appliable> = self.change.appliable (scene);
+        let appliable: Box<dyn Appliable> = self.kind.appliable (scene);
 
         Some (appliable)
     }
@@ -125,8 +117,8 @@ mod tests {
 
     #[test]
     fn status_decrement_duration () {
-        let mut status_0 = Status::new (0, Change::Modifier (0, false), Trigger::None, 2, Target::This, false,  None);
-        let mut status_1 = Status::new (1, Change::Modifier (0, false), Trigger::None, DURATION_PERMANENT, Target::This, false, None);
+        let mut status_0 = Status::new (0, AppliableKind::Modifier (0), Trigger::None, 2, Target::This, false,  None);
+        let mut status_1 = Status::new (1, AppliableKind::Modifier (0), Trigger::None, DURATION_PERMANENT, Target::This, false, None);
 
         // Test timed status
         assert! (!status_0.decrement_duration ());

@@ -1,4 +1,4 @@
-use super::{Adjustment, Appliable, Change, Modifier};
+use super::{Adjustment, Appliable, AppliableKind, Modifier};
 use crate::common::ID;
 
 #[derive (Debug)]
@@ -28,8 +28,8 @@ impl Appliable for Effect {
         unimplemented! ()
     }
 
-    fn change (&self) -> Change {
-        Change::Effect (self.id)   
+    fn kind (&self) -> AppliableKind {
+        AppliableKind::Effect (self.id)   
     }
 
     fn get_adjustments (&self) -> &[Adjustment] {
