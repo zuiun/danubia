@@ -1,6 +1,6 @@
 use super::Tool;
 use crate::common::{DURATION_PERMANENT, ID, Target, Timed};
-use crate::dynamic::{Appliable, Applier, Attribute};
+use crate::dynamic::{Appliable, AppliableKind, Applier};
 use crate::map::Area;
 use crate::Scene;
 use std::rc::Rc;
@@ -17,7 +17,7 @@ pub enum SkillKind {
 #[derive (Clone, Copy)]
 pub struct Skill {
     id: ID,
-    attribute_ids: &'static [ID],
+    appliables: &'static [AppliableKind],
     target: Target,
     area: Area,
     range: u8,
@@ -25,26 +25,26 @@ pub struct Skill {
 }
 
 impl Skill {
-    pub const fn new (id: ID, attribute_ids: &'static [ID], target: Target, area: Area, range: u8, kind: SkillKind) -> Self {
-        assert! (!attribute_ids.is_empty ());
+    pub const fn new (id: ID, appliables: &'static [AppliableKind], target: Target, area: Area, range: u8, kind: SkillKind) -> Self {
+        assert! (!appliables.is_empty ());
         assert! (matches! (target, Target::This | Target::Ally | Target::Allies));
 
-        Self { id, attribute_ids, target, area, range, kind }
+        Self { id, appliables, target, area, range, kind }
     }
 
     pub fn get_id (&self) -> ID {
         self.id
     }
 
-    pub fn switch_attribute (&mut self) -> (ID, ID) {
-        if let SkillKind::Toggled (attribute_idx_old) = self.kind {
-            let attribute_id_old: ID = self.attribute_ids[attribute_idx_old];
-            let attribute_idx_new: usize = (attribute_idx_old + 1) % self.attribute_ids.len ();
-            let attribute_id_new: ID = self.attribute_ids[attribute_idx_new];
+    pub fn switch_attribute (&mut self) -> (AppliableKind, AppliableKind) {
+        if let SkillKind::Toggled (appliable_idx_old) = self.kind {
+            let appliable_old: AppliableKind = self.appliables[appliable_idx_old];
+            let appliable_idx_new: usize = (appliable_idx_old + 1) % self.appliables.len ();
+            let appliable_new: AppliableKind = self.appliables[appliable_idx_new];
 
-            self.kind = SkillKind::Toggled (attribute_idx_new);
+            self.kind = SkillKind::Toggled (appliable_idx_new);
 
-            (attribute_id_old, attribute_id_new)
+            (appliable_old, appliable_new)
         } else {
             panic! ("Invalid skill kind {:?}", self.kind)
         }
@@ -72,11 +72,11 @@ impl Skill {
         matches! (self.kind, SkillKind::Toggled ( .. ))
     }
 
-    pub fn get_attribute_id (&self) -> ID {
-        if let SkillKind::Toggled (attribute_idx) = self.kind {
-            self.attribute_ids[attribute_idx]
+    pub fn get_appliable (&self) -> AppliableKind {
+        if let SkillKind::Toggled (appliable_idx) = self.kind {
+            self.appliables[appliable_idx]
         } else {
-            self.attribute_ids[0]
+            self.appliables[0]
         }
     }
 }
@@ -93,12 +93,10 @@ impl Tool for Skill {
 
 impl Applier for Skill {
     fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
-        let attribute: Attribute = *scene.get_attribute (&self.get_attribute_id ());
-
         if self.is_timed () && self.get_duration () > 0 {
             None
         } else {
-            attribute.try_yield_appliable (scene)
+            Some (self.get_appliable ().appliable (scene))
         }
     }
 
@@ -153,10 +151,10 @@ mod tests {
         let scene = generate_scene ();
         let mut skill_2 = *scene.get_skill (&2);
 
-        assert_eq! (skill_2.switch_attribute (), (0, 1));
-        assert_eq! (skill_2.get_attribute_id (), 1);
-        assert_eq! (skill_2.switch_attribute (), (1, 0));
-        assert_eq! (skill_2.get_attribute_id (), 0);
+        assert_eq! (skill_2.switch_attribute (), (AppliableKind::Modifier (3), AppliableKind::Modifier (5)));
+        assert_eq! (skill_2.get_appliable (), AppliableKind::Modifier (5));
+        assert_eq! (skill_2.switch_attribute (), (AppliableKind::Modifier (5), AppliableKind::Modifier (3)));
+        assert_eq! (skill_2.get_appliable (), AppliableKind::Modifier (3));
     }
 
     #[test]

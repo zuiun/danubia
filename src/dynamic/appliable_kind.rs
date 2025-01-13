@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
+#[derive (PartialEq)]
 pub enum AppliableKind {
     Modifier (ID), // modifier
     Effect (ID), // effect
@@ -22,11 +23,31 @@ impl AppliableKind {
         }
     }
 
+    pub fn modifier_id (&self) -> ID {
+        match self {
+            AppliableKind::Modifier (m) => {
+                *m
+            }
+            AppliableKind::Effect ( .. ) => unimplemented! (),
+            AppliableKind::Attribute ( .. ) => unimplemented! (),
+        }
+    }
+
     pub fn effect (&self, scene: Rc<Scene>) -> Effect {
         match self {
             AppliableKind::Modifier ( .. ) => unimplemented! (),
             AppliableKind::Effect (e) => {
                 *scene.get_effect (e)
+            }
+            AppliableKind::Attribute ( .. ) => unimplemented! (),
+        }
+    }
+
+    pub fn effect_id (&self) -> ID {
+        match self {
+            AppliableKind::Modifier ( .. ) => unimplemented! (),
+            AppliableKind::Effect (e) => {
+                *e
             }
             AppliableKind::Attribute ( .. ) => unimplemented! (),
         }
@@ -38,6 +59,16 @@ impl AppliableKind {
             AppliableKind::Effect ( .. ) => unimplemented! (),
             AppliableKind::Attribute ( a ) => {
                 *scene.get_attribute (a)
+            }
+        }
+    }
+
+    pub fn attribute_id (&self) -> ID {
+        match self {
+            AppliableKind::Modifier ( .. ) => unimplemented! (),
+            AppliableKind::Effect ( .. ) => unimplemented! (),
+            AppliableKind::Attribute (a) => {
+                *a
             }
         }
     }

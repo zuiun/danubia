@@ -7,13 +7,6 @@ rework event system into game events (weather, spawning reinforcements, etc)
 - Handler owns Game (I dislike this)
 on apply OnOccupy, immediately apply its effects to occupants
 
-dynamic rework architecture:
-Appliable -> Attribute: Modifier, Effect, Attribute
-Applier ("Attribute"), not Appliable
-Skill and Magic become more specific; Skill only can apply Appliable, but Magic can apply either?
-ok the original system was genuinely better
-Skill and Magic no longer apply Attribute, which is now an Appliable; instead they apply Modifier or Attribute
-
 Code:
 generate_scene clutters crate visibility; lists should honestly not be part of lib
 start documenting functions...

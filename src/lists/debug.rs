@@ -46,18 +46,17 @@ pub const EFFECTS: &[Effect] = &[
     ], false), // atk_+5_def_-5
 ];
 pub const ATTRIBUTES: &[Attribute] = &[
-    Attribute::new (0, AppliableKind::Modifier (3), Trigger::None, DURATION_PERMANENT), // atk_stack_up
-    Attribute::new (1, AppliableKind::Modifier (5), Trigger::None, 2), // atk_down
+    Attribute::new (0, AppliableKind::Modifier (3), Trigger::OnHit, DURATION_PERMANENT), // atk_stack_up
+    Attribute::new (1, AppliableKind::Modifier (5), Trigger::OnHit, 2), // atk_down
     Attribute::new (2, AppliableKind::Modifier (6), Trigger::OnOccupy, 2), // poison_2
-    Attribute::new (3, AppliableKind::Modifier (1), Trigger::None, DURATION_PERMANENT), // terrain_cost_down_permanent
+    Attribute::new (3, AppliableKind::Modifier (1), Trigger::OnOccupy, DURATION_PERMANENT), // terrain_cost_down_permanent
     Attribute::new (4, AppliableKind::Modifier (6), Trigger::OnOccupy, 2), // poison_2
     Attribute::new (5, AppliableKind::Modifier (6), Trigger::OnHit, 2), // poison_2
     Attribute::new (6, AppliableKind::Modifier (6), Trigger::OnAttack, 2), // poison_2
     Attribute::new (7, AppliableKind::Modifier (6), Trigger::OnAttack, DURATION_PERMANENT), // poison_permanent
-    Attribute::new (8, AppliableKind::Modifier (4), Trigger::None, DURATION_PERMANENT), // atk_up_def_down
-    Attribute::new (9, AppliableKind::Modifier (7), Trigger::OnHit, DURATION_PERMANENT), // atk_up_def_down
-    Attribute::new (10, AppliableKind::Modifier (8), Trigger::OnAttack, DURATION_PERMANENT), // atk_up_def_down
-    Attribute::new (11, AppliableKind::Modifier (2), Trigger::None, 1), // atk_up_def_down
+    Attribute::new (8, AppliableKind::Modifier (4), Trigger::OnHit, DURATION_PERMANENT), // atk_up_def_down
+    Attribute::new (9, AppliableKind::Modifier (7), Trigger::OnHit, DURATION_PERMANENT), // def_down
+    Attribute::new (10, AppliableKind::Modifier (8), Trigger::OnAttack, DURATION_PERMANENT), // mag_down
 ];
 pub const TERRAINS: &[Terrain] = &[
     Terrain::new (None, 1), // DEBUG: passable_1
@@ -112,19 +111,19 @@ pub const WEAPONS: &[Weapon] = &[
     Weapon::new (11, [0, 0, 1, 2], Area::Radial (3), 12), // Mortar
 ];
 pub const MAGICS: &[Magic] = &[
-    Magic::new (0, 8, Target::This, Area::Single, 0, 10, Element::Dark), // def_self
-    Magic::new (1, 0, Target::This, Area::Single, 0, 21, Element::Dark), // atk_self
-    Magic::new (2, 6, Target::This, Area::Single, 0, 10, Element::Matter), // poison_target_others
-    Magic::new (3, 2, Target::Map (ID_UNINITIALISED), Area::Radial (2), 0, 10, Element::Light), // poison_map
+    Magic::new (0, AppliableKind::Modifier (4), Target::This, Area::Single, 0, 10, Element::Dark), // def_self
+    Magic::new (1, AppliableKind::Modifier (3), Target::This, Area::Single, 0, 21, Element::Dark), // atk_self
+    Magic::new (2, AppliableKind::Modifier (6), Target::This, Area::Single, 0, 10, Element::Matter), // poison_target_others
+    Magic::new (3, AppliableKind::Attribute (2), Target::Map, Area::Radial (2), 0, 10, Element::Light), // poison_map
 ];
 pub const SKILLS: &[Skill] = &[
-    Skill::new (0, &[5], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),
-    Skill::new (1, &[1], Target::This, Area::Single, 0, SkillKind::Passive),
-    Skill::new (2, &[0, 1], Target::This, Area::Radial (2), 0, SkillKind::Toggled (0)),
-    Skill::new (3, &[2], Target::This, Area::Radial (2), 0, SkillKind::Timed (1, 1)), // DO NOT USE
-    Skill::new (4, &[8], Target::Ally, Area::Single, 0, SkillKind::Timed (0, 2)),
-    Skill::new (5, &[8], Target::Allies, Area::Radial (2), 0, SkillKind::Timed (0, 2)),
-    Skill::new (6, &[8], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),
+    Skill::new (0, &[AppliableKind::Modifier (6)], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),
+    Skill::new (1, &[AppliableKind::Modifier (5)], Target::This, Area::Single, 0, SkillKind::Passive),
+    Skill::new (2, &[AppliableKind::Modifier (3), AppliableKind::Modifier (5)], Target::This, Area::Radial (2), 0, SkillKind::Toggled (0)),
+    Skill::new (3, &[AppliableKind::Modifier (0)], Target::This, Area::Radial (2), 0, SkillKind::Timed (1, 1)), // DO NOT USE
+    Skill::new (4, &[AppliableKind::Modifier (4)], Target::Ally, Area::Single, 0, SkillKind::Timed (0, 2)),
+    Skill::new (5, &[AppliableKind::Modifier (4)], Target::Allies, Area::Radial (2), 0, SkillKind::Timed (0, 2)),
+    Skill::new (6, &[AppliableKind::Modifier (4)], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),
 ];
 pub const FACTION_BUILDERS: &[FactionBuilder] = &[
     FactionBuilder::new (0, &[2]),

@@ -97,7 +97,6 @@ pub trait Dynamic {
     /*
      * Adds appliable to self
      * Fails if appliable isn't applicable to self
-     * Targeted Attribute should use this
      *
      * appliable: Box<dyn Appliable> = appliable to add
      *
@@ -107,41 +106,16 @@ pub trait Dynamic {
      */
     fn add_appliable (&mut self, appliable: Box<dyn Appliable>) -> bool;
     /*
-     * Adds attribute to self
-     * Fails if attribute isn't applicable to self
-     * Non-targeted Attribute should use this
+     * Removes appliable from self
+     * Fails if appliable isn't applied to self
      *
-     * attribute: Attribute = attribute to add
-     *
-     * Pre: None
-     * Post: None
-     * Return: bool = false -> add failed, true -> add succeeded
-     */
-    fn add_attribute (&mut self, attribute: Attribute) -> bool;
-    /*
-     * Removes modifier_id from self
-     * Fails if modifier_id isn't applied to self
-     * Attribute should use this
-     *
-     * modifier_id: ID = modifier to remove
+     * appliable: ID = modifier to remove
      *
      * Pre: None
      * Post: None
      * Return: bool = false -> remove failed, true -> remove succeeded
      */
-    fn remove_modifier (&mut self, modifier_id: &ID) -> bool;
-    /*
-     * Removes attribute_id from self
-     * Fails if attribute_id isn't applied to self
-     * Changeable should use this
-     *
-     * attribute_id: ID = attribute to remove
-     *
-     * Pre: None
-     * Post: None
-     * Return: bool = false -> remove failed, true -> remove succeeded
-     */
-    fn remove_attribute (&mut self, attribute_id: &ID) -> bool;
+    fn remove_appliable (&mut self, appliable: AppliableKind) -> bool;
     /*
      * Decreases all of self's Timed's remaining durations
      *
@@ -165,5 +139,5 @@ pub enum Trigger {
     OnHit, // units only
     OnAttack, // units (weapons) only
     OnOccupy, // tiles only
-    None, // units and tiles
+    // None, // units and tiles
 }

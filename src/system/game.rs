@@ -1,7 +1,7 @@
 use super::{ActionValidator, ConfirmationValidator, DirectionValidator, IDValidator, LocationValidator, MovementValidator, Reader, Turn};
 use crate::character::{Faction, FactionBuilder, Magic, Skill, Tool, Unit, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
 use crate::common::{FACTOR_ATTACK, FACTOR_MAGIC, FACTOR_SKILL, FACTOR_WAIT, ID, Target};
-use crate::dynamic::{Appliable, Applier, Dynamic, Attribute};
+use crate::dynamic::{Appliable, AppliableKind, Applier, Dynamic};
 // use crate::event::Handler;
 use crate::map::{Area, Direction, Grid, Location, Search};
 use crate::Scene;
@@ -122,12 +122,11 @@ impl<R: BufRead> Game<R> {
         let follower_ids: &HashSet<ID> = self.factions[faction_id].get_followers (&leader_id);
         let skill_passive_id: ID = self.units[leader_id].get_skill_passive_id ()
                 .unwrap_or_else (|| panic! ("Passive not found for leader {}", leader_id));
-        let attribute_passive_id: ID = self.scene.get_skill (&skill_passive_id).get_attribute_id ();
 
         for follower_id in follower_ids {
             let distance: usize = self.grid.find_distance_between (follower_id, &leader_id);
 
-            self.units[*follower_id].try_add_passive (&attribute_passive_id, distance);
+            self.units[*follower_id].try_add_passive (&skill_passive_id, distance);
         }
     }
 
@@ -262,7 +261,7 @@ impl<R: BufRead> Game<R> {
     }
 
     fn find_units_range (&mut self, unit_id: ID, target: Target, area: Area, range: u8) -> Vec<ID> {
-        if let Target::Map ( .. ) = target {
+        if let Target::Map = target {
             panic! ("Invalid target {:?}", target)
         } else if let Target::This = target {
             vec![unit_id]
@@ -447,42 +446,46 @@ impl<R: BufRead> Game<R> {
     }
 
     fn act_skill (&mut self, user_id: ID, target_ids: &[ID], skill_id: ID) -> u16 {
-        let (mov, attribute_skill): (u16, Attribute) = {
+        let (mov, appliable_skill): (u16, AppliableKind) = {
             let (mov, skill): (u16, &Skill) = self.units[user_id].act_skill (&skill_id);
-            let attribute_skill_id: ID = skill.get_attribute_id ();
-            let attribute_skill: Attribute = *self.scene.get_attribute (&attribute_skill_id);
+            let appliable_skill: AppliableKind = skill.get_appliable ();
 
-            (mov, attribute_skill)
+            (mov, appliable_skill)
         };
 
         for target_id in target_ids {
-            self.units[*target_id].add_attribute (attribute_skill);
+            let mut appliable_skill: Box<dyn Appliable> = appliable_skill.appliable (Rc::clone (&self.scene));
+
+            appliable_skill.set_applier_id (user_id);
+            self.units[*target_id].add_appliable (appliable_skill);
         }
 
         mov
     }
 
     fn act_magic (&mut self, user_id: ID, target: Option<&[Location]>, magic_id: ID) -> u16 {
-        let (mov, mut attribute_magic): (u16, Attribute) = {
+        let (mov, appliable_magic): (u16, AppliableKind) = {
             let (mov, magic): (u16, &Magic) = self.units[user_id].act_magic (&magic_id);
-            let attribute_magic_id: ID = magic.get_attribute_id ();
-            let attribute_magic: Attribute = *self.scene.get_attribute (&attribute_magic_id);
+            let appliable_magic: AppliableKind = magic.get_appliable ();
 
-            (mov, attribute_magic)
+            (mov, appliable_magic)
         };
 
         match target {
             Some (target_locations) => {
-                attribute_magic.set_applier_id (user_id);
 
                 for target_location in target_locations {
-                    let attribute_magic: Box<Attribute> = Box::new (attribute_magic);
+                    let mut appliable_magic: Box<dyn Appliable> = appliable_magic.appliable (Rc::clone (&self.scene));
 
-                    self.grid.add_appliable (target_location, attribute_magic);
+                    appliable_magic.set_applier_id (user_id);
+                    self.grid.add_appliable (target_location, appliable_magic);
                 }
             }
             None => {
-                self.units[user_id].add_attribute (attribute_magic);
+                let mut appliable_magic: Box<dyn Appliable> = appliable_magic.appliable (Rc::clone (&self.scene));
+
+                appliable_magic.set_applier_id (user_id);
+                self.units[user_id].add_appliable (appliable_magic);
             }
         }
 
@@ -616,7 +619,7 @@ impl<R: BufRead> Game<R> {
                                                 break (mov, FACTOR_MAGIC)
                                             }
                                         }
-                                        Target::Map ( .. ) => {
+                                        Target::Map => {
                                             let target_locations: Vec<Location> =
                                                 self.find_locations (unit_id, area, range);
 
@@ -1074,7 +1077,8 @@ mod tests {
         let mut game = generate_game (&b""[..]);
         let modifier_9 = *game.scene.get_modifier (&9);
         let mut modifier_9 = Box::new (modifier_9);
-        let attribute_8 = *game.scene.get_attribute (&8);
+        let modifier_4 = *game.scene.get_modifier (&4);
+        let modifier_4 = Box::new (modifier_4);
 
         game.grid.place_unit (0, (1, 1));
         game.grid.place_unit (1, (0, 0));
@@ -1088,7 +1092,7 @@ mod tests {
         game.start_turn (0);
         assert! (!game.units[0].is_alive ());
         // Test normal start
-        game.units[1].add_attribute (attribute_8);
+        game.units[1].add_appliable (modifier_4);
         game.start_turn (1);
         assert! (game.units[1].is_alive ());
         assert_eq! (game.units[1].get_statistic (DEF).0, 16);
@@ -1101,10 +1105,12 @@ mod tests {
     fn game_act_attack () {
         let mut game = generate_game (&b""[..]);
         let attribute_9 = *game.scene.get_attribute (&9);
+        let attribute_9 = Box::new (attribute_9);
         let attribute_10 = *game.scene.get_attribute (&10);
+        let attribute_10 = Box::new (attribute_10);
 
-        game.units[0].add_attribute (attribute_10);
-        game.units[2].add_attribute (attribute_9);
+        game.units[0].add_appliable (attribute_10);
+        game.units[2].add_appliable (attribute_9);
 
         let spl_0_0 = game.units[0].get_statistic (SPL).0;
         let mrl_2_0 = game.units[2].get_statistic (MRL).0;

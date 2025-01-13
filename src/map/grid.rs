@@ -1,7 +1,7 @@
 use super::{City, COST_IMPASSABLE, Search, Tile, TileBuilder};
 use crate::collections::{InnerJoinMap, OuterJoinMap};
 use crate::common::{ID, ID_UNINITIALISED};
-use crate::dynamic::{Appliable, Applier, Attribute, Dynamic, Modifier, AppliableKind, Trigger};
+use crate::dynamic::{Appliable, Applier, Dynamic, Modifier, AppliableKind};
 use crate::Scene;
 use std::collections::{HashSet, VecDeque};
 use std::fmt::{self, Display, Formatter};
@@ -1244,13 +1244,13 @@ mod tests {
         let mut grid = generate_grid ();
         let attribute_2 = *scene.get_attribute (&2);
         let mut attribute_2 = Box::new (attribute_2);
-        let attribute_11 = *scene.get_attribute (&11);
-        let mut attribute_11 = Box::new (attribute_11);
+        let modifier_2 = *scene.get_modifier (&2);
+        let mut modifier_2 = Box::new (modifier_2);
 
         attribute_2.set_applier_id (0);
-        attribute_11.set_applier_id (1);
+        modifier_2.set_applier_id (1);
         grid.add_appliable (&(0, 0), attribute_2);
-        grid.add_appliable (&(1, 1), attribute_11);
+        grid.add_appliable (&(1, 1), modifier_2);
 
         grid.decrement_durations (&0);
         assert! (grid.try_yield_appliable (&(0, 0)).is_some ());

@@ -84,8 +84,7 @@ impl Applier for Attribute {
         match self.trigger {
             Trigger::OnHit => Target::Enemy,
             Trigger::OnAttack => Target::Enemy,
-            Trigger::OnOccupy => Target::Map (0),
-            Trigger::None => Target::This,
+            Trigger::OnOccupy => Target::Map,
         }
     }
 }
@@ -128,8 +127,8 @@ mod tests {
 
     #[test]
     fn attribute_decrement_duration () {
-        let mut attribute_0 = Attribute::new (0, AppliableKind::Modifier (0), Trigger::None, 2);
-        let mut attribute_1 = Attribute::new (1, AppliableKind::Modifier (0), Trigger::None, DURATION_PERMANENT);
+        let mut attribute_0 = Attribute::new (0, AppliableKind::Modifier (0), Trigger::OnHit, 2);
+        let mut attribute_1 = Attribute::new (1, AppliableKind::Modifier (0), Trigger::OnHit, DURATION_PERMANENT);
 
         // Test timed attribute
         assert! (attribute_0.decrement_duration ());

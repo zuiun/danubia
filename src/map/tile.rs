@@ -1,5 +1,5 @@
 use super::{COST_IMPASSABLE, COST_MINIMUM};
-use crate::common::{ID, ID_UNINITIALISED, Target, Timed};
+use crate::common::{ID, Target, Timed};
 use crate::dynamic::{Adjustment, Appliable, AppliableKind, Applier, Dynamic, Modifier, StatisticKind, Attribute, Trigger};
 use crate::Scene;
 use std::rc::Rc;
@@ -132,14 +132,10 @@ impl Dynamic for Tile {
                 let kind: AppliableKind = attribute.get_kind ();
 
                 if let AppliableKind::Modifier ( .. ) = attribute.get_kind () {
-                    let appliable: Box<dyn Appliable> = attribute.try_yield_appliable (Rc::clone (&self.scene))
-                            .unwrap_or_else (|| panic! ("Appliable not found for attribute {:?}", attribute));
                     let trigger: Trigger = attribute.get_trigger ();
 
                     if let Trigger::OnOccupy = trigger {
                         self.modifier = None;
-                    } else if let Trigger::None = trigger {
-                        self.add_appliable (appliable);
                     } else {
                         panic! ("Invalid trigger {:?}", trigger)
                     }
@@ -155,66 +151,41 @@ impl Dynamic for Tile {
         }
     }
 
-    fn add_attribute (&mut self, attribute: Attribute) -> bool {
-        let kind: AppliableKind = attribute.get_kind ();
-
-        if let AppliableKind::Modifier ( .. ) = attribute.get_kind () {
-            let appliable: Box<dyn Appliable> = attribute.try_yield_appliable (Rc::clone (&self.scene))
-                    .unwrap_or_else (|| panic! ("Appliable not found for attribute {:?}", attribute));
-            let trigger: Trigger = attribute.get_trigger ();
-
-            if let Trigger::OnOccupy = trigger {
-                self.modifier = None;
-            } else if let Trigger::None = trigger {
-                self.add_appliable (appliable);
-            } else {
-                panic! ("Invalid trigger {:?}", trigger)
-            }
-
-            self.attribute = Some (attribute);
-            self.applier_id_attribute = attribute.get_applier_id ();
-
-            true
-        } else {
-            panic! ("Invalid appliable kind {:?}", kind)
-        }
-    }
-
-    fn remove_modifier (&mut self, modifier_id: &ID) -> bool {
-        let modifier: Option<Modifier> = self.modifier;
-
-        if let Some (m) = modifier {
-            if m.get_id () == *modifier_id {
-                self.modifier = None;
-                self.applier_id_modifier = None;
-    
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    }
-
-    fn remove_attribute (&mut self, attribute_id: &ID) -> bool {
-        let attribute: Option<Attribute> = self.attribute;
-
-        if let Some (s) = attribute {
-            if s.get_id () == *attribute_id {
-                if let AppliableKind::Modifier (m) = s.get_kind () {
-                    self.remove_modifier (&m);
+    fn remove_appliable (&mut self, appliable: AppliableKind) -> bool {
+        match appliable {
+            AppliableKind::Modifier (modifier_id) => {
+                if let Some (modifier) = self.modifier {
+                    if modifier.get_id () == modifier_id {
+                        self.modifier = None;
+                        self.applier_id_modifier = None;
+            
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
                 }
-
-                self.attribute = None;
-                self.applier_id_attribute = None;
-
-                true
-            } else {
-                false
             }
-        } else {
-            false
+            AppliableKind::Effect ( .. ) => unimplemented! (),
+            AppliableKind::Attribute (attribute_id) => {
+                if let Some (attribute) = self.attribute {
+                    if attribute.get_id () == attribute_id {
+                        if let AppliableKind::Modifier (m) = attribute.get_kind () {
+                            self.remove_appliable (AppliableKind::Modifier (m));
+                        }
+        
+                        self.attribute = None;
+                        self.applier_id_attribute = None;
+        
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
         }
     }
 
@@ -243,7 +214,7 @@ impl Applier for Tile {
     }
 
     fn get_target (&self) -> Target {
-        Target::Map (ID_UNINITIALISED)
+        Target::Map
     }
 }
 
@@ -282,11 +253,14 @@ mod tests {
         (modifier_0, modifier_1, modifier_2)
     }
 
-    fn generate_attributes () -> (Attribute, Attribute, Attribute) {
+    fn generate_attributes () -> (Box<Attribute>, Box<Attribute>, Box<Attribute>) {
         let scene = generate_scene ();
         let attribute_2 = *scene.get_attribute (&2);
+        let attribute_2 = Box::new (attribute_2);
         let attribute_3 = *scene.get_attribute (&3);
+        let attribute_3 = Box::new (attribute_3);
         let attribute_4 = *scene.get_attribute (&4);
+        let attribute_4 = Box::new (attribute_4);
 
         (attribute_2, attribute_3, attribute_4)
     }
@@ -356,6 +330,7 @@ mod tests {
         let scene = generate_scene ();
         let mut tile = Tile::new (Rc::clone (&scene), 1, 0, None);
         let (modifier_0, modifier_1, modifier_2) = generate_modifiers ();
+        let (attribute_2, _, _) = generate_attributes ();
 
         // Test additive modifier
         assert_eq! (tile.get_cost (), 2);
@@ -370,65 +345,38 @@ mod tests {
         assert! (tile.add_appliable (modifier_2));
         assert! (tile.modifier.is_some ());
         assert_eq! (tile.get_cost (), 1);
-    }
 
-    
-    #[test]
-    fn tile_add_attribute () {
-        let scene = generate_scene ();
-        let mut tile = Tile::new (Rc::clone (&scene), 1, 0, None);
-        let (attribute_2, attribute_3, _) = generate_attributes ();
-
-        // Test tile attribute
-        assert_eq! (tile.get_cost (), 2);
-        assert! (tile.add_attribute (attribute_3));
-        assert! (tile.attribute.is_some ());
-        assert_eq! (tile.get_cost (), 1);
-        // Test applier attribute
-        assert! (tile.add_attribute (attribute_2));
+        // Test attribute
+        assert! (tile.add_appliable (attribute_2));
         assert! (tile.attribute.is_some ());
         assert! (tile.try_yield_appliable (Rc::clone (&scene)).is_some ());
     }
 
     #[test]
-    fn tile_remove_modifier () {
+    fn tile_remove_appliable () {
         let scene = generate_scene ();
         let mut tile = Tile::new (Rc::clone (&scene), 1, 0, None);
         let (modifier_0, _, _) = generate_modifiers ();
+        let (_, attribute_3, _) = generate_attributes ();
 
         // Test empty remove
-        assert! (!tile.remove_modifier (&0));
+        assert! (!tile.remove_appliable (AppliableKind::Modifier (0)));
         assert! (tile.modifier.is_none ());
         // Test non-empty remove
         tile.add_appliable (modifier_0);
         assert_eq! (tile.get_cost (), 3);
-        assert! (tile.remove_modifier (&0));
+        assert! (tile.remove_appliable (AppliableKind::Modifier (0)));
         assert_eq! (tile.get_cost (), 2);
         assert! (tile.modifier.is_none ());
-    }
-
-    #[test]
-    fn tile_remove_attribute () {
-        let scene = generate_scene ();
-        let mut tile = Tile::new (Rc::clone (&scene), 1, 0, None);
-        let (attribute_2, attribute_3, _) = generate_attributes ();
 
         // Test empty remove
-        assert! (!tile.remove_attribute (&0));
+        assert! (!tile.remove_appliable (AppliableKind::Attribute (0)));
         assert! (tile.attribute.is_none ());
         assert! (tile.modifier.is_none ());
         // Test non-empty remove
-        tile.add_attribute (attribute_3);
-        assert_eq! (tile.get_cost (), 1);
-        assert! (tile.remove_attribute (&3));
-        assert_eq! (tile.get_cost (), 2);
+        tile.add_appliable (attribute_3);
+        assert! (tile.remove_appliable (AppliableKind::Attribute (3)));
         assert! (tile.attribute.is_none ());
-        assert! (tile.modifier.is_none ());
-        // Test applier remove
-        tile.add_attribute (attribute_2);
-        assert! (tile.remove_attribute (&2));
-        assert! (tile.attribute.is_none ());
-        assert! (tile.modifier.is_none ());
     }
 
     #[test]
@@ -468,7 +416,7 @@ mod tests {
         tile.decrement_durations ();
         assert! (tile.attribute.is_none ());
         // Test timed attribute
-        tile.add_attribute (attribute_2);
+        tile.add_appliable (attribute_2);
         tile.decrement_durations ();
         assert! (tile.attribute.is_some ());
         tile.decrement_durations ();
@@ -476,7 +424,7 @@ mod tests {
         tile.decrement_durations ();
         assert! (tile.attribute.is_none ());
         // Test permanent attribute
-        tile.add_attribute (attribute_3);
+        tile.add_appliable (attribute_3);
         tile.decrement_durations ();
         assert! (tile.attribute.is_some ());
         tile.decrement_durations ();

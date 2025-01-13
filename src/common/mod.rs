@@ -44,7 +44,7 @@ pub enum Target {
     Enemy,
     Enemies,
     // All,
-    Map (ID), // applier unit
+    Map, // applier unit
 }
 
 // #[derive (Debug)]
