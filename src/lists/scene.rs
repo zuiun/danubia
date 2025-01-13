@@ -1,14 +1,14 @@
 use super::debug;
 use crate::character::{FactionBuilder, Magic, Skill, UnitBuilder, Weapon};
 use crate::common::ID;
-use crate::dynamic::{Effect, Modifier, Status};
+use crate::dynamic::{Effect, Modifier, Attribute};
 use crate::map::{City, Terrain, TileBuilder};
 
 #[derive (Debug)]
 pub struct Scene {
     modifiers: &'static [Modifier],
     effects: &'static [Effect],
-    statuses: &'static [Status],
+    attributes: &'static [Attribute],
     terrains: &'static [Terrain],
     cities: &'static [City],
     weapons: &'static [Weapon],
@@ -24,7 +24,7 @@ impl Scene {
         // TODO: Change this
         let modifiers: &[Modifier] = debug::MODIFIERS;
         let effects: &[Effect] = debug::EFFECTS;
-        let statuses: &[Status] = debug::STATUSES;
+        let attributes: &[Attribute] = debug::ATTRIBUTES;
         let terrains: &[Terrain] = debug::TERRAINS;
         let cities: &[City] = debug::CITIES;
         let weapons: &[Weapon] = debug::WEAPONS;
@@ -34,13 +34,13 @@ impl Scene {
         let unit_builders: &[UnitBuilder] = debug::UNIT_BUILDERS;
         let tile_builders: &[&[TileBuilder]] = debug::TILE_BUILDERS;
 
-        Self { modifiers, effects, statuses, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
+        Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
     }
 
     // pub fn debug () -> Self {
     //     let modifiers: &[Modifier] = debug::MODIFIERS;
     //     let effects: &[Effect] = debug::EFFECTS;
-    //     let statuses: &[Status] = debug::STATUSES;
+    //     let attributes: &[Attribute] = debug::ATTRIBUTES;
     //     let terrains: &[Terrain] = debug::TERRAINS;
     //     let cities: &[City] = debug::CITIES;
     //     let weapons: &[Weapon] = debug::WEAPONS;
@@ -50,7 +50,7 @@ impl Scene {
     //     let unit_builders: &[UnitBuilder] = debug::UNIT_BUILDERS;
     //     let tile_builders: &[&[TileBuilder]] = debug::TILE_BUILDERS;
 
-    //     Self { modifiers, effects, statuses, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
+    //     Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
     // }
 
     pub fn get_modifier (&self, id: &ID) -> &Modifier {
@@ -65,10 +65,10 @@ impl Scene {
         &self.effects[*id]
     }
 
-    pub fn get_status (&self, id: &ID) -> &Status {
-        assert! (*id < self.statuses.len ());
+    pub fn get_attribute (&self, id: &ID) -> &Attribute {
+        assert! (*id < self.attributes.len ());
 
-        &self.statuses[*id]
+        &self.attributes[*id]
     }
 
     pub fn get_terrain (&self, id: &ID) -> &Terrain {
@@ -138,7 +138,7 @@ impl Default for Scene {
     fn default() -> Self {
         let modifiers: &[Modifier] = debug::MODIFIERS;
         let effects: &[Effect] = debug::EFFECTS;
-        let statuses: &[Status] = debug::STATUSES;
+        let attributes: &[Attribute] = debug::ATTRIBUTES;
         let terrains: &[Terrain] = debug::TERRAINS;
         let cities: &[City] = debug::CITIES;
         let weapons: &[Weapon] = debug::WEAPONS;
@@ -148,6 +148,6 @@ impl Default for Scene {
         let unit_builders: &[UnitBuilder] = debug::UNIT_BUILDERS;
         let tile_builders: &[&[TileBuilder]] = debug::TILE_BUILDERS;
 
-        Self { modifiers, effects, statuses, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
+        Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
     }
 }

@@ -1,6 +1,6 @@
 use super::Tool;
 use crate::common::{ID, Target, Timed};
-use crate::dynamic::{Appliable, AppliableKind, Applier, Dynamic, Status, Trigger};
+use crate::dynamic::{Appliable, AppliableKind, Applier, Dynamic, Attribute, Trigger};
 use crate::map::Area;
 use crate::Scene;
 use std::rc::Rc;
@@ -24,14 +24,14 @@ pub struct Weapon {
     statistics: WeaponStatistics,
     area: Area,
     range: u8,
-    status: Option<Status>,
+    attribute: Option<Attribute>,
 }
 
 impl Weapon {
     pub const fn new (id: ID, statistics: WeaponStatistics, area: Area, range: u8) -> Self {
-        let status: Option<Status> = None;
+        let attribute: Option<Attribute> = None;
 
-        Self { id, statistics, area, range, status }
+        Self { id, statistics, area, range, attribute }
     }
 
     pub fn get_statistic (&self, statistic: WeaponStatistic) -> u16 {
@@ -65,19 +65,17 @@ impl Dynamic for Weapon {
         unimplemented! ()
     }
 
-    fn add_status (&mut self, status: Status) -> bool {
-        assert! (status.get_next_id ().is_none ()); // Weapons don't support linked statuses
-
-        let kind: AppliableKind = status.get_kind ();
+    fn add_attribute (&mut self, attribute: Attribute) -> bool {
+        let kind: AppliableKind = attribute.get_kind ();
 
         if let AppliableKind::Modifier ( .. ) = kind {
-            let target: Target = status.get_target ();
+            let target: Target = attribute.get_target ();
 
             if let Target::Enemy = target {
-                let trigger: Trigger = status.get_trigger ();
+                let trigger: Trigger = attribute.get_trigger ();
 
                 if let Trigger::OnAttack = trigger {
-                    self.status = Some (status);
+                    self.attribute = Some (attribute);
 
                     true
                 } else {
@@ -95,10 +93,10 @@ impl Dynamic for Weapon {
         unimplemented! () 
     }
 
-    fn remove_status (&mut self, status_id: &ID) -> bool {
-        if let Some (s) = self.status {
-            if s.get_id () == *status_id {
-                self.status = None;
+    fn remove_attribute (&mut self, attribute_id: &ID) -> bool {
+        if let Some (s) = self.attribute {
+            if s.get_id () == *attribute_id {
+                self.attribute = None;
 
                 true
             } else {
@@ -110,11 +108,11 @@ impl Dynamic for Weapon {
     }
 
     fn decrement_durations (&mut self) {
-        if let Some (mut status) = self.status {
-            self.status = if status.decrement_duration () {
-                None
+        if let Some (mut attribute) = self.attribute {
+            self.attribute = if attribute.decrement_duration () {
+                Some (attribute)
             } else {
-                Some (status)
+                None
             };
         }
     }
@@ -122,7 +120,7 @@ impl Dynamic for Weapon {
 
 impl Applier for Weapon {
     fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
-        self.status.and_then (|s: Status| s.try_yield_appliable (scene))
+        self.attribute.and_then (|s: Attribute| s.try_yield_appliable (scene))
     }
 
     fn get_target (&self) -> Target {
@@ -135,61 +133,61 @@ mod tests {
     use super::*;
     use crate::tests::generate_scene;
 
-    fn generate_statuses () -> (Status, Status) {
+    fn generate_attributes () -> (Attribute, Attribute) {
         let scene = generate_scene ();
-        let status_6 = *scene.get_status (&6);
-        let status_7 = *scene.get_status (&7);
+        let attribute_6 = *scene.get_attribute (&6);
+        let attribute_7 = *scene.get_attribute (&7);
 
-        (status_6, status_7)
+        (attribute_6, attribute_7)
     }
 
     #[test]
-    fn weapon_add_status () {
+    fn weapon_add_attribute () {
         let scene = generate_scene ();
         let mut weapon = *scene.get_weapon (&0);
-        let (status_6, _) = generate_statuses ();
+        let (attribute_6, _) = generate_attributes ();
 
-        assert! (weapon.add_status (status_6));
-        assert! (weapon.status.is_some ());
+        assert! (weapon.add_attribute (attribute_6));
+        assert! (weapon.attribute.is_some ());
     }
 
     #[test]
-    fn weapon_remove_status () {
+    fn weapon_remove_attribute () {
         let scene = generate_scene ();
         let mut weapon = *scene.get_weapon (&0);
-        let (status_6, _) = generate_statuses ();
+        let (attribute_6, _) = generate_attributes ();
     
         // Test empty remove
-        assert! (!weapon.remove_status (&6));
-        assert! (weapon.status.is_none ());
+        assert! (!weapon.remove_attribute (&6));
+        assert! (weapon.attribute.is_none ());
         // Test non-empty remove
-        weapon.add_status (status_6);
-        assert! (weapon.remove_status (&6));
-        assert! (weapon.status.is_none ());
+        weapon.add_attribute (attribute_6);
+        assert! (weapon.remove_attribute (&6));
+        assert! (weapon.attribute.is_none ());
     }
 
     #[test]
     fn weapon_decrement_durations () {
         let scene = generate_scene ();
         let mut weapon = *scene.get_weapon (&0);
-        let (status_6, status_7) = generate_statuses ();
+        let (attribute_6, attribute_7) = generate_attributes ();
 
-        // Test empty status
+        // Test empty attribute
         weapon.decrement_durations ();
-        assert! (weapon.status.is_none ());
-        // Test timed status
-        weapon.add_status (status_6);
+        assert! (weapon.attribute.is_none ());
+        // Test timed attribute
+        weapon.add_attribute (attribute_6);
         weapon.decrement_durations ();
-        assert! (weapon.status.is_some ());
+        assert! (weapon.attribute.is_some ());
         weapon.decrement_durations ();
-        assert! (weapon.status.is_some ());
+        assert! (weapon.attribute.is_some ());
         weapon.decrement_durations ();
-        assert! (weapon.status.is_none ());
-        // Test permanent status
-        weapon.add_status (status_7);
+        assert! (weapon.attribute.is_none ());
+        // Test permanent attribute
+        weapon.add_attribute (attribute_7);
         weapon.decrement_durations ();
-        assert! (weapon.status.is_some ());
+        assert! (weapon.attribute.is_some ());
         weapon.decrement_durations ();
-        assert! (weapon.status.is_some ());
+        assert! (weapon.attribute.is_some ());
     }
 }

@@ -1,4 +1,4 @@
-use super::{Adjustment, Appliable, AppliableKind, Modifier};
+use super::{Adjustment, Appliable, Attribute, Modifier, AppliableKind};
 use crate::common::ID;
 
 #[derive (Debug)]
@@ -20,11 +20,15 @@ impl Effect {
 }
 
 impl Appliable for Effect {
-    fn effect (&self) -> Effect {
-        Effect::new (self.id, self.adjustments, self.is_flat)
+    fn modifier (&self) -> Modifier {
+        unimplemented! ()
     }
 
-    fn modifier (&self) -> Modifier {
+    fn effect (&self) -> Effect {
+        *self
+    }
+
+    fn attribute (&self) -> Attribute {
         unimplemented! ()
     }
 
@@ -38,5 +42,13 @@ impl Appliable for Effect {
 
     fn can_stack_or_is_flat (&self) -> bool {
         self.is_flat
+    }
+
+    fn get_applier_id (&self) -> Option<ID> {
+        unimplemented! ()
+    }
+
+    fn set_applier_id (&mut self, _applier_id: ID) {
+        unimplemented! ()
     }
 }

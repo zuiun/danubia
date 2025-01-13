@@ -1,37 +1,40 @@
 use crate::character::{SkillKind, Element, FactionBuilder, Magic, Skill, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
 use crate::common::{DURATION_PERMANENT, ID_UNINITIALISED, Target};
-use crate::dynamic::{AppliableKind, Effect, Modifier, StatisticKind, Status, Trigger};
+use crate::dynamic::{AppliableKind, Effect, Modifier, StatisticKind, Attribute, Trigger};
 use crate::map::{Area, City, Terrain, TileBuilder};
 
 pub const MODIFIERS: &[Modifier] = &[
     Modifier::new (0, &[
         (StatisticKind::Tile (false), 1, true),
-    ], 2, false), // terrain_cost_+1
+    ], 2, false, false, None), // terrain_cost_+1
     Modifier::new (1, &[
         (StatisticKind::Tile (false), 1, false),
-    ], DURATION_PERMANENT, false), // terrain_cost_-1
+    ], DURATION_PERMANENT, false, false, None), // terrain_cost_-1
     Modifier::new (2, &[
         (StatisticKind::Tile (true), 1, false),
-    ], 1, false), // terrain_cost_=1
+    ], 1, false, false, Some (0)), // terrain_cost_=1
     Modifier::new (3, &[
         (StatisticKind::Unit (UnitStatistic::ATK), 20, true),
-    ], 2, true), // atk_+20
+    ], 2, true, false, None), // atk_+20
     Modifier::new (4, &[
         (StatisticKind::Unit (UnitStatistic::ATK), 10, true),
         (StatisticKind::Unit (UnitStatistic::DEF), 10, false),
-    ], DURATION_PERMANENT, true), // atk_+10_def_-10
+    ], DURATION_PERMANENT, true, true, None), // atk_+10_def_-10
     Modifier::new (5, &[
         (StatisticKind::Unit (UnitStatistic::ATK), 10, false),
-    ], 1, false), // atk_-10
+    ], 1, false, false, None), // atk_-10
     Modifier::new (6, &[
         (StatisticKind::Unit (UnitStatistic::HLT), 2, false),
-    ], 1, false), // poison
+    ], 1, false, false, Some (5)), // poison
     Modifier::new (7, &[
         (StatisticKind::Unit (UnitStatistic::DEF), 10, false),
-    ], 1, true), // def_-10
+    ], 1, false, false, None), // def_-10
     Modifier::new (8, &[
         (StatisticKind::Unit (UnitStatistic::MAG), 10, false),
-    ], 1, true), // mag_-10
+    ], 1, true, true, None), // mag_-10
+    Modifier::new (9, &[
+        (StatisticKind::Tile (true), 1, false),
+    ], 1, false, false, None), // terrain_cost_=1
 ];
 pub const EFFECTS: &[Effect] = &[
     Effect::new (0, &[
@@ -42,19 +45,19 @@ pub const EFFECTS: &[Effect] = &[
         (StatisticKind::Unit (UnitStatistic::DEF), 5, false),
     ], false), // atk_+5_def_-5
 ];
-pub const STATUSES: &[Status] = &[
-    Status::new (0, AppliableKind::Modifier (3), Trigger::None, DURATION_PERMANENT, Target::This, false, None), // atk_stack_up
-    Status::new (1, AppliableKind::Modifier (5), Trigger::None, 2, Target::This, false, None), // atk_down
-    Status::new (2, AppliableKind::Modifier (6), Trigger::OnOccupy, 2, Target::Map (ID_UNINITIALISED), false, None), // poison_2
-    Status::new (3, AppliableKind::Modifier (1), Trigger::None, DURATION_PERMANENT, Target::Map (ID_UNINITIALISED), false, None), // terrain_cost_down_permanent
-    Status::new (4, AppliableKind::Modifier (6), Trigger::OnOccupy, 2, Target::Map (ID_UNINITIALISED), false, Some (3)), // poison_2
-    Status::new (5, AppliableKind::Modifier (6), Trigger::OnHit, 2, Target::Enemy, false, Some (0)), // poison_2
-    Status::new (6, AppliableKind::Modifier (6), Trigger::OnAttack, 2, Target::Enemy, false, None), // poison_2
-    Status::new (7, AppliableKind::Modifier (6), Trigger::OnAttack, DURATION_PERMANENT, Target::Enemy, false, None), // poison_permanent
-    Status::new (8, AppliableKind::Modifier (4), Trigger::None, DURATION_PERMANENT, Target::This, true, None), // atk_up_def_down
-    Status::new (9, AppliableKind::Modifier (7), Trigger::OnHit, DURATION_PERMANENT, Target::Enemy, true, None), // atk_up_def_down
-    Status::new (10, AppliableKind::Modifier (8), Trigger::OnAttack, DURATION_PERMANENT, Target::Enemy, true, None), // atk_up_def_down
-    Status::new (11, AppliableKind::Modifier (2), Trigger::None, 1, Target::Map (ID_UNINITIALISED), false, None), // atk_up_def_down
+pub const ATTRIBUTES: &[Attribute] = &[
+    Attribute::new (0, AppliableKind::Modifier (3), Trigger::None, DURATION_PERMANENT), // atk_stack_up
+    Attribute::new (1, AppliableKind::Modifier (5), Trigger::None, 2), // atk_down
+    Attribute::new (2, AppliableKind::Modifier (6), Trigger::OnOccupy, 2), // poison_2
+    Attribute::new (3, AppliableKind::Modifier (1), Trigger::None, DURATION_PERMANENT), // terrain_cost_down_permanent
+    Attribute::new (4, AppliableKind::Modifier (6), Trigger::OnOccupy, 2), // poison_2
+    Attribute::new (5, AppliableKind::Modifier (6), Trigger::OnHit, 2), // poison_2
+    Attribute::new (6, AppliableKind::Modifier (6), Trigger::OnAttack, 2), // poison_2
+    Attribute::new (7, AppliableKind::Modifier (6), Trigger::OnAttack, DURATION_PERMANENT), // poison_permanent
+    Attribute::new (8, AppliableKind::Modifier (4), Trigger::None, DURATION_PERMANENT), // atk_up_def_down
+    Attribute::new (9, AppliableKind::Modifier (7), Trigger::OnHit, DURATION_PERMANENT), // atk_up_def_down
+    Attribute::new (10, AppliableKind::Modifier (8), Trigger::OnAttack, DURATION_PERMANENT), // atk_up_def_down
+    Attribute::new (11, AppliableKind::Modifier (2), Trigger::None, 1), // atk_up_def_down
 ];
 pub const TERRAINS: &[Terrain] = &[
     Terrain::new (None, 1), // DEBUG: passable_1

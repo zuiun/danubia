@@ -1,4 +1,4 @@
-use super::{Adjustment, Appliable, AppliableKind, Effect};
+use super::{Adjustment, Appliable, Attribute, Effect, AppliableKind};
 use crate::common::{Capacity, Timed, DURATION_PERMANENT, ID, ID_UNINITIALISED};
 
 const ADJUSTMENTS_EMPTY: &[Adjustment] = &[];
@@ -10,40 +10,51 @@ pub struct Modifier {
     adjustments: &'static [Adjustment],
     duration: Capacity,
     can_stack: bool,
+    is_every_turn: bool,
+    next_id: Option<ID>,
+    applier_id: Option<ID>,
 }
 
 impl Modifier {
-    pub const fn new (id: ID, adjustments: &'static [Adjustment], duration: u16, can_stack: bool) -> Self {
+    pub const fn new (id: ID, adjustments: &'static [Adjustment], duration: u16, can_stack: bool, is_every_turn: bool, next_id: Option<ID>) -> Self {
         let duration: Capacity = if duration < DURATION_PERMANENT {
             Capacity::Quantity (duration, duration)
         } else {
             Capacity::Constant (DURATION_PERMANENT, DURATION_PERMANENT, DURATION_PERMANENT)
         };
+        let applier_id: Option<ID> = None;
 
-        Self { id, adjustments, duration, can_stack }
+        Self { id, adjustments, duration, can_stack, is_every_turn, next_id, applier_id }
     }
 
     pub fn get_id (&self) -> ID {
         self.id
     }
 
-    pub fn can_stack (&self) -> bool {
-        self.can_stack
+    pub fn is_every_turn (&self) -> bool {
+        self.is_every_turn
+    }
+
+    pub fn get_next_id (&self) -> Option<ID> {
+        self.next_id
+    }
+
+    pub fn set_is_every_turn (&mut self, is_every_turn: bool) {
+        self.is_every_turn = is_every_turn;
     }
 }
 
 impl Appliable for Modifier {
+    fn modifier (&self) -> Modifier {
+        *self
+    }
+
     fn effect (&self) -> Effect {
         unimplemented! ()
     }
 
-    fn modifier (&self) -> Modifier {
-        let id: ID = self.id;
-        let adjustments: &'static [Adjustment] = self.adjustments;
-        let duration: Capacity = self.duration;
-        let can_stack: bool = self.can_stack;
-
-        Modifier { id, adjustments, duration, can_stack }
+    fn attribute (&self) -> Attribute {
+        unimplemented! ()
     }
 
     fn kind (&self) -> AppliableKind {
@@ -57,6 +68,14 @@ impl Appliable for Modifier {
     fn can_stack_or_is_flat (&self) -> bool {
         self.can_stack
     }
+
+    fn get_applier_id (&self) -> Option<ID> {
+        self.applier_id
+    }
+
+    fn set_applier_id (&mut self, applier_id: ID) {
+        self.applier_id = Some (applier_id);
+    }
 }
 
 impl Timed for Modifier {
@@ -69,15 +88,15 @@ impl Timed for Modifier {
 
     fn decrement_duration (&mut self) -> bool {
         match self.duration {
-            Capacity::Constant ( .. ) => false,
+            Capacity::Constant ( .. ) => true,
             Capacity::Quantity (d, m) => {
-                if d == 0 {
-                    true
-                } else {
+                if d > 0 {
                     let duration: u16 = d.saturating_sub (1);
 
                     self.duration = Capacity::Quantity (duration, m);
 
+                    true
+                } else {
                     false
                 }
             }
@@ -97,8 +116,11 @@ impl Default for Modifier {
         let adjustments: &'static [Adjustment] = ADJUSTMENTS_EMPTY;
         let duration: Capacity = Capacity::Constant (1, 0, 0);
         let can_stack: bool = false;
+        let is_every_turn: bool = false;
+        let next_id: Option<ID> = None;
+        let applier_id: Option<ID> = None;
 
-        Self { id, adjustments, duration, can_stack }
+        Self { id, adjustments, duration, can_stack, is_every_turn, next_id, applier_id }
     }
 }
 
@@ -120,16 +142,16 @@ mod tests {
         let (mut modifier_0, mut modifier_1) = generate_modifiers ();
 
         // Test timed modifier
-        assert! (!modifier_0.decrement_duration ());
+        assert! (modifier_0.decrement_duration ());
         assert_eq! (modifier_0.get_duration (), 1);
-        assert! (!modifier_0.decrement_duration ());
-        assert_eq! (modifier_0.get_duration (), 0);
         assert! (modifier_0.decrement_duration ());
         assert_eq! (modifier_0.get_duration (), 0);
+        assert! (!modifier_0.decrement_duration ());
+        assert_eq! (modifier_0.get_duration (), 0);
         // Test permanent modifier
-        assert! (!modifier_1.decrement_duration ());
+        assert! (modifier_1.decrement_duration ());
         assert_eq! (modifier_1.get_duration (), DURATION_PERMANENT);
-        assert! (!modifier_1.decrement_duration ());
+        assert! (modifier_1.decrement_duration ());
         assert_eq! (modifier_1.get_duration (), DURATION_PERMANENT);
     }
 }

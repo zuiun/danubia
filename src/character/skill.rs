@@ -1,6 +1,6 @@
 use super::Tool;
 use crate::common::{DURATION_PERMANENT, ID, Target, Timed};
-use crate::dynamic::{Appliable, Applier, Status};
+use crate::dynamic::{Appliable, Applier, Attribute};
 use crate::map::Area;
 use crate::Scene;
 use std::rc::Rc;
@@ -10,14 +10,14 @@ use std::rc::Rc;
 pub enum SkillKind {
     Timed (u16, u16), // current, maximum
     Passive,
-    Toggled (ID), // active status index
+    Toggled (ID), // active attribute index
 }
 
 #[derive (Debug)]
 #[derive (Clone, Copy)]
 pub struct Skill {
     id: ID,
-    status_ids: &'static [ID],
+    attribute_ids: &'static [ID],
     target: Target,
     area: Area,
     range: u8,
@@ -25,26 +25,26 @@ pub struct Skill {
 }
 
 impl Skill {
-    pub const fn new (id: ID, status_ids: &'static [ID], target: Target, area: Area, range: u8, kind: SkillKind) -> Self {
-        assert! (!status_ids.is_empty ());
+    pub const fn new (id: ID, attribute_ids: &'static [ID], target: Target, area: Area, range: u8, kind: SkillKind) -> Self {
+        assert! (!attribute_ids.is_empty ());
         assert! (matches! (target, Target::This | Target::Ally | Target::Allies));
 
-        Self { id, status_ids, target, area, range, kind }
+        Self { id, attribute_ids, target, area, range, kind }
     }
 
     pub fn get_id (&self) -> ID {
         self.id
     }
 
-    pub fn switch_status (&mut self) -> (ID, ID) {
-        if let SkillKind::Toggled (status_idx_old) = self.kind {
-            let status_id_old: ID = self.status_ids[status_idx_old];
-            let status_idx_new: usize = (status_idx_old + 1) % self.status_ids.len ();
-            let status_id_new: ID = self.status_ids[status_idx_new];
+    pub fn switch_attribute (&mut self) -> (ID, ID) {
+        if let SkillKind::Toggled (attribute_idx_old) = self.kind {
+            let attribute_id_old: ID = self.attribute_ids[attribute_idx_old];
+            let attribute_idx_new: usize = (attribute_idx_old + 1) % self.attribute_ids.len ();
+            let attribute_id_new: ID = self.attribute_ids[attribute_idx_new];
 
-            self.kind = SkillKind::Toggled (status_idx_new);
+            self.kind = SkillKind::Toggled (attribute_idx_new);
 
-            (status_id_old, status_id_new)
+            (attribute_id_old, attribute_id_new)
         } else {
             panic! ("Invalid skill kind {:?}", self.kind)
         }
@@ -72,11 +72,11 @@ impl Skill {
         matches! (self.kind, SkillKind::Toggled ( .. ))
     }
 
-    pub fn get_status_id (&self) -> ID {
-        if let SkillKind::Toggled (status_idx) = self.kind {
-            self.status_ids[status_idx]
+    pub fn get_attribute_id (&self) -> ID {
+        if let SkillKind::Toggled (attribute_idx) = self.kind {
+            self.attribute_ids[attribute_idx]
         } else {
-            self.status_ids[0]
+            self.attribute_ids[0]
         }
     }
 }
@@ -93,12 +93,12 @@ impl Tool for Skill {
 
 impl Applier for Skill {
     fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
-        let status: Status = *scene.get_status (&self.get_status_id ());
+        let attribute: Attribute = *scene.get_attribute (&self.get_attribute_id ());
 
         if self.is_timed () && self.get_duration () > 0 {
             None
         } else {
-            status.try_yield_appliable (scene)
+            attribute.try_yield_appliable (scene)
         }
     }
 
@@ -120,17 +120,17 @@ impl Timed for Skill {
         match self.kind {
             SkillKind::Timed (c, m) => {
                 if c == 0 {
-                    true
+                    false
                 } else {
                     let duration: u16 = c.saturating_sub (1);
 
                     self.kind = SkillKind::Timed (duration, m);
 
-                    false
+                    true
                 }
             }
-            SkillKind::Passive => false,
-            SkillKind::Toggled ( .. ) => false,
+            SkillKind::Passive => true,
+            SkillKind::Toggled ( .. ) => true,
         }
     }
 }
@@ -149,14 +149,14 @@ mod tests {
     }
 
     #[test]
-    fn skill_switch_status () {
+    fn skill_switch_attribute () {
         let scene = generate_scene ();
         let mut skill_2 = *scene.get_skill (&2);
 
-        assert_eq! (skill_2.switch_status (), (0, 1));
-        assert_eq! (skill_2.get_status_id (), 1);
-        assert_eq! (skill_2.switch_status (), (1, 0));
-        assert_eq! (skill_2.get_status_id (), 0);
+        assert_eq! (skill_2.switch_attribute (), (0, 1));
+        assert_eq! (skill_2.get_attribute_id (), 1);
+        assert_eq! (skill_2.switch_attribute (), (1, 0));
+        assert_eq! (skill_2.get_attribute_id (), 0);
     }
 
     #[test]
@@ -178,16 +178,16 @@ mod tests {
 
         // Test timed skill
         skill_0.start_cooldown ();
-        assert! (!skill_0.decrement_duration ());
+        assert! (skill_0.decrement_duration ());
         assert_eq! (skill_0.get_duration (), 1);
-        assert! (!skill_0.decrement_duration ());
-        assert_eq! (skill_0.get_duration (), 0);
         assert! (skill_0.decrement_duration ());
         assert_eq! (skill_0.get_duration (), 0);
+        assert! (!skill_0.decrement_duration ());
+        assert_eq! (skill_0.get_duration (), 0);
         // Test passive skill
-        assert! (!skill_1.decrement_duration ());
+        assert! (skill_1.decrement_duration ());
         assert_eq! (skill_1.get_duration (), DURATION_PERMANENT);
-        assert! (!skill_1.decrement_duration ());
+        assert! (skill_1.decrement_duration ());
         assert_eq! (skill_1.get_duration (), DURATION_PERMANENT);
     }
 }

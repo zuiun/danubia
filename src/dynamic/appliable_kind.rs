@@ -1,4 +1,4 @@
-use super::{Appliable, Effect, Modifier};
+use super::{Appliable, Attribute, Effect, Modifier};
 use crate::common::ID;
 use crate::Scene;
 use std::rc::Rc;
@@ -8,6 +8,7 @@ use std::rc::Rc;
 pub enum AppliableKind {
     Modifier (ID), // modifier
     Effect (ID), // effect
+    Attribute (ID), // attribute
 }
 
 impl AppliableKind {
@@ -17,6 +18,7 @@ impl AppliableKind {
                 *scene.get_modifier (m)
             }
             AppliableKind::Effect ( .. ) => unimplemented! (),
+            AppliableKind::Attribute ( .. ) => unimplemented! (),
         }
     }
 
@@ -25,6 +27,17 @@ impl AppliableKind {
             AppliableKind::Modifier ( .. ) => unimplemented! (),
             AppliableKind::Effect (e) => {
                 *scene.get_effect (e)
+            }
+            AppliableKind::Attribute ( .. ) => unimplemented! (),
+        }
+    }
+
+    pub fn attribute (&self, scene: Rc<Scene>) -> Attribute {
+        match self {
+            AppliableKind::Modifier ( .. ) => unimplemented! (),
+            AppliableKind::Effect ( .. ) => unimplemented! (),
+            AppliableKind::Attribute ( a ) => {
+                *scene.get_attribute (a)
             }
         }
     }
@@ -40,6 +53,12 @@ impl AppliableKind {
             AppliableKind::Effect ( .. ) => {
                 let effect: Effect = self.effect (scene);
                 let appliable: Box<dyn Appliable> = Box::new (effect);
+
+                appliable
+            }
+            AppliableKind::Attribute ( .. ) => {
+                let attribute: Attribute = self.attribute (scene);
+                let appliable: Box<dyn Appliable> = Box::new (attribute);
 
                 appliable
             }

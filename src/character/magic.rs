@@ -1,6 +1,6 @@
 use super::Tool;
 use crate::common::{ID, Target};
-use crate::dynamic::{Appliable, Applier, Status};
+use crate::dynamic::{Appliable, Applier, Attribute};
 use crate::map::Area;
 use crate::Scene;
 use std::rc::Rc;
@@ -18,7 +18,7 @@ pub enum Element {
 #[derive (Clone, Copy)]
 pub struct Magic {
     id: ID,
-    status_id: ID,
+    attribute_id: ID,
     target: Target,
     area: Area,
     range: u8,
@@ -27,18 +27,18 @@ pub struct Magic {
 }
 
 impl Magic {
-    pub const fn new (id: ID, status_id: ID, target: Target, area: Area, range: u8, cost: u16, element: Element) -> Self {
+    pub const fn new (id: ID, attribute_id: ID, target: Target, area: Area, range: u8, cost: u16, element: Element) -> Self {
         assert! (matches! (target, Target::This | Target::Map ( .. )));
 
-        Self { id, status_id, target, area, range, cost, element }
+        Self { id, attribute_id, target, area, range, cost, element }
     }
 
     pub fn get_id (&self) -> ID {
         self.id
     }
 
-    pub fn get_status_id (&self) -> ID {
-        self.status_id
+    pub fn get_attribute_id (&self) -> ID {
+        self.attribute_id
     }
 
     pub fn get_cost (&self) -> u16 {
@@ -62,9 +62,9 @@ impl Tool for Magic {
 
 impl Applier for Magic {
     fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
-        let status: Status = *scene.get_status (&self.status_id);
+        let attribute: Attribute = *scene.get_attribute (&self.attribute_id);
 
-        status.try_yield_appliable (scene)
+        attribute.try_yield_appliable (scene)
     }
 
     fn get_target (&self) -> Target {

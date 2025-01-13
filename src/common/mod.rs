@@ -24,7 +24,7 @@ pub trait Timed {
      *
      * Pre: None
      * Post: self's remaining duration is unchanged for permanent Timed
-     * Return: bool = false -> not expired, true -> expired
+     * Return: bool = false -> expired, true -> expired
      */
     fn decrement_duration (&mut self) -> bool;
 }
@@ -33,7 +33,7 @@ pub trait Timed {
  * Weapons only target Enemy or Enemies
  * Skills only target This, Ally, or Allies
  * Magics only target This or Map
- * Statuses only target This (None), Enemy (OnHit/OnAttack), or Map (OnOccupy)
+ * Attributes only target This (None), Enemy (OnHit/OnAttack), or Map (OnOccupy)
  */
 #[derive (Debug)]
 #[derive (Clone, Copy)]

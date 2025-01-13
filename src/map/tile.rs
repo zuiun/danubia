@@ -1,6 +1,6 @@
 use super::{COST_IMPASSABLE, COST_MINIMUM};
 use crate::common::{ID, ID_UNINITIALISED, Target, Timed};
-use crate::dynamic::{Adjustment, Appliable, AppliableKind, Applier, Dynamic, Modifier, StatisticKind, Status, Trigger};
+use crate::dynamic::{Adjustment, Appliable, AppliableKind, Applier, Dynamic, Modifier, StatisticKind, Attribute, Trigger};
 use crate::Scene;
 use std::rc::Rc;
 
@@ -12,22 +12,24 @@ pub struct Tile {
     scene: Rc<Scene>,
     modifier: Option<Modifier>,
     // modifier_weather: Option<Modifier>,
-    status: Option<Status>,
+    attribute: Option<Attribute>,
     terrain_id: ID,
     height: u8,
     city_id: Option<ID>,
     is_recruited: bool,
-    applier_id: Option<ID>,
+    applier_id_modifier: Option<ID>,
+    applier_id_attribute: Option<ID>,
 }
 
 impl Tile {
     pub fn new (scene: Rc<Scene>, terrain_id: ID, height: u8, city_id: Option<ID>) -> Self {
         let modifier: Option<Modifier> = None;
-        let status: Option<Status> = None;
+        let attribute: Option<Attribute> = None;
         let is_recruited: bool = false;
-        let applier_id: Option<ID> = None;
+        let applier_id_modifier: Option<ID> = None;
+        let applier_id_attribute: Option<ID> = None;
 
-        Self { scene, modifier, status, terrain_id, height, city_id, is_recruited, applier_id }
+        Self { scene, modifier, attribute, terrain_id, height, city_id, is_recruited, applier_id_modifier, applier_id_attribute }
     }
 
     pub fn get_cost (&self) -> u8 {
@@ -93,8 +95,12 @@ impl Tile {
         self.is_recruited
     }
 
-    pub fn get_applier_id (&self) -> Option<ID> {
-        self.applier_id
+    pub fn get_applier_id_modifier (&self) -> Option<ID> {
+        self.applier_id_modifier
+    }
+
+    pub fn get_applier_id_attribute (&self) -> Option<ID> {
+        self.applier_id_attribute
     }
 
     pub fn set_recruited (&mut self, is_recruited: bool) {
@@ -106,48 +112,69 @@ impl Dynamic for Tile {
     fn add_appliable (&mut self, appliable: Box<dyn Appliable>) -> bool {
         let kind: AppliableKind = appliable.kind ();
 
-        if let AppliableKind::Modifier ( .. ) = appliable.kind () {
-            let modifier: Modifier = appliable.modifier ();
-            let adjustment: Adjustment = modifier.get_adjustments ()[0];
-
-            if let StatisticKind::Tile ( .. ) = adjustment.0 {
-                self.modifier = Some (modifier);
-
-                true
-            } else {
-                panic! ("Invalid statistic kind {:?}", adjustment.0)
+        match kind {
+            AppliableKind::Modifier ( .. ) => {
+                let modifier: Modifier = appliable.modifier ();
+                let adjustment: Adjustment = modifier.get_adjustments ()[0];
+    
+                if let StatisticKind::Tile ( .. ) = adjustment.0 {
+                    self.modifier = Some (modifier);
+                    self.applier_id_modifier = modifier.get_applier_id ();
+    
+                    true
+                } else {
+                    panic! ("Invalid statistic kind {:?}", adjustment.0)
+                }
             }
-        } else {
-            panic! ("Invalid appliable kind {:?}", kind)
+            AppliableKind::Effect ( .. ) => panic! ("Invalid appliable kind {:?}", kind),
+            AppliableKind::Attribute ( .. ) => {
+                let attribute: Attribute = appliable.attribute ();
+                let kind: AppliableKind = attribute.get_kind ();
+
+                if let AppliableKind::Modifier ( .. ) = attribute.get_kind () {
+                    let appliable: Box<dyn Appliable> = attribute.try_yield_appliable (Rc::clone (&self.scene))
+                            .unwrap_or_else (|| panic! ("Appliable not found for attribute {:?}", attribute));
+                    let trigger: Trigger = attribute.get_trigger ();
+
+                    if let Trigger::OnOccupy = trigger {
+                        self.modifier = None;
+                    } else if let Trigger::None = trigger {
+                        self.add_appliable (appliable);
+                    } else {
+                        panic! ("Invalid trigger {:?}", trigger)
+                    }
+
+                    self.attribute = Some (attribute);
+                    self.applier_id_attribute = attribute.get_applier_id ();
+
+                    true
+                } else {
+                    panic! ("Invalid appliable kind {:?}", kind)
+                }
+            }
         }
     }
 
-    fn add_status (&mut self, status: Status) -> bool {
-        let kind: AppliableKind = status.get_kind ();
+    fn add_attribute (&mut self, attribute: Attribute) -> bool {
+        let kind: AppliableKind = attribute.get_kind ();
 
-        if let AppliableKind::Modifier ( .. ) = status.get_kind () {
-            let appliable: Box<dyn Appliable> = status.try_yield_appliable (Rc::clone (&self.scene))
-                    .unwrap_or_else (|| panic! ("Appliable not found for status {:?}", status));
-            let target: Target = status.get_target ();
+        if let AppliableKind::Modifier ( .. ) = attribute.get_kind () {
+            let appliable: Box<dyn Appliable> = attribute.try_yield_appliable (Rc::clone (&self.scene))
+                    .unwrap_or_else (|| panic! ("Appliable not found for attribute {:?}", attribute));
+            let trigger: Trigger = attribute.get_trigger ();
 
-            if let Target::Map (applier_id) = target {
-                let trigger: Trigger = status.get_trigger ();
-
-                if let Trigger::OnOccupy = trigger {
-                    self.modifier = None;
-                } else if let Trigger::None = trigger {
-                    self.add_appliable (appliable);
-                } else {
-                    panic! ("Invalid trigger {:?}", trigger)
-                }
-
-                self.status = Some (status);
-                self.applier_id = Some (applier_id);
-
-                true
+            if let Trigger::OnOccupy = trigger {
+                self.modifier = None;
+            } else if let Trigger::None = trigger {
+                self.add_appliable (appliable);
             } else {
-                panic! ("Invalid target {:?}", target)
+                panic! ("Invalid trigger {:?}", trigger)
             }
+
+            self.attribute = Some (attribute);
+            self.applier_id_attribute = attribute.get_applier_id ();
+
+            true
         } else {
             panic! ("Invalid appliable kind {:?}", kind)
         }
@@ -159,6 +186,7 @@ impl Dynamic for Tile {
         if let Some (m) = modifier {
             if m.get_id () == *modifier_id {
                 self.modifier = None;
+                self.applier_id_modifier = None;
     
                 true
             } else {
@@ -169,18 +197,18 @@ impl Dynamic for Tile {
         }
     }
 
-    fn remove_status (&mut self, status_id: &ID) -> bool {
-        let status: Option<Status> = self.status;
+    fn remove_attribute (&mut self, attribute_id: &ID) -> bool {
+        let attribute: Option<Attribute> = self.attribute;
 
-        if let Some (s) = status {
-            if s.get_id () == *status_id {
+        if let Some (s) = attribute {
+            if s.get_id () == *attribute_id {
                 if let AppliableKind::Modifier (m) = s.get_kind () {
                     self.remove_modifier (&m);
                 }
 
-                self.status = None;
-                self.applier_id = None;
-    
+                self.attribute = None;
+                self.applier_id_attribute = None;
+
                 true
             } else {
                 false
@@ -193,17 +221,17 @@ impl Dynamic for Tile {
     fn decrement_durations (&mut self) {
         if let Some (mut m) = self.modifier {
             self.modifier = if m.decrement_duration () {
-                None
-            } else {
                 Some (m)
+            } else {
+                m.get_next_id ().map (|n: ID| *self.scene.get_modifier (&n))
             };
         }
 
-        if let Some (mut s) = self.status {
-            self.status = if s.decrement_duration () {
-                s.get_next_id ().map (|n: ID| *self.scene.get_status (&n))
-            } else {
+        if let Some (mut s) = self.attribute {
+            self.attribute = if s.decrement_duration () {
                 Some (s)
+            } else {
+                None
             };
         }
     }
@@ -211,7 +239,7 @@ impl Dynamic for Tile {
 
 impl Applier for Tile {
     fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
-        self.status.and_then (|s: Status| s.try_yield_appliable (scene))
+        self.attribute.and_then (|s: Attribute| s.try_yield_appliable (scene))
     }
 
     fn get_target (&self) -> Target {
@@ -254,13 +282,13 @@ mod tests {
         (modifier_0, modifier_1, modifier_2)
     }
 
-    fn generate_statuses () -> (Status, Status, Status) {
+    fn generate_attributes () -> (Attribute, Attribute, Attribute) {
         let scene = generate_scene ();
-        let status_2 = *scene.get_status (&2);
-        let status_3 = *scene.get_status (&3);
-        let status_4 = *scene.get_status (&4);
+        let attribute_2 = *scene.get_attribute (&2);
+        let attribute_3 = *scene.get_attribute (&3);
+        let attribute_4 = *scene.get_attribute (&4);
 
-        (status_2, status_3, status_4)
+        (attribute_2, attribute_3, attribute_4)
     }
 
     #[test]
@@ -346,19 +374,19 @@ mod tests {
 
     
     #[test]
-    fn tile_add_status () {
+    fn tile_add_attribute () {
         let scene = generate_scene ();
         let mut tile = Tile::new (Rc::clone (&scene), 1, 0, None);
-        let (status_2, status_3, _) = generate_statuses ();
+        let (attribute_2, attribute_3, _) = generate_attributes ();
 
-        // Test tile status
+        // Test tile attribute
         assert_eq! (tile.get_cost (), 2);
-        assert! (tile.add_status (status_3));
-        assert! (tile.status.is_some ());
+        assert! (tile.add_attribute (attribute_3));
+        assert! (tile.attribute.is_some ());
         assert_eq! (tile.get_cost (), 1);
-        // Test applier status
-        assert! (tile.add_status (status_2));
-        assert! (tile.status.is_some ());
+        // Test applier attribute
+        assert! (tile.add_attribute (attribute_2));
+        assert! (tile.attribute.is_some ());
         assert! (tile.try_yield_appliable (Rc::clone (&scene)).is_some ());
     }
 
@@ -380,26 +408,26 @@ mod tests {
     }
 
     #[test]
-    fn tile_remove_status () {
+    fn tile_remove_attribute () {
         let scene = generate_scene ();
         let mut tile = Tile::new (Rc::clone (&scene), 1, 0, None);
-        let (status_2, status_3, _) = generate_statuses ();
+        let (attribute_2, attribute_3, _) = generate_attributes ();
 
         // Test empty remove
-        assert! (!tile.remove_status (&0));
-        assert! (tile.status.is_none ());
+        assert! (!tile.remove_attribute (&0));
+        assert! (tile.attribute.is_none ());
         assert! (tile.modifier.is_none ());
         // Test non-empty remove
-        tile.add_status (status_3);
+        tile.add_attribute (attribute_3);
         assert_eq! (tile.get_cost (), 1);
-        assert! (tile.remove_status (&3));
+        assert! (tile.remove_attribute (&3));
         assert_eq! (tile.get_cost (), 2);
-        assert! (tile.status.is_none ());
+        assert! (tile.attribute.is_none ());
         assert! (tile.modifier.is_none ());
         // Test applier remove
-        tile.add_status (status_2);
-        assert! (tile.remove_status (&2));
-        assert! (tile.status.is_none ());
+        tile.add_attribute (attribute_2);
+        assert! (tile.remove_attribute (&2));
+        assert! (tile.attribute.is_none ());
         assert! (tile.modifier.is_none ());
     }
 
@@ -407,8 +435,8 @@ mod tests {
     fn tile_decrement_durations () {
         let scene = generate_scene ();
         let mut tile = Tile::new (Rc::clone (&scene), 0, 0, None);
-        let (modifier_0, modifier_1, _) = generate_modifiers ();
-        let (status_2, status_3, status_4) = generate_statuses ();
+        let (modifier_0, modifier_1, modifier_2) = generate_modifiers ();
+        let (attribute_2, attribute_3, _) = generate_attributes ();
 
         // Test empty modifier
         tile.decrement_durations ();
@@ -427,34 +455,31 @@ mod tests {
         assert! (tile.modifier.is_some ());
         tile.decrement_durations ();
         assert! (tile.modifier.is_some ());
+        // Test linked modifier
+        tile.add_appliable (modifier_2);
+        tile.decrement_durations ();
+        assert! (tile.modifier.is_some ());
+        assert_eq! (tile.modifier.unwrap ().get_next_id ().unwrap (), 0);
+        tile.decrement_durations ();
+        assert! (tile.modifier.is_some ());
+        assert! (tile.modifier.unwrap ().get_next_id ().is_none ());
 
-        // Test empty status
+        // Test empty attribute
         tile.decrement_durations ();
-        assert! (tile.status.is_none ());
-        // Test timed status
-        tile.add_status (status_2);
+        assert! (tile.attribute.is_none ());
+        // Test timed attribute
+        tile.add_attribute (attribute_2);
         tile.decrement_durations ();
-        assert! (tile.status.is_some ());
+        assert! (tile.attribute.is_some ());
         tile.decrement_durations ();
-        assert! (tile.status.is_some ());
+        assert! (tile.attribute.is_some ());
         tile.decrement_durations ();
-        assert! (tile.status.is_none ());
-        // Test permanent status
-        tile.add_status (status_3);
+        assert! (tile.attribute.is_none ());
+        // Test permanent attribute
+        tile.add_attribute (attribute_3);
         tile.decrement_durations ();
-        assert! (tile.status.is_some ());
+        assert! (tile.attribute.is_some ());
         tile.decrement_durations ();
-        assert! (tile.status.is_some ());
-        // Test linked status
-        tile.add_status (status_4);
-        tile.decrement_durations ();
-        assert! (tile.status.is_some ());
-        assert! (matches! (tile.status.unwrap ().get_next_id ().unwrap (), 3));
-        tile.decrement_durations ();
-        assert! (tile.status.is_some ());
-        assert! (matches! (tile.status.unwrap ().get_next_id ().unwrap (), 3));
-        tile.decrement_durations ();
-        assert! (tile.status.is_some ());
-        assert! (tile.status.unwrap ().get_next_id ().is_none ());
+        assert! (tile.attribute.is_some ());
     }
 }

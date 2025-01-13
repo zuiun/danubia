@@ -5,16 +5,25 @@ use std::rc::Rc;
 
 mod appliable_kind;
 pub use self::appliable_kind::AppliableKind;
+mod attribute;
+pub use self::attribute::Attribute;
 mod effect;
 pub use self::effect::Effect;
 mod modifier;
 pub use self::modifier::Modifier;
-mod status;
-pub use self::status::Status;
 
 pub type Adjustment = (StatisticKind, u16, bool); // statistic, change (value depends on context), is add
 
 pub trait Appliable {
+    /*
+     * Creates an ownable Modifier from self
+     * Panics if creation fails
+     *
+     * Pre: self is a Modifier
+     * Post: None
+     * Return: Modifier = copy of self
+     */
+    fn modifier (&self) -> Modifier;
     /*
      * Creates an ownable Effect from self
      * Panics if creation fails
@@ -25,14 +34,14 @@ pub trait Appliable {
      */
     fn effect (&self) -> Effect;
     /*
-     * Creates an ownable Modifier from self
+     * Creates an ownable Attribute from self
      * Panics if creation fails
      *
-     * Pre: self is a Modifier
+     * Pre: self is an Attribute
      * Post: None
-     * Return: Modifier = copy of self
+     * Return: Attribute = copy of self
      */
-    fn modifier (&self) -> Modifier;
+    fn attribute (&self) -> Attribute;
     /*
      * Creates an AppliableKind representation of self
      *
@@ -59,6 +68,8 @@ pub trait Appliable {
      * Return: bool = false -> can't stack or is percentage change, true -> can stack or is flat change
      */
     fn can_stack_or_is_flat (&self) -> bool;
+    fn get_applier_id (&self) -> Option<ID>;
+    fn set_applier_id (&mut self, applier_id: ID);
 }
 
 pub trait Applier {
@@ -86,7 +97,7 @@ pub trait Dynamic {
     /*
      * Adds appliable to self
      * Fails if appliable isn't applicable to self
-     * Targeted Status should use this
+     * Targeted Attribute should use this
      *
      * appliable: Box<dyn Appliable> = appliable to add
      *
@@ -96,21 +107,21 @@ pub trait Dynamic {
      */
     fn add_appliable (&mut self, appliable: Box<dyn Appliable>) -> bool;
     /*
-     * Adds status to self
-     * Fails if status isn't applicable to self
-     * Non-targeted Status should use this
+     * Adds attribute to self
+     * Fails if attribute isn't applicable to self
+     * Non-targeted Attribute should use this
      *
-     * status: Status = status to add
+     * attribute: Attribute = attribute to add
      *
      * Pre: None
      * Post: None
      * Return: bool = false -> add failed, true -> add succeeded
      */
-    fn add_status (&mut self, status: Status) -> bool;
+    fn add_attribute (&mut self, attribute: Attribute) -> bool;
     /*
      * Removes modifier_id from self
      * Fails if modifier_id isn't applied to self
-     * Status should use this
+     * Attribute should use this
      *
      * modifier_id: ID = modifier to remove
      *
@@ -120,17 +131,17 @@ pub trait Dynamic {
      */
     fn remove_modifier (&mut self, modifier_id: &ID) -> bool;
     /*
-     * Removes status_id from self
-     * Fails if status_id isn't applied to self
+     * Removes attribute_id from self
+     * Fails if attribute_id isn't applied to self
      * Changeable should use this
      *
-     * status_id: ID = status to remove
+     * attribute_id: ID = attribute to remove
      *
      * Pre: None
      * Post: None
      * Return: bool = false -> remove failed, true -> remove succeeded
      */
-    fn remove_status (&mut self, status_id: &ID) -> bool;
+    fn remove_attribute (&mut self, attribute_id: &ID) -> bool;
     /*
      * Decreases all of self's Timed's remaining durations
      *

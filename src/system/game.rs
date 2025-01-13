@@ -1,7 +1,7 @@
 use super::{ActionValidator, ConfirmationValidator, DirectionValidator, IDValidator, LocationValidator, MovementValidator, Reader, Turn};
 use crate::character::{Faction, FactionBuilder, Magic, Skill, Tool, Unit, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
 use crate::common::{FACTOR_ATTACK, FACTOR_MAGIC, FACTOR_SKILL, FACTOR_WAIT, ID, Target};
-use crate::dynamic::{Appliable, Applier, Dynamic, Status};
+use crate::dynamic::{Appliable, Applier, Dynamic, Attribute};
 // use crate::event::Handler;
 use crate::map::{Area, Direction, Grid, Location, Search};
 use crate::Scene;
@@ -122,12 +122,12 @@ impl<R: BufRead> Game<R> {
         let follower_ids: &HashSet<ID> = self.factions[faction_id].get_followers (&leader_id);
         let skill_passive_id: ID = self.units[leader_id].get_skill_passive_id ()
                 .unwrap_or_else (|| panic! ("Passive not found for leader {}", leader_id));
-        let status_passive_id: ID = self.scene.get_skill (&skill_passive_id).get_status_id ();
+        let attribute_passive_id: ID = self.scene.get_skill (&skill_passive_id).get_attribute_id ();
 
         for follower_id in follower_ids {
             let distance: usize = self.grid.find_distance_between (follower_id, &leader_id);
 
-            self.units[*follower_id].try_add_passive (&status_passive_id, distance);
+            self.units[*follower_id].try_add_passive (&attribute_passive_id, distance);
         }
     }
 
@@ -447,40 +447,42 @@ impl<R: BufRead> Game<R> {
     }
 
     fn act_skill (&mut self, user_id: ID, target_ids: &[ID], skill_id: ID) -> u16 {
-        let (mov, status_skill): (u16, Status) = {
+        let (mov, attribute_skill): (u16, Attribute) = {
             let (mov, skill): (u16, &Skill) = self.units[user_id].act_skill (&skill_id);
-            let status_skill_id: ID = skill.get_status_id ();
-            let status_skill: Status = *self.scene.get_status (&status_skill_id);
+            let attribute_skill_id: ID = skill.get_attribute_id ();
+            let attribute_skill: Attribute = *self.scene.get_attribute (&attribute_skill_id);
 
-            (mov, status_skill)
+            (mov, attribute_skill)
         };
 
         for target_id in target_ids {
-            self.units[*target_id].add_status (status_skill);
+            self.units[*target_id].add_attribute (attribute_skill);
         }
 
         mov
     }
 
     fn act_magic (&mut self, user_id: ID, target: Option<&[Location]>, magic_id: ID) -> u16 {
-        let (mov, mut status_magic): (u16, Status) = {
+        let (mov, mut attribute_magic): (u16, Attribute) = {
             let (mov, magic): (u16, &Magic) = self.units[user_id].act_magic (&magic_id);
-            let status_magic_id: ID = magic.get_status_id ();
-            let status_magic: Status = *self.scene.get_status (&status_magic_id);
+            let attribute_magic_id: ID = magic.get_attribute_id ();
+            let attribute_magic: Attribute = *self.scene.get_attribute (&attribute_magic_id);
 
-            (mov, status_magic)
+            (mov, attribute_magic)
         };
 
         match target {
             Some (target_locations) => {
-                status_magic.set_applier_id (user_id);
+                attribute_magic.set_applier_id (user_id);
 
                 for target_location in target_locations {
-                    self.grid.add_status (target_location, status_magic);
+                    let attribute_magic: Box<Attribute> = Box::new (attribute_magic);
+
+                    self.grid.add_appliable (target_location, attribute_magic);
                 }
             }
             None => {
-                self.units[user_id].add_status (status_magic);
+                self.units[user_id].add_attribute (attribute_magic);
             }
         }
 
@@ -1070,22 +1072,23 @@ mod tests {
     #[test]
     fn game_start_turn () {
         let mut game = generate_game (&b""[..]);
-        let status_8 = *game.scene.get_status (&8);
-        let mut status_11 = *game.scene.get_status (&11);
+        let modifier_9 = *game.scene.get_modifier (&9);
+        let mut modifier_9 = Box::new (modifier_9);
+        let attribute_8 = *game.scene.get_attribute (&8);
 
         game.grid.place_unit (0, (1, 1));
         game.grid.place_unit (1, (0, 0));
-        status_11.set_applier_id (0);
+        modifier_9.set_applier_id (0);
 
         // Test impassable start
-        game.grid.add_status (&(1, 2), status_11);
+        game.grid.add_appliable (&(1, 2), modifier_9);
         game.move_unit (0, &[Direction::Right]);
         game.grid.decrement_durations (&0);
         game.grid.decrement_durations (&0);
         game.start_turn (0);
         assert! (!game.units[0].is_alive ());
         // Test normal start
-        game.units[1].add_status (status_8);
+        game.units[1].add_attribute (attribute_8);
         game.start_turn (1);
         assert! (game.units[1].is_alive ());
         assert_eq! (game.units[1].get_statistic (DEF).0, 16);
@@ -1097,11 +1100,11 @@ mod tests {
     #[test]
     fn game_act_attack () {
         let mut game = generate_game (&b""[..]);
-        let status_9 = *game.scene.get_status (&9);
-        let status_10 = *game.scene.get_status (&10);
+        let attribute_9 = *game.scene.get_attribute (&9);
+        let attribute_10 = *game.scene.get_attribute (&10);
 
-        game.units[0].add_status (status_10);
-        game.units[2].add_status (status_9);
+        game.units[0].add_attribute (attribute_10);
+        game.units[2].add_attribute (attribute_9);
 
         let spl_0_0 = game.units[0].get_statistic (SPL).0;
         let mrl_2_0 = game.units[2].get_statistic (MRL).0;

@@ -5,6 +5,14 @@ rework event system into game events (weather, spawning reinforcements, etc)
 - Implement Observer for Game, with all the disgusting RefCell that would entail
 - Give Handler an Rc<RefCell> to Game, which has a more tolerable RefCell situation
 - Handler owns Game (I dislike this)
+on apply OnOccupy, immediately apply its effects to occupants
+
+dynamic rework architecture:
+Appliable -> Attribute: Modifier, Effect, Attribute
+Applier ("Attribute"), not Appliable
+Skill and Magic become more specific; Skill only can apply Appliable, but Magic can apply either?
+ok the original system was genuinely better
+Skill and Magic no longer apply Attribute, which is now an Appliable; instead they apply Modifier or Attribute
 
 Code:
 generate_scene clutters crate visibility; lists should honestly not be part of lib
@@ -15,7 +23,8 @@ associated structs/enums should probably have their parent in their names
 consider renaming single letter variables (used for deconstruction)
 some panics should be marked unreachable
 find_locations_* and find_units_* has a lot of duplicated logic, but they may be too different to forcibly marry? it would be bad OOP probably
-Would be nice to get rid of Status completely - 
+Would be nice to get rid of Attribute completely
+extract_if recently got stabilised, whenever 1.85 gets released I should use it to replace this awful next_id and such filtering
 
 Balancing:
 When in combat, morale/manpower/equipment drain should always be greater than recovery

@@ -1,7 +1,7 @@
 use super::{City, COST_IMPASSABLE, Search, Tile, TileBuilder};
 use crate::collections::{InnerJoinMap, OuterJoinMap};
 use crate::common::{ID, ID_UNINITIALISED};
-use crate::dynamic::{Appliable, Applier, Dynamic, Modifier, Status, Trigger};
+use crate::dynamic::{Appliable, Applier, Attribute, Dynamic, Modifier, AppliableKind, Trigger};
 use crate::Scene;
 use std::collections::{HashSet, VecDeque};
 use std::fmt::{self, Display, Formatter};
@@ -495,13 +495,14 @@ impl Grid {
         ).collect::<Vec<ID>> ()
     }
 
-    pub fn add_status (&mut self, location: &Location, status: Status) -> bool {
+    pub fn add_appliable (&mut self, location: &Location, appliable: Box<dyn Appliable>) -> bool {
         assert! (is_rectangular (&self.tiles));
         assert! (is_in_bounds (&self.tiles, location));
 
-        let is_added: bool = self.tiles[location.0][location.1].add_status (status);
+        let kind: AppliableKind = appliable.kind ();
+        let is_added: bool = self.tiles[location.0][location.1].add_appliable (appliable);
 
-        if let Trigger::None = status.get_trigger () {
+        if let AppliableKind::Modifier ( .. ) = kind {
             self.update_adjacency (location);
         }
 
@@ -618,7 +619,11 @@ impl Grid {
     pub fn decrement_durations (&mut self, unit_id: &ID) {
         for row in self.tiles.iter_mut () {
             for tile in row.iter_mut () {
-                if let Some (a) = tile.get_applier_id () {
+                if let Some (a) = tile.get_applier_id_modifier () {
+                    if a == *unit_id {
+                        tile.decrement_durations ();
+                    }
+                } else if let Some (a) = tile.get_applier_id_attribute () {
                     if a == *unit_id {
                         tile.decrement_durations ();
                     }
@@ -1152,16 +1157,19 @@ mod tests {
     }
 
     #[test]
-    fn grid_add_status () {
+    fn grid_add_appliable () {
         let scene = generate_scene ();
         let mut grid = generate_grid ();
-        let status_2 = *scene.get_status (&2);
-        let status_3 = *scene.get_status (&3);
+        let attribute_2 = *scene.get_attribute (&2);
+        let attribute_2 = Box::new (attribute_2);
+        let modifier_1 = *scene.get_modifier (&1);
+        let modifier_1 = Box::new (modifier_1);
 
-        assert! (grid.add_status (&(0, 0), status_2));
+        assert! (grid.add_appliable (&(0, 0), attribute_2));
+        assert! (grid.tiles[0][0].try_yield_appliable (Rc::clone (&scene)).is_some ());
         let cost_down_0: u8 = grid.adjacencies[0][0][Direction::Down as usize];
         let cost_left_0: u8 = grid.adjacencies[1][1][Direction::Left as usize];
-        assert! (grid.add_status (&(1, 0), status_3));
+        assert! (grid.add_appliable (&(1, 0), modifier_1));
         let cost_down_1: u8 = grid.adjacencies[0][0][Direction::Down as usize];
         let cost_left_1: u8 = grid.adjacencies[1][1][Direction::Left as usize];
         assert_eq! (cost_down_0, 0);
@@ -1234,13 +1242,15 @@ mod tests {
     fn grid_decrement_durations () {
         let scene = generate_scene ();
         let mut grid = generate_grid ();
-        let mut status_2 = *scene.get_status (&2);
-        let mut status_11 = *scene.get_status (&11);
+        let attribute_2 = *scene.get_attribute (&2);
+        let mut attribute_2 = Box::new (attribute_2);
+        let attribute_11 = *scene.get_attribute (&11);
+        let mut attribute_11 = Box::new (attribute_11);
 
-        status_2.set_applier_id (0);
-        status_11.set_applier_id (1);
-        grid.add_status (&(0, 0), status_2);
-        grid.add_status (&(1, 1), status_11);
+        attribute_2.set_applier_id (0);
+        attribute_11.set_applier_id (1);
+        grid.add_appliable (&(0, 0), attribute_2);
+        grid.add_appliable (&(1, 1), attribute_11);
 
         grid.decrement_durations (&0);
         assert! (grid.try_yield_appliable (&(0, 0)).is_some ());
@@ -1251,9 +1261,12 @@ mod tests {
         grid.decrement_durations (&0);
         assert! (grid.try_yield_appliable (&(0, 0)).is_none ());
         assert! (grid.get_modifier (&(1, 1)).is_some ());
+        assert! (grid.get_modifier (&(1, 1)).unwrap ().get_next_id ().is_some ());
         grid.decrement_durations (&1);
         assert! (grid.get_modifier (&(1, 1)).is_some ());
+        assert! (grid.get_modifier (&(1, 1)).unwrap ().get_next_id ().is_some ());
         grid.decrement_durations (&1);
-        assert! (grid.get_modifier (&(1, 1)).is_none ());
+        assert! (grid.get_modifier (&(1, 1)).is_some ());
+        assert! (grid.get_modifier (&(1, 1)).unwrap ().get_next_id ().is_none ());
     }
 }
