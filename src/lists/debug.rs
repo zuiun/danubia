@@ -1,62 +1,76 @@
-use crate::character::{SkillKind, Element, FactionBuilder, Magic, Skill, UnitBuilder, UnitStatistic, UnitStatistics, Weapon};
+use crate::character::{SkillKind, Element, FactionBuilder, Magic, Skill, UnitBuilder, UnitStatistics, Weapon};
+use crate::character::UnitStatistic::{MRL, HLT, SPL, ATK, DEF, MAG, MOV, ORG};
 use crate::common::{DURATION_PERMANENT, ID_UNINITIALISED, Target};
-use crate::dynamic::{AppliableKind, Effect, Modifier, StatisticKind, Attribute, Trigger};
+use crate::dynamic::{Attribute, Effect, Modifier, Trigger};
+use crate::dynamic::AppliableKind::{Attribute as AppliableAttribute, Effect as AppliableEffect, Modifier as AppliableModifier};
+use crate::dynamic::StatisticKind::{Tile, Unit};
 use crate::map::{Area, City, Terrain, TileBuilder};
 
 pub const MODIFIERS: &[Modifier] = &[
     Modifier::new (0, &[
-        (StatisticKind::Tile (false), 1, true),
+        (Tile (false), 1, true),
     ], 2, false, false, None), // terrain_cost_+1
     Modifier::new (1, &[
-        (StatisticKind::Tile (false), 1, false),
+        (Tile (false), 1, false),
     ], DURATION_PERMANENT, false, false, None), // terrain_cost_-1
     Modifier::new (2, &[
-        (StatisticKind::Tile (true), 1, false),
+        (Tile (true), 1, false),
     ], 1, false, false, Some (0)), // terrain_cost_=1
     Modifier::new (3, &[
-        (StatisticKind::Unit (UnitStatistic::ATK), 20, true),
+        (Unit (ATK), 20, true),
     ], 2, true, false, None), // atk_+20
     Modifier::new (4, &[
-        (StatisticKind::Unit (UnitStatistic::ATK), 10, true),
-        (StatisticKind::Unit (UnitStatistic::DEF), 10, false),
+        (Unit (ATK), 10, true),
+        (Unit (DEF), 10, false),
     ], DURATION_PERMANENT, true, true, None), // atk_+10_def_-10
     Modifier::new (5, &[
-        (StatisticKind::Unit (UnitStatistic::ATK), 10, false),
+        (Unit (ATK), 10, false),
     ], 1, false, false, None), // atk_-10
     Modifier::new (6, &[
-        (StatisticKind::Unit (UnitStatistic::HLT), 2, false),
+        (Unit (HLT), 2, false),
     ], 1, false, false, Some (5)), // poison
     Modifier::new (7, &[
-        (StatisticKind::Unit (UnitStatistic::DEF), 10, false),
+        (Unit (DEF), 10, false),
     ], 1, false, false, None), // def_-10
     Modifier::new (8, &[
-        (StatisticKind::Unit (UnitStatistic::MAG), 10, false),
+        (Unit (MAG), 10, false),
     ], 1, true, true, None), // mag_-10
     Modifier::new (9, &[
-        (StatisticKind::Tile (true), 1, false),
+        (Tile (true), 1, false),
     ], 1, false, false, None), // terrain_cost_=1
 ];
 pub const EFFECTS: &[Effect] = &[
     Effect::new (0, &[
-        (StatisticKind::Unit (UnitStatistic::HLT), 2, false),
+        (Unit (HLT), 2, false),
     ], true), // hlt_-2
     Effect::new (1, &[
-        (StatisticKind::Unit (UnitStatistic::ATK), 5, true),
-        (StatisticKind::Unit (UnitStatistic::DEF), 5, false),
+        (Unit (ATK), 5, true),
+        (Unit (DEF), 5, false),
     ], false), // atk_+5_def_-5
 ];
 pub const ATTRIBUTES: &[Attribute] = &[
-    Attribute::new (0, AppliableKind::Modifier (3), Trigger::OnHit, DURATION_PERMANENT), // atk_stack_up
-    Attribute::new (1, AppliableKind::Modifier (5), Trigger::OnHit, 2), // atk_down
-    Attribute::new (2, AppliableKind::Modifier (6), Trigger::OnOccupy, 2), // poison_2
-    Attribute::new (3, AppliableKind::Modifier (1), Trigger::OnOccupy, DURATION_PERMANENT), // terrain_cost_down_permanent
-    Attribute::new (4, AppliableKind::Modifier (6), Trigger::OnOccupy, 2), // poison_2
-    Attribute::new (5, AppliableKind::Modifier (6), Trigger::OnHit, 2), // poison_2
-    Attribute::new (6, AppliableKind::Modifier (6), Trigger::OnAttack, 2), // poison_2
-    Attribute::new (7, AppliableKind::Modifier (6), Trigger::OnAttack, DURATION_PERMANENT), // poison_permanent
-    Attribute::new (8, AppliableKind::Modifier (4), Trigger::OnHit, DURATION_PERMANENT), // atk_up_def_down
-    Attribute::new (9, AppliableKind::Modifier (7), Trigger::OnHit, DURATION_PERMANENT), // def_down
-    Attribute::new (10, AppliableKind::Modifier (8), Trigger::OnAttack, DURATION_PERMANENT), // mag_down
+    Attribute::new (0, AppliableModifier
+     (3), Trigger::OnHit, DURATION_PERMANENT), // atk_stack_up
+    Attribute::new (1, AppliableModifier
+     (5), Trigger::OnHit, 2), // atk_down
+    Attribute::new (2, AppliableModifier
+     (6), Trigger::OnOccupy, 2), // poison_2
+    Attribute::new (3, AppliableModifier
+     (1), Trigger::OnOccupy, DURATION_PERMANENT), // terrain_cost_down_permanent
+    Attribute::new (4, AppliableModifier
+     (6), Trigger::OnOccupy, 2), // poison_2
+    Attribute::new (5, AppliableModifier
+     (6), Trigger::OnHit, 2), // poison_2
+    Attribute::new (6, AppliableModifier
+     (6), Trigger::OnAttack, 2), // poison_2
+    Attribute::new (7, AppliableModifier
+     (6), Trigger::OnAttack, DURATION_PERMANENT), // poison_permanent
+    Attribute::new (8, AppliableModifier
+     (4), Trigger::OnHit, DURATION_PERMANENT), // atk_up_def_down
+    Attribute::new (9, AppliableModifier
+     (7), Trigger::OnHit, DURATION_PERMANENT), // def_down
+    Attribute::new (10, AppliableModifier
+     (8), Trigger::OnAttack, DURATION_PERMANENT), // mag_down
 ];
 pub const TERRAINS: &[Terrain] = &[
     Terrain::new (None, 1), // DEBUG: passable_1
@@ -111,19 +125,30 @@ pub const WEAPONS: &[Weapon] = &[
     Weapon::new (11, [0, 0, 1, 2], Area::Radial (3), 12), // Mortar
 ];
 pub const MAGICS: &[Magic] = &[
-    Magic::new (0, AppliableKind::Modifier (4), Target::This, Area::Single, 0, 10, Element::Dark), // def_self
-    Magic::new (1, AppliableKind::Modifier (3), Target::This, Area::Single, 0, 21, Element::Dark), // atk_self
-    Magic::new (2, AppliableKind::Modifier (6), Target::This, Area::Single, 0, 10, Element::Matter), // poison_target_others
-    Magic::new (3, AppliableKind::Attribute (2), Target::Map, Area::Radial (2), 0, 10, Element::Light), // poison_map
+    Magic::new (0, AppliableModifier
+     (4), Target::This, Area::Single, 0, 10, Element::Dark), // def_self
+    Magic::new (1, AppliableModifier
+     (3), Target::This, Area::Single, 0, 21, Element::Dark), // atk_self
+    Magic::new (2, AppliableModifier
+     (6), Target::This, Area::Single, 0, 10, Element::Matter), // poison_target_others
+    Magic::new (3, AppliableAttribute (2), Target::Map, Area::Radial (2), 0, 10, Element::Light), // poison_map
 ];
 pub const SKILLS: &[Skill] = &[
-    Skill::new (0, &[AppliableKind::Modifier (6)], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),
-    Skill::new (1, &[AppliableKind::Modifier (5)], Target::This, Area::Single, 0, SkillKind::Passive),
-    Skill::new (2, &[AppliableKind::Modifier (3), AppliableKind::Modifier (5)], Target::This, Area::Radial (2), 0, SkillKind::Toggled (0)),
-    Skill::new (3, &[AppliableKind::Modifier (0)], Target::This, Area::Radial (2), 0, SkillKind::Timed (1, 1)), // DO NOT USE
-    Skill::new (4, &[AppliableKind::Modifier (4)], Target::Ally, Area::Single, 0, SkillKind::Timed (0, 2)),
-    Skill::new (5, &[AppliableKind::Modifier (4)], Target::Allies, Area::Radial (2), 0, SkillKind::Timed (0, 2)),
-    Skill::new (6, &[AppliableKind::Modifier (4)], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),
+    Skill::new (0, &[AppliableModifier
+     (6)], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),
+    Skill::new (1, &[AppliableModifier
+     (5)], Target::This, Area::Single, 0, SkillKind::Passive),
+    Skill::new (2, &[AppliableModifier
+     (3), AppliableModifier
+ (5)], Target::This, Area::Radial (2), 0, SkillKind::Toggled (0)),
+    Skill::new (3, &[AppliableModifier
+     (0)], Target::This, Area::Radial (2), 0, SkillKind::Timed (1, 1)), // DO NOT USE
+    Skill::new (4, &[AppliableModifier
+     (4)], Target::Ally, Area::Single, 0, SkillKind::Timed (0, 2)),
+    Skill::new (5, &[AppliableModifier
+     (4)], Target::Allies, Area::Radial (2), 0, SkillKind::Timed (0, 2)),
+    Skill::new (6, &[AppliableModifier
+     (4)], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),
 ];
 pub const FACTION_BUILDERS: &[FactionBuilder] = &[
     FactionBuilder::new (0, &[2]),

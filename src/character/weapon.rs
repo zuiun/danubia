@@ -1,6 +1,6 @@
 use super::Tool;
 use crate::common::{ID, Target, Timed};
-use crate::dynamic::{Appliable, AppliableKind, Applier, Dynamic, Attribute, Trigger};
+use crate::dynamic::{Appliable, AppliableKind, Applier, Attribute, Dynamic, Trigger};
 use crate::map::Area;
 use crate::Scene;
 use std::rc::Rc;

@@ -479,6 +479,14 @@ impl<R: BufRead> Game<R> {
 
                     appliable_magic.set_applier_id (user_id);
                     self.grid.add_appliable (target_location, appliable_magic);
+
+                    if let Some (unit_id) = self.grid.get_location_unit (target_location) {
+                        let appliable_on_occupy: Option<Box<dyn Appliable>> = self.grid.try_yield_appliable (target_location);
+
+                        if let Some (appliable_on_occupy) = appliable_on_occupy {
+                            self.units[*unit_id].add_appliable (appliable_on_occupy);
+                        }
+                    }
                 }
             }
             None => {
@@ -1156,6 +1164,8 @@ mod tests {
     fn game_act_magic () {
         let mut game = generate_game (&b""[..]);
 
+        game.place_unit (0, (1, 0));
+
         // Test This magic
         let hlt_0_0 = game.units[0].get_statistic (HLT).0;
         let spl_0_0 = game.units[0].get_statistic (SPL).0;
@@ -1176,7 +1186,9 @@ mod tests {
         assert! (hlt_0_1 > hlt_0_2);
         assert! (spl_0_1 > spl_0_2);
         assert! (org_0_1 > org_0_2);
-        assert! (game.grid.try_yield_appliable (&(1, 0)).is_some ())
+        assert! (game.grid.try_yield_appliable (&(1, 0)).is_some ());
+        // -40 HLT from magic, -20 HLT from OnOccupy
+        assert_eq! (game.units[0].get_statistic (HLT).0, 940);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use super::debug;
 use crate::character::{FactionBuilder, Magic, Skill, UnitBuilder, Weapon};
 use crate::common::ID;
-use crate::dynamic::{Effect, Modifier, Attribute};
+use crate::dynamic::{Attribute, Effect, Modifier};
 use crate::map::{City, Terrain, TileBuilder};
 
 #[derive (Debug)]

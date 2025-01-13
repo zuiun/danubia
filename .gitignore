@@ -1,3 +1,5 @@
 /.vscode
 /target
+*.dll
+Cargo.lock
 log.txt

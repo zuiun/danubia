@@ -1,6 +1,6 @@
 use super::{COST_IMPASSABLE, COST_MINIMUM};
 use crate::common::{ID, Target, Timed};
-use crate::dynamic::{Adjustment, Appliable, AppliableKind, Applier, Dynamic, Modifier, StatisticKind, Attribute, Trigger};
+use crate::dynamic::{Adjustment, Appliable, AppliableKind, Applier, Attribute, Dynamic, Modifier, StatisticKind, Trigger};
 use crate::Scene;
 use std::rc::Rc;
 
