@@ -725,7 +725,7 @@ impl<R: BufRead> Game<R> {
         }
     }
 
-    fn do_turn (&mut self) -> bool {
+    pub fn do_turn (&mut self) -> bool {
         let turn: Turn = self.turns.pop ().expect ("Turn not found");
         let unit_id: ID = turn.get_unit_id ();
 
@@ -775,13 +775,9 @@ impl<R: BufRead> Game<R> {
         todo! ()
     }
 
-    pub fn do_game (&mut self) {
+    pub fn init (&mut self) {
         self.place_unit (0, (0, 0));
         self.place_unit (2, (1, 0));
-
-        while self.do_turn () {
-
-        }
     }
 }
 
