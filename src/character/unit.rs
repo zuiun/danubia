@@ -1,8 +1,7 @@
 use super::{Element, Magic, Skill, Weapon, WeaponStatistic};
 use self::UnitStatistic::{MRL, HLT, SPL, ATK, DEF, MAG, MOV, ORG};
-use crate::common::{Capacity, FACTOR_MAGIC, FACTOR_SKILL, FACTOR_WAIT, ID, Target, Timed};
+use crate::common::{Capacity, FACTOR_MAGIC, FACTOR_SKILL, FACTOR_WAIT, ID, Scene, Target, Timed};
 use crate::dynamic::{Appliable, AppliableKind, Applier, Attribute, Dynamic, Effect, Modifier, StatisticKind, Trigger};
-use crate::Scene;
 use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
 

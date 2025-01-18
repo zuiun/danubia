@@ -7,3 +7,7 @@ edition = "2021"
 git = "https://github.com/rust-sdl2/rust-sdl2"
 default-features = false
 features = ["ttf", "image", "mixer"]
+
+[dependencies.serde]
+git = "https://github.com/serde-rs/serde"
+features = ["derive"]

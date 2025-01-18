@@ -1,6 +1,5 @@
 use super::{Appliable, Attribute, Effect, Modifier};
-use crate::common::ID;
-use crate::Scene;
+use crate::common::{ID, Scene};
 use std::rc::Rc;
 
 #[derive (Debug)]

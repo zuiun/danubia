@@ -1,13 +1,14 @@
 use super::{City, COST_IMPASSABLE, Search, Tile, TileBuilder};
 use crate::collections::{InnerJoinMap, OuterJoinMap};
-use crate::common::{ID, ID_UNINITIALISED};
+use crate::common::{ID, ID_UNINITIALISED, Scene};
 use crate::dynamic::{Appliable, Applier, Dynamic, Modifier, AppliableKind};
-use crate::Scene;
 use std::collections::{HashSet, VecDeque};
 use std::fmt::{self, Display, Formatter};
 use std::rc::Rc;
 
 pub type Location = (usize, usize); // row, column
+type Rectangle<T> = Vec<Vec<T>>;
+type Row<T> = Vec<T>;
 type Adjacency = [u8; Direction::Length as usize]; // cost, climb
 
 const DIRECTIONS: [Direction; Direction::Length as usize] = [Direction::Up, Direction::Right, Direction::Left, Direction::Down];
@@ -17,16 +18,14 @@ const fn switch_direction (direction: Direction) -> Direction {
     DIRECTIONS[(Direction::Length as usize) - (direction as usize) - 1]
 }
 
-#[allow (clippy::ptr_arg)]
-fn is_rectangular<T> (grid: &Vec<Vec<T>>) -> bool {
+fn is_rectangular<T> (grid: &Rectangle<T>) -> bool {
     assert! (!grid.is_empty ());
     assert! (!grid[0].is_empty ());
 
-    grid.iter ().all (|r: &Vec<T>| r.len () == grid[0].len ())
+    grid.iter ().all (|r: &Row<T>| r.len () == grid[0].len ())
 }
 
-#[allow (clippy::ptr_arg)]
-fn is_in_bounds<T> (grid: &Vec<Vec<T>>, location: &Location) -> bool {
+fn is_in_bounds<T> (grid: &Rectangle<T>, location: &Location) -> bool {
     assert! (!grid.is_empty ());
     assert! (!grid[0].is_empty ());
 
@@ -46,8 +45,8 @@ pub enum Direction {
 #[derive (Debug)]
 pub struct Grid {
     scene: Rc<Scene>,
-    tiles: Vec<Vec<Tile>>,
-    adjacencies: Vec<Vec<Adjacency>>,
+    tiles: Rectangle<Tile>,
+    adjacencies: Rectangle<Adjacency>,
     unit_locations: InnerJoinMap<ID, Location>,
     faction_locations: OuterJoinMap<ID, Location>,
     unit_id_passable: Option<ID>,
@@ -56,10 +55,10 @@ pub struct Grid {
 impl Grid {
     pub fn new (scene: Rc<Scene>) -> Self {
         let tile_builders: &[&[TileBuilder]] = scene.get_tile_builders ();
-        let mut tiles: Vec<Vec<Tile>> = Vec::new ();
+        let mut tiles: Rectangle<Tile> = Rectangle::new ();
 
         for (i, row) in tile_builders.iter ().enumerate () {
-            tiles.push (Vec::new ());
+            tiles.push (Row::new ());
 
             for tile_builder in row.iter () {
                 let tile: Tile = tile_builder.build (Rc::clone (&scene));
@@ -68,7 +67,7 @@ impl Grid {
             }
         }
 
-        let adjacencies: Vec<Vec<Adjacency>> = Grid::build_adjacencies (&tiles);
+        let adjacencies: Rectangle<Adjacency> = Grid::build_adjacencies (&tiles);
         let mut faction_locations: OuterJoinMap<ID, Location> = OuterJoinMap::new ();
         let unit_locations: InnerJoinMap<ID, Location> = InnerJoinMap::new ();
         let unit_id_passable: Option<ID> = None;
@@ -85,13 +84,13 @@ impl Grid {
         Self { scene, tiles, adjacencies, unit_locations, faction_locations, unit_id_passable }
     }
 
-    fn build_adjacencies (tiles: &Vec<Vec<Tile>>) -> Vec<Vec<Adjacency>> {
+    fn build_adjacencies (tiles: &Rectangle<Tile>) -> Rectangle<Adjacency> {
         assert! (is_rectangular (tiles));
 
-        let mut adjacencies: Vec<Vec<Adjacency>> = Vec::new ();
+        let mut adjacencies: Rectangle<Adjacency> = Vec::new ();
 
         for (i, row) in tiles.iter ().enumerate () {
-            adjacencies.push (Vec::new ());
+            adjacencies.push (Row::new ());
 
             for (j, tile) in row.iter ().enumerate () {
                 let up: Option<&Tile> = i.checked_sub (1).map (|i: usize| &tiles[i][j]);
@@ -164,7 +163,7 @@ impl Grid {
         assert! (is_rectangular (&self.tiles));
         assert! (is_in_bounds (&self.tiles, location));
 
-        let mut is_visited: Vec<Vec<bool>> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
+        let mut is_visited: Rectangle<bool> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
         let mut locations: VecDeque<Location> = VecDeque::new ();
 
         locations.push_back (*location);
@@ -323,7 +322,7 @@ impl Grid {
         Some ((end, terrain_id))
     }
 
-    fn find_unit_movable_helper (&self, is_visited: &mut Vec<Vec<bool>>, location: &Location, mov: u16) {
+    fn find_unit_movable_helper (&self, is_visited: &mut Rectangle<bool>, location: &Location, mov: u16) {
         is_visited[location.0][location.1] = true;
 
         for direction in DIRECTIONS {
@@ -337,7 +336,7 @@ impl Grid {
 
     pub fn find_unit_movable (&self, unit_id: &ID, mov: u16) -> Vec<Location> {
         let location: Location = *self.get_unit_location (unit_id);
-        let mut is_visited: Vec<Vec<bool>> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
+        let mut is_visited: Rectangle<bool> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
         let mut locations: Vec<Location> = Vec::new ();
 
         self.find_unit_movable_helper (&mut is_visited, &location, mov);
@@ -364,7 +363,7 @@ impl Grid {
         let location: Location = *self.get_unit_location (unit_id);
         let faction_id: ID = self.get_unit_faction (unit_id);
         let mut locations: VecDeque<Location> = VecDeque::new ();
-        let mut is_visited: Vec<Vec<bool>> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
+        let mut is_visited: Rectangle<bool> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
         let mut city_ids: Vec<ID> = Vec::new ();
 
         locations.push_back (location);
@@ -551,7 +550,7 @@ impl Grid {
         let location: Location = *self.get_unit_location (unit_id);
         let faction_id: ID = self.get_unit_faction (unit_id);
         let mut locations: VecDeque<Location> = VecDeque::new ();
-        let mut is_visited: Vec<Vec<bool>> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
+        let mut is_visited: Rectangle<bool> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
         let mut controlled: Vec<Location> = Vec::new ();
         let mut has_city: bool = self.tiles[location.0][location.1].get_city_id ().is_some ();
 
@@ -589,7 +588,7 @@ impl Grid {
 
         let faction_id: ID = self.get_unit_faction (unit_id);
         let controlled: Vec<Location> = self.find_locations_supplied (unit_id);
-        let mut is_visited: Vec<Vec<bool>> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
+        let mut is_visited: Rectangle<bool> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
         let mut uncontrolled: Vec<Location> = Vec::new ();
 
         for location in controlled.iter () {
@@ -901,7 +900,7 @@ mod tests {
     #[test]
     fn grid_update_adjacency () {
         let scene = generate_scene ();
-        let tiles_updated: Vec<Vec<Tile>> = vec![
+        let tiles_updated: Rectangle<Tile> = vec![
             vec![Tile::new (Rc::clone (&scene), 0, 10, Some (0)), Tile::new (Rc::clone (&scene), 0, 1, None), Tile::new (Rc::clone (&scene), 0, 0, Some (1))],
             vec![Tile::new (Rc::clone (&scene), 1, 2, Some (2)), Tile::new (Rc::clone (&scene), 1, 1, None), Tile::new (Rc::clone (&scene), 0, 0, None)],
         ];

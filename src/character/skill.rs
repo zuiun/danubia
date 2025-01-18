@@ -1,8 +1,7 @@
 use super::Tool;
-use crate::common::{DURATION_PERMANENT, ID, Target, Timed};
+use crate::common::{DURATION_PERMANENT, ID, Scene, Target, Timed};
 use crate::dynamic::{Appliable, AppliableKind, Applier};
 use crate::map::Area;
-use crate::Scene;
 use std::rc::Rc;
 
 #[derive (Debug)]

@@ -1,8 +1,7 @@
 use super::Tool;
-use crate::common::{ID, Target, Timed};
+use crate::common::{ID, Scene, Target, Timed};
 use crate::dynamic::{Appliable, AppliableKind, Applier, Attribute, Dynamic, Trigger};
 use crate::map::Area;
-use crate::Scene;
 use std::rc::Rc;
 
 type WeaponStatistics = [u8; WeaponStatistic::Length as usize];

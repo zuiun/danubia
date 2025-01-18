@@ -2,10 +2,6 @@ use crate::common::Information;
 
 // TODO: Anything that has an ID also has an Information mapped to it
 pub const CITIES: &[Information] = &[
-    Information::new ("debug_0", &[""]),
-    Information::new ("debug_1", &[""]),
-    Information::new ("debug_2", &[""]),
-    Information::new ("debug_3", &[""]),
     // Jassica
     Information::new ("Ilyvó", &[""]),
     Information::new ("Kismarton", &[""]),

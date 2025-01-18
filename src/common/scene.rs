@@ -1,8 +1,8 @@
-use super::debug;
 use crate::character::{FactionBuilder, Magic, Skill, UnitBuilder, Weapon};
 use crate::common::ID;
 use crate::dynamic::{Attribute, Effect, Modifier};
-use crate::map::{City, Terrain, TileBuilder};
+use crate::map::{City, Location, Terrain, TileBuilder};
+use super::lists::debug;
 
 #[derive (Debug)]
 pub struct Scene {
@@ -17,41 +17,14 @@ pub struct Scene {
     faction_builders: &'static [FactionBuilder],
     unit_builders: &'static [UnitBuilder],
     tile_builders: &'static [&'static [TileBuilder]],
+    unit_locations: &'static [Option<Location>],
 }
 
 impl Scene {
-    pub fn new () -> Self {
-        // TODO: Change this
-        let modifiers: &[Modifier] = debug::MODIFIERS;
-        let effects: &[Effect] = debug::EFFECTS;
-        let attributes: &[Attribute] = debug::ATTRIBUTES;
-        let terrains: &[Terrain] = debug::TERRAINS;
-        let cities: &[City] = debug::CITIES;
-        let weapons: &[Weapon] = debug::WEAPONS;
-        let magics: &[Magic] = debug::MAGICS;
-        let skills: &[Skill] = debug::SKILLS;
-        let faction_builders: &[FactionBuilder] = debug::FACTION_BUILDERS;
-        let unit_builders: &[UnitBuilder] = debug::UNIT_BUILDERS;
-        let tile_builders: &[&[TileBuilder]] = debug::TILE_BUILDERS;
-
-        Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
+    #[allow (clippy::too_many_arguments)]
+    pub fn new (modifiers: &'static [Modifier], effects: &'static [Effect], attributes: &'static [Attribute], terrains: &'static [Terrain], cities: &'static [City], weapons: &'static [Weapon], magics: &'static [Magic], skills: &'static [Skill], faction_builders: &'static [FactionBuilder], unit_builders: &'static [UnitBuilder], tile_builders: &'static [&'static [TileBuilder]], unit_locations: &'static [Option<Location>]) -> Self {
+        Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders, unit_locations }
     }
-
-    // pub fn debug () -> Self {
-    //     let modifiers: &[Modifier] = debug::MODIFIERS;
-    //     let effects: &[Effect] = debug::EFFECTS;
-    //     let attributes: &[Attribute] = debug::ATTRIBUTES;
-    //     let terrains: &[Terrain] = debug::TERRAINS;
-    //     let cities: &[City] = debug::CITIES;
-    //     let weapons: &[Weapon] = debug::WEAPONS;
-    //     let magics: &[Magic] = debug::MAGICS;
-    //     let skills: &[Skill] = debug::SKILLS;
-    //     let faction_builders: &[FactionBuilder] = debug::FACTION_BUILDERS;
-    //     let unit_builders: &[UnitBuilder] = debug::UNIT_BUILDERS;
-    //     let tile_builders: &[&[TileBuilder]] = debug::TILE_BUILDERS;
-
-    //     Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
-    // }
 
     pub fn get_modifier (&self, id: &ID) -> &Modifier {
         assert! (*id < self.modifiers.len ());
@@ -132,6 +105,16 @@ impl Scene {
     pub fn get_tile_builders (&self) -> &[&[TileBuilder]] {
         self.tile_builders
     }
+
+    pub fn get_unit_location (&self, unit_id: &ID) -> &Option<Location> {
+        assert! (*unit_id < self.unit_locations.len ());
+
+        &self.unit_locations[*unit_id]
+    }
+
+    pub fn unit_locations_iter (&self) -> impl Iterator<Item = &Option<Location>> {
+        self.unit_locations.iter ()
+    }
 }
 
 impl Default for Scene {
@@ -147,7 +130,8 @@ impl Default for Scene {
         let faction_builders: &[FactionBuilder] = debug::FACTION_BUILDERS;
         let unit_builders: &[UnitBuilder] = debug::UNIT_BUILDERS;
         let tile_builders: &[&[TileBuilder]] = debug::TILE_BUILDERS;
+        let unit_locations: &[Option<Location>] = debug::UNIT_LOCATIONS;
 
-        Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders }
+        Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders, unit_locations }
     }
 }

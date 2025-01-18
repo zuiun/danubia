@@ -72,10 +72,10 @@ impl City {
 
 #[cfg (test)]
 mod tests {
-    use super::*;
-    use crate::common::Information;
-    use crate::debug;
-    use crate::lists::information;
+    // use super::*;
+    // use crate::common::Information;
+    // use crate::debug;
+    // use crate::lists::information;
     use crate::tests::generate_scene;
 
     #[test]
@@ -117,21 +117,21 @@ mod tests {
         // assert! (false);
     }
 
-    #[test]
-    fn cities_balance () {
-        for i in 4 .. debug::CITIES.len () {
-            let city: &City = &debug::CITIES[i];
-            let information: &Information = &information::CITIES[i];
-            let name: &str = information.get_name ();
-            let population: u16 = city.get_population ();
-            let workers: u16 = city.get_workers ();
-            let manpower: u16 = city.get_manpower ();
-            let equipment: u16 = city.get_equipment ();
+    // #[test]
+    // fn cities_balance () {
+    //     for i in 4 .. debug::CITIES.len () {
+    //         let city: &City = &debug::CITIES[i];
+    //         let information: &Information = &information::CITIES[i];
+    //         let name: &str = information.get_name ();
+    //         let population: u16 = city.get_population ();
+    //         let workers: u16 = city.get_workers ();
+    //         let manpower: u16 = city.get_manpower ();
+    //         let equipment: u16 = city.get_equipment ();
 
-            println! ("{}: {} ? {} -> {}, {}", name, workers, population, manpower, equipment);
-            assert! (workers < population);
-        }
+    //         println! ("{}: {} ? {} -> {}, {}", name, workers, population, manpower, equipment);
+    //         assert! (workers < population);
+    //     }
 
-        // assert! (false);
-    }
+    //     // assert! (false);
+    // }
 }

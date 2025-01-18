@@ -1,5 +1,5 @@
 use super::{Adjustment, Appliable, Applier, Effect, Modifier, AppliableKind, Trigger};
-use crate::common::{Capacity, DURATION_PERMANENT, ID, Target, Timed};
+use crate::common::{Capacity, DURATION_PERMANENT, ID, Scene, Target, Timed};
 use std::rc::Rc;
 
 #[derive (Debug)]
@@ -74,7 +74,7 @@ impl Appliable for Attribute {
 }
 
 impl Applier for Attribute {
-    fn try_yield_appliable (&self, scene: Rc<crate::Scene>) -> Option<Box<dyn Appliable>> {
+    fn try_yield_appliable (&self, scene: Rc<Scene>) -> Option<Box<dyn Appliable>> {
         let appliable: Box<dyn Appliable> = self.kind.appliable (scene);
 
         Some (appliable)

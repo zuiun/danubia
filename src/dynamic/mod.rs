@@ -1,6 +1,5 @@
 use crate::character::UnitStatistic;
-use crate::common::{ID, Target};
-use crate::Scene;
+use crate::common::{ID, Scene, Target};
 use std::rc::Rc;
 
 mod appliable_kind;

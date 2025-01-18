@@ -4,7 +4,7 @@ use crate::common::{DURATION_PERMANENT, ID_UNINITIALISED, Target};
 use crate::dynamic::{Attribute, Effect, Modifier, Trigger};
 use crate::dynamic::AppliableKind::{Attribute as AppliableAttribute, Effect as AppliableEffect, Modifier as AppliableModifier};
 use crate::dynamic::StatisticKind::{Tile, Unit};
-use crate::map::{Area, City, Terrain, TileBuilder};
+use crate::map::{Area, City, Location, Terrain, TileBuilder};
 
 pub const MODIFIERS: &[Modifier] = &[
     Modifier::new (0, &[
@@ -73,11 +73,9 @@ pub const ATTRIBUTES: &[Attribute] = &[
      (8), Trigger::OnAttack, DURATION_PERMANENT), // mag_down
 ];
 pub const TERRAINS: &[Terrain] = &[
-    Terrain::new (None, 1), // DEBUG: passable_1
-    Terrain::new (Some (3), 2), // DEBUG: passable_2
-    Terrain::new (None, 0), // DEBUG: impassable
-
-    Terrain::new (None, 0), // Void
+    Terrain::new (None, 1), // passable_1
+    Terrain::new (Some (3), 2), // passable_2
+    Terrain::new (None, 0), // impassable
 
 ];
 pub const CITIES: &[City] = &[
@@ -108,47 +106,25 @@ pub const CITIES: &[City] = &[
     City::new (60, 3, 21, None), // Carlstadt
     City::new (83,14, 11, None), // Gnesen
 ];
-// TODO: dmg, area, range
 pub const WEAPONS: &[Weapon] = &[
-    Weapon::new (0, [20, 1, 1, 0], Area::Single, 1), // DEBUG: single
-    Weapon::new (1, [20, 0, 2, 0], Area::Path (0), 2), // DEBUG: path
-    Weapon::new (2, [10, 1, 0, 1], Area::Radial (2), 2), // DEBUG: radial
-
-    Weapon::new (3, [0, 2, 1, 0], Area::Single, 1), // Sabre
-    Weapon::new (4, [0, 0, 3, 0], Area::Path (0), 2), // Lance
-    Weapon::new (5, [0, 0, 2, 0], Area::Single, 2), // Pike
-    Weapon::new (6, [0, 1, 2, 0], Area::Path (1), 1), // Glaive
-    Weapon::new (7, [0, 1, 1, 1], Area::Single, 4), // Pistol
-    Weapon::new (8, [0, 0, 2, 1], Area::Path (1), 8), // Musket
-    Weapon::new (9, [0, 0, 3, 1], Area::Path (2), 12), // Rifle
-    Weapon::new (10, [0, 0, 1, 0], Area::Single, 1), // Bayonet
-    Weapon::new (11, [0, 0, 1, 2], Area::Radial (3), 12), // Mortar
+    Weapon::new (0, [20, 1, 1, 0], Area::Single, 1), // single
+    Weapon::new (1, [20, 0, 2, 0], Area::Path (0), 2), // path
+    Weapon::new (2, [10, 1, 0, 1], Area::Radial (2), 2), // radial
 ];
 pub const MAGICS: &[Magic] = &[
-    Magic::new (0, AppliableModifier
-     (4), Target::This, Area::Single, 0, 10, Element::Dark), // def_self
-    Magic::new (1, AppliableModifier
-     (3), Target::This, Area::Single, 0, 21, Element::Dark), // atk_self
-    Magic::new (2, AppliableModifier
-     (6), Target::This, Area::Single, 0, 10, Element::Matter), // poison_target_others
+    Magic::new (0, AppliableModifier (4), Target::This, Area::Single, 0, 10, Element::Dark), // def_self
+    Magic::new (1, AppliableModifier (3), Target::This, Area::Single, 0, 21, Element::Dark), // atk_self
+    Magic::new (2, AppliableModifier (6), Target::This, Area::Single, 0, 10, Element::Matter), // poison_target_others
     Magic::new (3, AppliableAttribute (2), Target::Map, Area::Radial (2), 0, 10, Element::Light), // poison_map
 ];
 pub const SKILLS: &[Skill] = &[
-    Skill::new (0, &[AppliableModifier
-     (6)], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),
-    Skill::new (1, &[AppliableModifier
-     (5)], Target::This, Area::Single, 0, SkillKind::Passive),
-    Skill::new (2, &[AppliableModifier
-     (3), AppliableModifier
- (5)], Target::This, Area::Radial (2), 0, SkillKind::Toggled (0)),
-    Skill::new (3, &[AppliableModifier
-     (0)], Target::This, Area::Radial (2), 0, SkillKind::Timed (1, 1)), // DO NOT USE
-    Skill::new (4, &[AppliableModifier
-     (4)], Target::Ally, Area::Single, 0, SkillKind::Timed (0, 2)),
-    Skill::new (5, &[AppliableModifier
-     (4)], Target::Allies, Area::Radial (2), 0, SkillKind::Timed (0, 2)),
-    Skill::new (6, &[AppliableModifier
-     (4)], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),
+    Skill::new (0, &[AppliableModifier (6)], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),
+    Skill::new (1, &[AppliableModifier (5)], Target::This, Area::Single, 0, SkillKind::Passive),
+    Skill::new (2, &[AppliableModifier (3), AppliableModifier (5)], Target::This, Area::Radial (2), 0, SkillKind::Toggled (0)),
+    Skill::new (3, &[AppliableModifier (0)], Target::This, Area::Radial (2), 0, SkillKind::Timed (1, 1)), // DO NOT USE
+    Skill::new (4, &[AppliableModifier (4)], Target::Ally, Area::Single, 0, SkillKind::Timed (0, 2)),
+    Skill::new (5, &[AppliableModifier (4)], Target::Allies, Area::Radial (2), 0, SkillKind::Timed (0, 2)),
+    Skill::new (6, &[AppliableModifier (4)], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),
 ];
 pub const FACTION_BUILDERS: &[FactionBuilder] = &[
     FactionBuilder::new (0, &[2]),
@@ -180,4 +156,11 @@ pub const UNIT_BUILDERS: &[UnitBuilder] = &[
 pub const TILE_BUILDERS: &[&[TileBuilder]] = &[
     &[TileBuilder::new (0, 0, Some (0)), TileBuilder::new (0, 1, None), TileBuilder::new (0, 0, Some (1))],
     &[TileBuilder::new (1, 2, Some (2)), TileBuilder::new (1, 1, None), TileBuilder::new (2, 0, None)],
+];
+pub const UNIT_LOCATIONS: &[Option<Location>] = &[
+    Some ((0, 0)),
+    None,
+    Some ((1, 0)),
+    None,
+    None,
 ];
