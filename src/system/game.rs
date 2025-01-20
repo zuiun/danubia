@@ -20,10 +20,17 @@ use std::sync::mpsc::Sender;
  */
 const DELAYS: [u8; 101] = [21, 20, 19, 19, 18, 18, 17, 17, 16, 16, 15, 15, 14, 14, 14, 13, 13, 13, 12, 12, 11, 11, 11, 11, 10, 10, 10, 9, 9, 9, 9, 8, 8, 8, 8, 7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1];
 
-fn get_delay (mov: u16, delay_multiplier: f32) -> u16 {
+fn get_delay (mov: u16, action: Action) -> u16 {
     let delay: f32 = DELAYS[mov as usize] as f32;
+    let factor: f32 = match action {
+        Action::Attack => FACTOR_ATTACK,
+        Action::Skill => FACTOR_SKILL,
+        Action::Magic => FACTOR_MAGIC,
+        Action::Wait => FACTOR_WAIT,
+        _ => panic! ("Invalid action {:?}", action),
+    };
 
-    (delay * delay_multiplier) as u16
+    (delay * factor) as u16
 }
 
 #[derive (Debug)]
@@ -52,20 +59,27 @@ pub enum State {
 pub struct Game<R: BufRead> {
     scene: Rc<Scene>,
     state: State,
+    turn: Option<Turn>,
+    turns: BinaryHeap<Turn>,
+    number_turns: usize,
     // handler: Rc<RefCell<Handler>>,
     grid: Grid,
     units: Vec<Unit>,
     factions: Vec<Faction>,
-    turns: BinaryHeap<Turn>,
-    number_turns: usize,
     // Move context
     unit_location: Location,
     movements: Vec<Direction>,
+    mov: u16,
     // Attack, skill, magic context
     target: Target,
     area: Area,
     range: u8,
+    potential_ids: Vec<ID>,
+    potential_locations: Vec<Location>,
+    target_ids: Vec<ID>,
+    target_locations: Vec<Location>,
     unit_ids_dirty: Vec<ID>, // Attack context
+
     reader: Reader<R>,
     sender: Sender<String>,
 }
@@ -74,6 +88,9 @@ impl<R: BufRead> Game<R> {
     pub fn new (scene: Scene, reader: Reader<R>, sender: Sender<String>) -> Self {
         let scene: Rc<Scene> = Rc::new (scene);
         let state: State = State::Idle;
+        let turn: Option<Turn> = None;
+        let turns: BinaryHeap<Turn> = BinaryHeap::new ();
+        let number_turns: usize = 0;
         // let handler: Handler = Handler::new ();
         // let handler: RefCell<Handler> = RefCell::new (handler);
         // let handler: Rc<RefCell<Handler>> = Rc::new (handler);
@@ -84,19 +101,22 @@ impl<R: BufRead> Game<R> {
         let factions: Vec<Faction> = scene.faction_builders_iter ().map (|f: &FactionBuilder|
             f.build (&units)
         ).collect ();
-        let turns: BinaryHeap<Turn> = BinaryHeap::new ();
-        let number_turns: usize = 0;
         let unit_location: Location = (usize::MAX, usize::MAX);
         let movements: Vec<Direction> = Vec::new ();
+        let mov: u16 = 0;
         let target: Target = Target::This;
         let area: Area = Area::Single;
         let range: u8 = u8::MAX;
+        let potential_ids: Vec<ID> = Vec::new ();
+        let potential_locations: Vec<Location> = Vec::new ();
+        let target_ids: Vec<ID> = Vec::new ();
+        let target_locations: Vec<Location> = Vec::new ();
         let unit_ids_dirty: Vec<ID> = Vec::new ();
         let reader: Reader<R> = reader;
 
         let _ = sender.send (String::from ("Game creation complete"));
 
-        Self { scene, state, /* handler, */ grid, units, factions, turns, number_turns, unit_location, movements, target, area, range, unit_ids_dirty, reader, sender }
+        Self { scene, state, turn, turns, number_turns, /* handler, */ grid, units, factions, unit_location, movements, mov, target, area, range, potential_ids, potential_locations, target_ids, target_locations, unit_ids_dirty, reader, sender }
     }
 
     fn apply_terrain (&mut self, unit_id: ID, terrain_id: ID, location: Location) {
@@ -112,7 +132,7 @@ impl<R: BufRead> Game<R> {
 
     fn add_turn (&mut self, unit_id: ID) {
         let mov: u16 = self.units[unit_id].get_statistic (UnitStatistic::MOV).0;
-        let delay: u16 = get_delay (mov, FACTOR_WAIT);
+        let delay: u16 = get_delay (mov, Action::Wait);
         let turn: Turn = Turn::new (unit_id, delay, mov);
 
         self.turns.push (turn);
@@ -166,6 +186,17 @@ impl<R: BufRead> Game<R> {
         location
     }
 
+    fn move_unit_new (&mut self, unit_id: ID) -> Location {
+        let (location, terrain_id): (Location, ID) = self.grid
+                .move_unit (unit_id, &self.movements)
+                .unwrap_or_else (|| panic! ("Invalid movements {:?}", self.movements));
+
+        self.apply_terrain (unit_id, terrain_id, location);
+        self.try_spawn_recruit (unit_id);
+
+        location
+    }
+
     fn kill_unit (&mut self, unit_id: ID) {
         // TODO: If player leader died, then end game and don't worry about all this
         let faction_id: ID = self.scene.get_unit_builder (&unit_id).get_faction_id ();
@@ -196,6 +227,12 @@ impl<R: BufRead> Game<R> {
                 None
             }
         }).collect ()
+    }
+
+    fn find_units_from (&mut self, locations: &[Location]) -> Vec<ID> {
+        locations.iter ().filter_map (|l: &Location|
+            self.grid.get_location_unit (l).copied ()
+        ).collect::<Vec<ID>> ()
     }
 
     fn find_units_area (&mut self, unit_id: ID, potential_ids: &[ID], target: Target, search: Search) -> Vec<ID> {
@@ -285,7 +322,46 @@ impl<R: BufRead> Game<R> {
         }
     }
 
-    fn find_units_range (&mut self, unit_id: ID, target: Target, area: Area, range: u8) -> Vec<ID> {
+    fn find_units_area_new (&mut self, unit_id: ID, target_id: ID, target: Target, search: Search) -> Vec<ID> {
+        assert! (!self.potential_ids.is_empty ());
+
+        match target {
+            Target::This => vec![self.potential_ids[0]],
+            Target::Ally | Target::Enemy => vec![target_id],
+            Target::Allies | Target::Enemies => match search {
+                Search::Single => panic! ("Invalid search {:?} for target {:?}", search, target),
+                Search::Radial (r) => {
+                    let location: &Location = self.grid.get_unit_location (&target_id);
+                    let target_ids: Vec<ID> = self.grid.find_units (location, Search::Radial (r));
+                    let faction_id: ID = self.units[unit_id].get_faction_id ();
+
+                    if let Target::Allies = target {
+                        self.filter_unit_allegiance (&target_ids, faction_id, true)
+                    } else if let Target::Enemies = target {
+                        self.filter_unit_allegiance (&target_ids, faction_id, false)
+                    } else {
+                        panic! ("Invalid target {:?}", target)
+                    }
+                }
+                Search::Path (w, r, d) => {
+                    let location: &Location = self.grid.get_unit_location (&unit_id);
+                    let target_ids: Vec<ID> = self.grid.find_units (location, Search::Path (w, r, d));
+                    let faction_id: ID = self.units[unit_id].get_faction_id ();
+
+                    if let Target::Allies = target {
+                        self.filter_unit_allegiance (&target_ids, faction_id, true)
+                    } else if let Target::Enemies = target {
+                        self.filter_unit_allegiance (&target_ids, faction_id, false)
+                    } else {
+                        panic! ("Invalid target {:?}", target)
+                    }
+                }
+            },
+            _ => panic! ("Invalid target {:?}", target),
+        }
+    }
+
+    fn find_units_range (&self, unit_id: ID, target: Target, area: Area, range: u8) -> Vec<ID> {
         if let Target::Map = target {
             panic! ("Invalid target {:?}", target)
         } else if let Target::This = target {
@@ -314,6 +390,39 @@ impl<R: BufRead> Game<R> {
                 Target::Ally | Target::Allies => self.filter_unit_allegiance (&neighbour_ids, faction_id, true),
                 Target::Enemy | Target::Enemies => self.filter_unit_allegiance (&neighbour_ids, faction_id, false),
                 _ => panic! ("Invalid target {:?}", target),
+            }
+        }
+    }
+
+    fn find_units_range_new (&self, unit_id: ID) -> Vec<ID> {
+        if let Target::Map = self.target {
+            panic! ("Invalid target {:?}", self.target)
+        } else if let Target::This = self.target {
+            vec![unit_id]
+        } else {
+            let location: &Location = self.grid.get_unit_location (&unit_id);
+            let neighbour_ids: Vec<ID> = if let Area::Path (w) = self.area {
+                let neighbour_ids_up: Vec<ID> = self.grid.find_units (location, Search::Path (w, self.range, Direction::Up));
+                let neighbour_ids_right: Vec<ID> = self.grid.find_units (location, Search::Path (w, self.range, Direction::Right));
+                let neighbour_ids_left: Vec<ID> = self.grid.find_units (location, Search::Path (w, self.range, Direction::Left));
+                let neighbour_ids_down: Vec<ID> = self.grid.find_units (location, Search::Path (w, self.range, Direction::Down));
+                let mut neighbour_ids: HashSet<ID> = HashSet::new ();
+
+                neighbour_ids.extend (neighbour_ids_up.iter ());
+                neighbour_ids.extend (neighbour_ids_right.iter ());
+                neighbour_ids.extend (neighbour_ids_left.iter ());
+                neighbour_ids.extend (neighbour_ids_down.iter ());
+
+                neighbour_ids.into_iter ().collect ()
+            } else {
+                self.grid.find_units (location, Search::Radial (self.range))
+            };
+            let faction_id: ID = self.units[unit_id].get_faction_id ();
+
+            match self.target {
+                Target::Ally | Target::Allies => self.filter_unit_allegiance (&neighbour_ids, faction_id, true),
+                Target::Enemy | Target::Enemies => self.filter_unit_allegiance (&neighbour_ids, faction_id, false),
+                _ => panic! ("Invalid target {:?}", self.target),
             }
         }
     }
@@ -400,7 +509,7 @@ impl<R: BufRead> Game<R> {
         }
     }
 
-    fn find_locations_range (&mut self, unit_id: ID, area: Area, range: u8) -> Vec<Location> {
+    fn find_locations_range (&self, unit_id: ID, area: Area, range: u8) -> Vec<Location> {
         let location: &Location = self.grid.get_unit_location (&unit_id);
 
         if let Area::Path (w) = area {
@@ -451,6 +560,31 @@ impl<R: BufRead> Game<R> {
         let weapon: Weapon = *weapon;
 
         for defender_id in defender_ids {
+            let statistics_defender: &UnitStatistics = &self.units[*defender_id].get_statistics ();
+            let (damage_mrl, damage_hlt, damage_spl): (u16, u16, u16) = UnitStatistics::calculate_damage (statistics_attacker, statistics_defender, &weapon);
+            let appliable_on_attack: Option<Box<dyn Appliable>> = weapon.try_yield_appliable (Rc::clone (&self.scene));
+            let appliable_on_hit: Option<Box<dyn Appliable>> = self.units[*defender_id].take_damage (damage_mrl, damage_hlt, damage_spl);
+
+            if let Some (a) = appliable_on_attack {
+                self.units[*defender_id].add_appliable (a);
+            }
+
+            if let Some (a) = appliable_on_hit {
+                self.units[attacker_id].add_appliable (a);
+            }
+
+            self.unit_ids_dirty.push (*defender_id);
+        }
+
+        mov
+    }
+
+    fn act_attack_new (&mut self, attacker_id: ID) -> u16 {
+        let statistics_attacker: &UnitStatistics = &self.units[attacker_id].get_statistics ();
+        let (mov, weapon): (u16, &Weapon) = self.units[attacker_id].act_attack ();
+        let weapon: Weapon = *weapon;
+
+        for defender_id in &self.target_ids {
             let statistics_defender: &UnitStatistics = &self.units[*defender_id].get_statistics ();
             let (damage_mrl, damage_hlt, damage_spl): (u16, u16, u16) = UnitStatistics::calculate_damage (statistics_attacker, statistics_defender, &weapon);
             let appliable_on_attack: Option<Box<dyn Appliable>> = weapon.try_yield_appliable (Rc::clone (&self.scene));
@@ -799,8 +933,9 @@ impl<R: BufRead> Game<R> {
         if mov > 0 {
             let delay: u16 = if self.units[unit_id].is_alive () {
                 self.end_turn (unit_id);
-    
-                get_delay (mov, delay_multiplier)
+
+                // get_delay (mov, delay_multiplier)
+                get_delay (mov, Action::Wait) // TODO: Temporary to make this compile
             } else {
                 u16::MAX
             };
@@ -819,296 +954,391 @@ impl<R: BufRead> Game<R> {
         }
     }
 
-    // pub fn update (&mut self, unit_id: ID, input: Keycode) {
-    //     let is_retreat: bool = self.units[unit_id].is_retreat ();
-    //     let is_rout: bool = self.units[unit_id].is_rout ();
-    //     let mut mov: u16 = self.units[unit_id].get_statistic (UnitStatistic::MOV).0;
-    //     // let validator: ActionValidator = ActionValidator::new ();
+    // TODO: update () should obviously not be personally processing Keycode
+    pub fn update (&mut self, input: Keycode) {
+        let unit_id: ID = if let Some (turn) = &self.turn {
+            println! ("Delay: {}", turn.get_delay ());
 
-    //     // print!("\x1B[2J\x1B[1;1H"); // Clears the terminal
-    //     println! ("Start {}'s turn", unit_id);
-    //     let _ = self.sender.send (format! ("Start {}'s turn", unit_id));
-    //     print! ("{}", self.grid);
-    //     println! ("Movable locations: {:?}", self.grid.find_unit_movable (&unit_id, mov));
-    //     println! ("Turn order: {:?}\n", self.turns);
+            turn.get_unit_id ()
+        } else {
+            let turn: Turn = self.turns.pop ().expect ("Turn not found");
+            let unit_id: ID = turn.get_unit_id ();
 
-    //     // (mov, delay_multiplier)
+            println! ("Delay: {}", turn.get_delay ());
+            self.turn = Some (turn);
+            self.mov = self.units[unit_id].get_statistic (UnitStatistic::MOV).0;
 
-    //     match self.state {
-    //         State::Idle => {
-    //             match input {
-    //                 // Move
-    //                 Keycode::Q => {
-    //                     let _ = self.sender.send (format! ("{}'s action: Move", unit_id));
+            unit_id
+        };
+        let is_retreat: bool = self.units[unit_id].is_retreat ();
+        let is_rout: bool = self.units[unit_id].is_rout ();
 
-    //                     self.state = State::Move;
-    //                     self.unit_location = *self.grid.get_unit_location (&unit_id);
-    //                     self.grid.set_unit_id_passable (Some (unit_id));
-    //                     self.movements.clear ();
-    //                     println! ("Current location: {:?}", self.unit_location);
-    //                 }
-    //                 // Switch weapon
-    //                 Keycode::W => {
+        // print!("\x1B[2J\x1B[1;1H"); // Clears the terminal
+        println! ("Start {}'s turn", unit_id);
+        let _ = self.sender.send (format! ("Start {}'s turn", unit_id));
+        print! ("{}", self.grid);
+        println! ("Movable locations: {:?}", self.grid.find_unit_movable (&unit_id, self.mov));
+        println! ("Turn order: {:?}\n", self.turns);
 
-    //                 }
-    //                 // Attack
-    //                 Keycode::A => {
-    //                     let _ = self.sender.send (format! ("{}'s action: Attack", unit_id));
+        let action: Option<Action> = match self.state {
+            State::Idle => match input {
+                // Move
+                Keycode::Q => {
+                    let _ = self.sender.send (format! ("{}'s action: Move", unit_id));
 
-    //                     if is_retreat {
-    //                         println! ("Unit cannot attack (is retreating)")
-    //                     } else {
-    //                         let weapon: &Weapon = self.units[unit_id].get_weapon ();
+                    self.state = State::Move;
+                    self.unit_location = *self.grid.get_unit_location (&unit_id);
+                    self.grid.set_unit_id_passable (Some (unit_id));
+                    self.movements.clear ();
+                    println! ("Current location: {:?}", self.unit_location);
 
-    //                         self.state = State::AttackTarget;
-    //                         self.target = weapon.get_target ();
-    //                         self.area = weapon.get_area ();
-    //                         self.range = weapon.get_range ();
-    //                     }
-    //                 }
-    //                 // Skill
-    //                 Keycode::S => {
-    //                     self.state = State::SkillRange;
-    //                 }
-    //                 // Magic
-    //                 Keycode::D => {
-    //                     self.state = State::MagicRange;
-    //                 }
-    //                 // Wait
-    //                 Keycode::Z => {
-    //                     let _ = self.sender.send (format! ("{}'s action: Wait", unit_id));
-    //                     // break (self.act_wait (unit_id), FACTOR_WAIT)
-    //                 }
-    //             }
-    //         }
-    //         State::Move => {
-    //             match input {
-    //                 // Move
-    //                 Keycode::W | Keycode::A | Keycode::S | Keycode::D => {
-    //                     let direction: Direction = match input {
-    //                         Keycode::W => Direction::Up,
-    //                         Keycode::A => Direction::Left,
-    //                         Keycode::S => Direction::Down,
-    //                         Keycode::D => Direction::Right,
-    //                         _ => unreachable! (),
-    //                     };
+                    None
+                }
+                // Switch weapon
+                Keycode::W => {
+                    let _ = self.sender.send (format! ("{}'s action: Switch weapon", unit_id));
 
-    //                     if let Some ((end, cost)) = self.grid.try_move (&self.unit_location, direction) {
-    //                         if mov >= (cost as u16) {
-    //                             self.movements.push (direction);
-    //                             self.unit_location = end;
-    //                             mov -= cost as u16;
-    //                         } else {
-    //                             println! ("Insufficient MOV");
-    //                         }
-    //                     }
-    //                 }
-    //                 // Confirm
-    //                 Keycode::Z => {
-    //                     // self.grid.set_unit_id_passable (None);
-    //                     self.move_unit (unit_id, &self.movements);
-    //                     self.state = State::Idle;
-    //                     println! ("{:?}", self.movements);
-    //                     println! ("{:?}, {} MOV remaining", self.grid.get_unit_location (&unit_id), mov);
-    //                     let _ = self.sender.send (format! ("Movements: {:?}", self.movements));
-    //                 }
-    //                 // Cancel
-    //                 Keycode::X => {
-    //                     self.state = State::Idle;
-    //                 }
-    //             }
-    //         }
-    //         State::AttackTarget => {
-    //             let potential_ids: Vec<ID> = self.find_units_range (unit_id, self.target, self.area, self.range);
-    //             let search: Search = match self.area {
-    //                 Area::Single => Search::Single,
-    //                 Area::Radial (r) => Search::Radial (r),
-    //                 Area::Path (w) => Search::Path (w, self.range, Direction::Length), // Placeholder direction
-    //             };
-    //             let _ = self.sender.send (format! ("Found potential targets: {:?}", potential_ids));
-    //             let target_ids: Vec<ID> = if potential_ids.is_empty () {
-    //                 println! ("No available targets");
-        
-    //                 Vec::new ()
-    //             } else {
-    //                 self.find_units_area (unit_id, &potential_ids, target, search)
-    //             };
+                    if is_rout {
+                        println! ("Unit cannot rearm (is routed)")
+                    } else {
+                        self.units[unit_id].switch_weapon ();
+                        let _ = self.sender.send (format! ("{}'s action: Switch weapon", unit_id));
+                        println! ("New weapon: {:?}", self.units[unit_id].get_weapon ());
+                    }
 
-    //             if !target_ids.is_empty () {
-    //                 let mov: u16 = self.act_attack (unit_id, &target_ids);
+                    None
+                }
+                // Attack
+                Keycode::A => {
+                    let _ = self.sender.send (format! ("{}'s action: Attack", unit_id));
 
-    //                 println! ("Attacking {:?}", target_ids);
+                    if is_retreat {
+                        println! ("Unit cannot attack (is retreating)")
+                    } else {
+                        let weapon: &Weapon = self.units[unit_id].get_weapon ();
+                        self.target = weapon.get_target ();
+                        self.area = weapon.get_area ();
+                        self.range = weapon.get_range ();
 
-    //                 for target_id in target_ids {
-    //                     println! ("Defender: {}", self.units[target_id].get_statistics ());
-    //                 }
+                        self.potential_ids = self.find_units_range_new (unit_id);
+                        let _ = self.sender.send (format! ("Found potential targets: {:?}", self.potential_ids));
 
-    //                 println! ("Self: {}", self.units[unit_id].get_statistics ());
+                        if self.potential_ids.is_empty () {
+                            println! ("No available targets");
+                        } else {
+                            self.state = State::AttackTarget;
+                        };
+                    }
 
-    //                 break (mov, FACTOR_ATTACK)
-    //             }
+                    None
+                }
+                // Skill
+                Keycode::S => {
+                    self.state = State::SkillRange;
 
-    //             todo!();
-    //         }
-    //         State::AttackConfirm => {
-    //             todo!();
-    //         }
-    //         State::SkillRange => {
-    //             todo!();
-    //         }
-    //         State::SkillArea => {
-    //             todo!();
-    //         }
-    //         State::MagicRange => {
-    //             todo!();
-    //         }
-    //         State::MagicArea => {
-    //             todo!();
-    //         }
-    //     }
+                    None
+                }
+                // Magic
+                Keycode::D => {
+                    self.state = State::MagicRange;
+                    // self.potential_locations = self.find_locations_range (unit_id, self.area, self.range);
 
-    //     if let State::Idle = self.state {
-    //         println! ("End {}'s turn\n", unit_id);
-    //         let _ = self.sender.send (format! ("End {}'s turn", unit_id));
-    //         self.send_passive (unit_id);
-    //     }
+                    None
+                }
+                // Wait
+                Keycode::Z => {
+                    let _ = self.sender.send (format! ("{}'s action: Wait", unit_id));
+                    self.act_wait (unit_id);
 
-    //     Action::Attack => {
-            
-    //     }
-    //     Action::Weapon => {
-    //         if is_rout {
-    //             println! ("Unit cannot rearm (is routed)")
-    //         } else {
-    //             self.units[unit_id].switch_weapon ();
-    //             let _ = self.sender.send (format! ("{}'s action: Switch weapon", unit_id));
-    //             println! ("New weapon: {:?}", self.units[unit_id].get_weapon ());
-    //         }
-    //     }
-    //     Action::Skill => {
-    //         if is_rout {
-    //             println! ("Unit cannot use skill (is routed)")
-    //         } else {
-    //             let skill_ids: Vec<ID> = self.units[unit_id].get_skill_ids_actionable ();
+                    Some (Action::Wait)
+                }
+                _ => {
+                    println! ("Invalid input");
 
-    //             if skill_ids.is_empty () {
-    //                 println! ("No skills available");
-    //             } else {
-    //                 let validator: IDValidator = IDValidator::new (&skill_ids);
-
-    //                 println! ("Available skills: {:?}", skill_ids);
-    //                 let _ = self.sender.send (format! ("{}'s action: Skill", unit_id));
-
-    //                 if let Some (skill_id) = self.reader.read_validate (&validator) {
-    //                     let skill: &Skill = self.scene.get_skill (&skill_id);
-    //                     let target: Target = skill.get_target ();
-    //                     let area: Area = skill.get_area ();
-    //                     let range: u8 = skill.get_range ();
-    //                     let target_ids: Vec<ID> = self.find_units (unit_id, target, area, range);
-
-    //                     if !target_ids.is_empty () {
-    //                         let mov: u16 = self.act_skill (unit_id, &target_ids, skill_id);
-
-    //                         println! ("Using skill {} on {:?}", skill_id, target_ids);
-
-    //                         for target_id in target_ids {
-    //                             println! ("Target: {}", self.units[target_id]);
-    //                         }
-
-    //                         break (mov, FACTOR_SKILL)
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     Action::Magic => {
-    //         if is_rout {
-    //             println! ("Unit cannot use magic (is routed)")
-    //         } else {
-    //             let magic_ids: &[ID] = self.units[unit_id].get_magic_ids ();
+                    None
+                }
+            }
+            State::Move => {
                 
-    //             if magic_ids.is_empty () {
-    //                 println! ("No available magics");
-    //             } else {
-    //                 let validator: IDValidator = IDValidator::new (magic_ids);
+        // Action::Move => {
+        //     let mut start: Location = *self.grid.get_unit_location (&unit_id);
+        //     let mut movements: Vec<Direction> = Vec::new ();
+        //     let validator: MovementValidator = MovementValidator::new ();
 
-    //                 println! ("Available magics: {:?}", magic_ids);
-    //                 let _ = self.sender.send (format! ("{}'s action: Magic", unit_id));
+        //     let _ = self.sender.send (format! ("{}'s action: Move", unit_id));
+        //     println! ("Current location: {:?}", start);
+        //     self.grid.set_unit_id_passable (Some (unit_id));
 
-    //                 if let Some (magic_id) = self.reader.read_validate (&validator) {
-    //                     let magic: &Magic = self.scene.get_magic (&magic_id);
-    //                     let target: Target = magic.get_target ();
-    //                     let area: Area = magic.get_area ();
-    //                     let range: u8 = magic.get_range ();
+        //     while let Some (direction) = self.reader.read_validate (&validator) {
+        //         if let Direction::Length = direction {
+        //             // self.grid.set_unit_id_passable (None);
+        //             println! ("{:?}", movements);
+        //             self.move_unit (unit_id, &movements);
+        //             println! ("{:?}, {} MOV remaining", self.grid.get_unit_location (&unit_id), mov);
+        //             let _ = self.sender.send (format! ("Movements: {:?}", movements));
 
-    //                     match target {
-    //                         Target::This => {
-    //                             let target_ids: Vec<ID> = self.find_units (unit_id, target, area, range);
+        //             break
+        //         } else if let Some ((end, cost)) = self.grid.try_move (&start, direction) {
+        //             if mov >= (cost as u16) {
+        //                 movements.push (direction);
+        //                 start = end;
+        //                 mov -= cost as u16;
+        //             } else {
+        //                 println! ("Insufficient MOV");
+        //             }
+        //         } else {
+        //             println! ("Invalid movement");
+        //         }
+        //     }
+        // }
 
-    //                             if !target_ids.is_empty () {
-    //                                 let mov: u16 = self.act_magic (unit_id, None, magic_id);
+                match input {
+                    // Move
+                    Keycode::W | Keycode::A | Keycode::S | Keycode::D => {
+                        let direction: Direction = match input {
+                            Keycode::W => Direction::Up,
+                            Keycode::A => Direction::Left,
+                            Keycode::S => Direction::Down,
+                            Keycode::D => Direction::Right,
+                            _ => unreachable! (),
+                        };
 
-    //                                 println! ("Using magic {} on self", magic_id);
+                        if let Some ((end, cost)) = self.grid.try_move (&self.unit_location, direction) {
+                            println! ("{:?}", direction);
+                            if self.mov >= (cost as u16) {
+                                self.movements.push (direction);
+                                self.unit_location = end;
+                                self.mov -= cost as u16;
+                            } else {
+                                println! ("Insufficient MOV");
+                            }
+                        } else {
+                            println! ("Invalid direction {:?}", direction);
+                        }
+                    }
+                    // Confirm
+                    Keycode::Z => {
+                        // self.grid.set_unit_id_passable (None);
+                        self.move_unit_new (unit_id);
+                        self.state = State::Idle;
+                        println! ("{:?}", self.movements);
+                        println! ("{:?}, {} MOV remaining", self.grid.get_unit_location (&unit_id), self.mov);
+                        let _ = self.sender.send (format! ("Movements: {:?}", self.movements));
+                    }
+                    // Cancel
+                    Keycode::X => self.state = State::Idle,
+                    _ => println! ("Invalid input"),
+                }
 
-    //                                 for target_id in target_ids {
-    //                                     println! ("Target: {}", self.units[target_id]);
-    //                                 }
+                None
+            }
+            State::AttackTarget => {
+                let search: Search = match self.area {
+                    Area::Single => Search::Single,
+                    Area::Radial (r) => Search::Radial (r),
+                    Area::Path (w) => {
+                        let direction: Direction = match input {
+                            Keycode::W => Direction::Up,
+                            Keycode::A => Direction::Right,
+                            Keycode::S => Direction::Left,
+                            Keycode::D => Direction::Down,
+                            _ => {
+                                println! ("Invalid input");
 
-    //                                 break (mov, FACTOR_MAGIC)
-    //                             }
-    //                         }
-    //                         Target::Map => {
-    //                             let target_locations: Vec<Location> =
-    //                                 self.find_locations (unit_id, area, range);
+                                Direction::Up
+                            }
+                        };
 
-    //                             if !target_locations.is_empty () {
-    //                                 let mov: u16 = self.act_magic (unit_id, Some (&target_locations), magic_id);
+                        Search::Path (w, self.range, direction)
+                    }
+                };
 
-    //                                 println! ("Using magic {} on {:?}", magic_id, target_locations);
-    //                                 println! ("Targets: {:?}", target_locations);
+                let target_idx: Option<usize> = match input {
+                    Keycode::NUM_0 => Some (0),
+                    Keycode::NUM_1 => Some (1),
+                    Keycode::NUM_2 => Some (2),
+                    Keycode::NUM_3 => Some (3),
+                    Keycode::NUM_4 => Some (4),
+                    Keycode::NUM_5 => Some (5),
+                    Keycode::NUM_6 => Some (6),
+                    Keycode::NUM_7 => Some (7),
+                    Keycode::NUM_8 => Some (8),
+                    Keycode::NUM_9 => Some (9),
+                    _ => {
+                        println! ("Invalid input");
 
-    //                                 break (mov, FACTOR_MAGIC)
-    //                             }
-    //                         }
-    //                         _ => panic! ("Invalid target {:?}", target),
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     Action::Move => {
-    //         let mut start: Location = *self.grid.get_unit_location (&unit_id);
-    //         let mut movements: Vec<Direction> = Vec::new ();
-    //         let validator: MovementValidator = MovementValidator::new ();
+                        None
+                    }
+                    // TODO: Obvious flaw - can't choose from more than 10 targets, which will be fixed with mouse input
+                };
 
-    //         let _ = self.sender.send (format! ("{}'s action: Move", unit_id));
-    //         println! ("Current location: {:?}", start);
-    //         self.grid.set_unit_id_passable (Some (unit_id));
+                if let Some (target_idx) = target_idx {
+                    if let Some (target_id) = self.potential_ids.get (target_idx) {
+                        self.target_ids = self.find_units_area_new (unit_id, *target_id, self.target, search);
+                    }
+                }
 
-    //         while let Some (direction) = self.reader.read_validate (&validator) {
-    //             if let Direction::Length = direction {
-    //                 // self.grid.set_unit_id_passable (None);
-    //                 println! ("{:?}", movements);
-    //                 self.move_unit (unit_id, &movements);
-    //                 println! ("{:?}, {} MOV remaining", self.grid.get_unit_location (&unit_id), mov);
-    //                 let _ = self.sender.send (format! ("Movements: {:?}", movements));
+                None
+            }
+            State::AttackConfirm => {
+                match input {
+                    // Confirm
+                    Keycode::Z => {
+                        self.act_attack_new (unit_id);
+                        println! ("Attacking {:?}", self.target_ids);
 
-    //                 break
-    //             } else if let Some ((end, cost)) = self.grid.try_move (&start, direction) {
-    //                 if mov >= (cost as u16) {
-    //                     movements.push (direction);
-    //                     start = end;
-    //                     mov -= cost as u16;
-    //                 } else {
-    //                     println! ("Insufficient MOV");
-    //                 }
-    //             } else {
-    //                 println! ("Invalid movement");
-    //             }
-    //         }
-    //     }
-    //     Action::Wait => 
-    // }
+                        for target_id in &self.target_ids {
+                            println! ("Defender: {}", self.units[*target_id].get_statistics ());
+                        }
+    
+                        println! ("Self: {}", self.units[unit_id].get_statistics ());
+
+                        Some (Action::Attack)
+                    }
+                    // Cancel
+                    Keycode::X => {
+                        self.state = State::Idle;
+
+                        None
+                    }
+                    _ => {
+                        println! ("Invalid input");
+
+                        None
+                    }
+                }
+            }
+            State::SkillRange => {
+                todo!();
+            }
+            State::SkillArea => {
+                todo!();
+            }
+            State::MagicRange => {
+                todo!();
+            }
+            State::MagicArea => {
+                todo!();
+            }
+        };
+
+        if let Some (action) = action {
+            let turn: Turn = self.turn.take ()
+                    .expect ("Turn not found");
+
+            println! ("End {}'s turn\n", unit_id);
+            let _ = self.sender.send (format! ("End {}'s turn", unit_id));
+            self.send_passive (unit_id);
+
+            let (delay, mov): (u16, u16) = if self.units[unit_id].is_alive () {
+                let mov: u16 = self.units[unit_id].get_statistic (UnitStatistic::MOV).0;
+
+                self.end_turn (unit_id);
+
+                (get_delay (mov, action), mov)
+            } else {
+                (u16::MAX, u16::MAX)
+            };
+
+            if self.units[unit_id].is_alive () {
+                self.update_turns (turn, delay, mov);
+            } else {
+                self.kill_unit (unit_id);
+            }
+        }
+
+        // Action::Skill => {
+        //     if is_rout {
+        //         println! ("Unit cannot use skill (is routed)")
+        //     } else {
+        //         let skill_ids: Vec<ID> = self.units[unit_id].get_skill_ids_actionable ();
+
+        //         if skill_ids.is_empty () {
+        //             println! ("No skills available");
+        //         } else {
+        //             let validator: IDValidator = IDValidator::new (&skill_ids);
+
+        //             println! ("Available skills: {:?}", skill_ids);
+        //             let _ = self.sender.send (format! ("{}'s action: Skill", unit_id));
+
+        //             if let Some (skill_id) = self.reader.read_validate (&validator) {
+        //                 let skill: &Skill = self.scene.get_skill (&skill_id);
+        //                 let target: Target = skill.get_target ();
+        //                 let area: Area = skill.get_area ();
+        //                 let range: u8 = skill.get_range ();
+        //                 let target_ids: Vec<ID> = self.find_units (unit_id, target, area, range);
+
+        //                 if !target_ids.is_empty () {
+        //                     let mov: u16 = self.act_skill (unit_id, &target_ids, skill_id);
+
+        //                     println! ("Using skill {} on {:?}", skill_id, target_ids);
+
+        //                     for target_id in target_ids {
+        //                         println! ("Target: {}", self.units[target_id]);
+        //                     }
+
+        //                     break (mov, FACTOR_SKILL)
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+        // Action::Magic => {
+        //     if is_rout {
+        //         println! ("Unit cannot use magic (is routed)")
+        //     } else {
+        //         let magic_ids: &[ID] = self.units[unit_id].get_magic_ids ();
+                
+        //         if magic_ids.is_empty () {
+        //             println! ("No available magics");
+        //         } else {
+        //             let validator: IDValidator = IDValidator::new (magic_ids);
+
+        //             println! ("Available magics: {:?}", magic_ids);
+        //             let _ = self.sender.send (format! ("{}'s action: Magic", unit_id));
+
+        //             if let Some (magic_id) = self.reader.read_validate (&validator) {
+        //                 let magic: &Magic = self.scene.get_magic (&magic_id);
+        //                 let target: Target = magic.get_target ();
+        //                 let area: Area = magic.get_area ();
+        //                 let range: u8 = magic.get_range ();
+
+        //                 match target {
+        //                     Target::This => {
+        //                         let target_ids: Vec<ID> = self.find_units (unit_id, target, area, range);
+
+        //                         if !target_ids.is_empty () {
+        //                             let mov: u16 = self.act_magic (unit_id, None, magic_id);
+
+        //                             println! ("Using magic {} on self", magic_id);
+
+        //                             for target_id in target_ids {
+        //                                 println! ("Target: {}", self.units[target_id]);
+        //                             }
+
+        //                             break (mov, FACTOR_MAGIC)
+        //                         }
+        //                     }
+        //                     Target::Map => {
+        //                         let target_locations: Vec<Location> =
+        //                             self.find_locations (unit_id, area, range);
+
+        //                         if !target_locations.is_empty () {
+        //                             let mov: u16 = self.act_magic (unit_id, Some (&target_locations), magic_id);
+
+        //                             println! ("Using magic {} on {:?}", magic_id, target_locations);
+        //                             println! ("Targets: {:?}", target_locations);
+
+        //                             break (mov, FACTOR_MAGIC)
+        //                         }
+        //                     }
+        //                     _ => panic! ("Invalid target {:?}", target),
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+    }
 }
 
 #[cfg (test)]

@@ -1,11 +1,12 @@
 Features:
-what needs to be saved? unit location, occupations, unit stats, unit modifiers/attributes, location modifiers/attributes, weapon attributes,
 move from Reader to SDL key events
+display Grid
 rework event system into game events (weather, spawning reinforcements, etc)
 ^ unit death is best handled by events, but I can't think of a good architecture for it:
 - Implement Observer for Game, with all the disgusting RefCell that would entail
 - Give Handler an Rc<RefCell> to Game, which has a more tolerable RefCell situation
 - Handler owns Game (I dislike this)
+what needs to be saved? unit location, occupations, unit stats, unit modifiers/attributes, location modifiers/attributes, weapon attributes,
 
 Code:
 generate_scene clutters crate visibility; lists should honestly not be part of lib

@@ -40,32 +40,128 @@ fn main () -> Result<(), Box<dyn Error>> {
 
     thread::spawn (move || Logger::new ("log.txt", receiver).do_log ());
     game.init ();
+    game.update (Keycode::Escape);
 
     'running: loop {
         let frame_start = Instant::now ();
+        let mut input: Keycode = Keycode::Escape;
 
         for event in event_pump.poll_iter () {
             match event {
                 Event::Quit { .. } => break 'running,
-                Event::KeyDown { keycode: Some (keycode), .. } => match keycode {
+                Event::KeyDown { keycode: Some (keycode), repeat: false, .. } => {
+                    match keycode {
                     // TODO: others
-                    Keycode::Z => println! ("z"),
-                    Keycode::X => println! ("x"),
-                    Keycode::C => println! ("c"),
-                    Keycode::W => println! ("w"),
-                    Keycode::A => println! ("a"),
-                    Keycode::S => println! ("s"),
-                    Keycode::D => println! ("d"),
-                    Keycode::Q => println! ("q"),
-                    Keycode::E => println! ("e"),
+                    Keycode::Z => {
+                        println! ("z");
+
+                        input = Keycode::Z;
+                    }
+                    Keycode::X => {
+                        println! ("x");
+
+                        input = Keycode::X;
+                    }
+                    Keycode::C => {
+                        println! ("c");
+
+                        input = Keycode::C;
+                    }
+                    Keycode::W => {
+                        println! ("w");
+
+                        input = Keycode::W;
+                    }
+                    Keycode::A => {
+                        println! ("a");
+
+                        input = Keycode::A;
+                    }
+                    Keycode::S => {
+                        println! ("s");
+
+                        input = Keycode::S;
+                    }
+                    Keycode::D => {
+                        println! ("d");
+
+                        input = Keycode::D;
+                    }
+                    Keycode::Q => {
+                        println! ("q");
+
+                        input = Keycode::Q;
+                    }
+                    Keycode::E => {
+                        println! ("e");
+
+                        input = Keycode::E;
+                    }
+                    Keycode::NUM_0 => {
+                        println! ("0");
+
+                        input = Keycode::NUM_0;
+                    }
+                    Keycode::NUM_1 => {
+                        println! ("1");
+
+                        input = Keycode::NUM_1;
+                    }
+                    Keycode::NUM_2 => {
+                        println! ("2");
+
+                        input = Keycode::NUM_2;
+                    }
+
+                    Keycode::NUM_3 => {
+                        println! ("3");
+
+                        input = Keycode::NUM_3;
+                    }
+                    Keycode::NUM_4 => {
+                        println! ("4");
+
+                        input = Keycode::NUM_4;
+                    }
+                    Keycode::NUM_5 => {
+                        println! ("5");
+
+                        input = Keycode::NUM_5;
+                    }
+                    Keycode::NUM_6 => {
+                        println! ("6");
+
+                        input = Keycode::NUM_6;
+                    }
+                    Keycode::NUM_7 => {
+                        println! ("7");
+
+                        input = Keycode::NUM_7;
+                    }
+                    Keycode::NUM_8 => {
+                        println! ("8");
+
+                        input = Keycode::NUM_8;
+                    }
+                    Keycode::NUM_9 => {
+                        println! ("9");
+
+                        input = Keycode::NUM_9;
+                    }
                     Keycode::Escape => break 'running,
                     _ => (),
+                    }
                 }
                 _ => (),
             }
         }
 
-        game.do_turn ();
+        // game.do_turn ();
+        if let Keycode::Escape = input {
+            // ...
+        } else {
+            game.update (input);
+        }
 
         canvas.clear ();
         canvas.present ();
