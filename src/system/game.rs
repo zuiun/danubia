@@ -49,10 +49,10 @@ pub enum State {
     Move,
     AttackTarget,
     AttackConfirm,
-    SkillRange,
-    SkillArea,
-    MagicRange,
-    MagicArea,
+    SkillTarget,
+    SkillConfirm,
+    MagicTarget,
+    MagicConfirm,
 }
 
 #[derive (Debug)]
@@ -74,6 +74,7 @@ pub struct Game<R: BufRead> {
     target: Target,
     area: Area,
     range: u8,
+    target_idx: usize,
     potential_ids: Vec<ID>,
     potential_locations: Vec<Location>,
     target_ids: Vec<ID>,
@@ -107,6 +108,7 @@ impl<R: BufRead> Game<R> {
         let target: Target = Target::This;
         let area: Area = Area::Single;
         let range: u8 = u8::MAX;
+        let target_idx: usize = 0;
         let potential_ids: Vec<ID> = Vec::new ();
         let potential_locations: Vec<Location> = Vec::new ();
         let target_ids: Vec<ID> = Vec::new ();
@@ -116,7 +118,7 @@ impl<R: BufRead> Game<R> {
 
         let _ = sender.send (String::from ("Game creation complete"));
 
-        Self { scene, state, turn, turns, number_turns, /* handler, */ grid, units, factions, unit_location, movements, mov, target, area, range, potential_ids, potential_locations, target_ids, target_locations, unit_ids_dirty, reader, sender }
+        Self { scene, state, turn, turns, number_turns, /* handler, */ grid, units, factions, unit_location, movements, mov, target, area, range, target_idx, potential_ids, potential_locations, target_ids, target_locations, unit_ids_dirty, reader, sender }
     }
 
     fn apply_terrain (&mut self, unit_id: ID, terrain_id: ID, location: Location) {
@@ -322,15 +324,20 @@ impl<R: BufRead> Game<R> {
         }
     }
 
-    fn find_units_area_new (&mut self, unit_id: ID, target_id: ID, target: Target, search: Search) -> Vec<ID> {
+    fn find_units_area_new (&mut self, unit_id: ID, target: Target, search: Search) -> Vec<ID> {
         assert! (!self.potential_ids.is_empty ());
 
         match target {
             Target::This => vec![self.potential_ids[0]],
-            Target::Ally | Target::Enemy => vec![target_id],
+            Target::Ally | Target::Enemy => {
+                let target_id: ID = self.potential_ids[self.target_idx];
+
+                vec![target_id]
+            }
             Target::Allies | Target::Enemies => match search {
                 Search::Single => panic! ("Invalid search {:?} for target {:?}", search, target),
                 Search::Radial (r) => {
+                    let target_id: ID = self.potential_ids[self.target_idx];
                     let location: &Location = self.grid.get_unit_location (&target_id);
                     let target_ids: Vec<ID> = self.grid.find_units (location, Search::Radial (r));
                     let faction_id: ID = self.units[unit_id].get_faction_id ();
@@ -954,17 +961,40 @@ impl<R: BufRead> Game<R> {
         }
     }
 
-    // TODO: update () should obviously not be personally processing Keycode
-    pub fn update (&mut self, input: Keycode) {
+    pub fn display_turn (&self) {
+        let turn: &Turn = self.turn.as_ref ().unwrap_or_else (|| self.turns.peek ().unwrap ());
+        let unit_id: ID = turn.get_unit_id ();
+
+        println! ("{}'s turn", unit_id);
+        print! ("{}", self.grid);
+        println! ("Movable locations: {:?}", self.grid.find_unit_movable (&unit_id, self.mov));
+        println! ("Turn order: {:?}\n", self.turns);
+    }
+
+    pub fn display_prompt (&self) {
+        match self.state {
+            State::Idle => println! ("Actions: Move (q), switch weapon (w), attack (a), skill (s), magic (d), wait (z)"),
+            State::Move => println! ("Actions: Up (w), left (a), down (s), right (d), confirm (z), cancel (x)"),
+            State::AttackTarget => println! ("Actions: Up (w), left/previous (a), down (s), right/next (d), current (z), cancel (x)"),
+            State::AttackConfirm => println! ("Actions: Confirm (z), cancel (x)"),
+            State::SkillTarget => println! ("Actions: Index (0-9), up (w), left (a), down (s), right (d), cancel (x)"),
+            State::SkillConfirm => println! ("Actions: Confirm (z), cancel (x)"),
+            State::MagicTarget => println! ("Actions: Index (0-9), up (w), left (a), down (s), right (d), cancel (x)"),
+            State::MagicConfirm => println! ("Actions: Confirm (z), cancel (x)"),
+        }
+    }
+
+    // TODO: update () should obviously not be processing Keycode
+    pub fn update (&mut self, input: Keycode) -> bool {
         let unit_id: ID = if let Some (turn) = &self.turn {
-            println! ("Delay: {}", turn.get_delay ());
+            // println! ("Delay: {}", turn.get_delay ());
 
             turn.get_unit_id ()
         } else {
             let turn: Turn = self.turns.pop ().expect ("Turn not found");
             let unit_id: ID = turn.get_unit_id ();
 
-            println! ("Delay: {}", turn.get_delay ());
+            // println! ("Delay: {}", turn.get_delay ());
             self.turn = Some (turn);
             self.mov = self.units[unit_id].get_statistic (UnitStatistic::MOV).0;
 
@@ -974,16 +1004,18 @@ impl<R: BufRead> Game<R> {
         let is_rout: bool = self.units[unit_id].is_rout ();
 
         // print!("\x1B[2J\x1B[1;1H"); // Clears the terminal
-        println! ("Start {}'s turn", unit_id);
-        let _ = self.sender.send (format! ("Start {}'s turn", unit_id));
-        print! ("{}", self.grid);
-        println! ("Movable locations: {:?}", self.grid.find_unit_movable (&unit_id, self.mov));
-        println! ("Turn order: {:?}\n", self.turns);
+        // println! ("Start {}'s turn", unit_id);
+        // let _ = self.sender.send (format! ("Start {}'s turn", unit_id));
+        // print! ("{}", self.grid);
+        // println! ("Movable locations: {:?}", self.grid.find_unit_movable (&unit_id, self.mov));
+        // println! ("Turn order: {:?}\n", self.turns);
+        // println! ("Actions: Move (q), switch weapon (w), attack (a), skill (s), magic (d), wait (z)");
 
         let action: Option<Action> = match self.state {
             State::Idle => match input {
                 // Move
                 Keycode::Q => {
+                    println! ("{}'s action: Move", unit_id);
                     let _ = self.sender.send (format! ("{}'s action: Move", unit_id));
 
                     self.state = State::Move;
@@ -996,6 +1028,7 @@ impl<R: BufRead> Game<R> {
                 }
                 // Switch weapon
                 Keycode::W => {
+                    println! ("{}'s action: Switch weapon", unit_id);
                     let _ = self.sender.send (format! ("{}'s action: Switch weapon", unit_id));
 
                     if is_rout {
@@ -1010,16 +1043,17 @@ impl<R: BufRead> Game<R> {
                 }
                 // Attack
                 Keycode::A => {
+                    println! ("{}'s action: Attack", unit_id);
                     let _ = self.sender.send (format! ("{}'s action: Attack", unit_id));
 
                     if is_retreat {
                         println! ("Unit cannot attack (is retreating)")
                     } else {
                         let weapon: &Weapon = self.units[unit_id].get_weapon ();
+
                         self.target = weapon.get_target ();
                         self.area = weapon.get_area ();
                         self.range = weapon.get_range ();
-
                         self.potential_ids = self.find_units_range_new (unit_id);
                         let _ = self.sender.send (format! ("Found potential targets: {:?}", self.potential_ids));
 
@@ -1027,6 +1061,8 @@ impl<R: BufRead> Game<R> {
                             println! ("No available targets");
                         } else {
                             self.state = State::AttackTarget;
+                            println! ("Potential targets: {:?}", self.potential_ids);
+                            println! ("Equipped weapon: {:?}", weapon);
                         };
                     }
 
@@ -1034,19 +1070,20 @@ impl<R: BufRead> Game<R> {
                 }
                 // Skill
                 Keycode::S => {
-                    self.state = State::SkillRange;
+                    self.state = State::SkillTarget;
 
                     None
                 }
                 // Magic
                 Keycode::D => {
-                    self.state = State::MagicRange;
+                    self.state = State::MagicTarget;
                     // self.potential_locations = self.find_locations_range (unit_id, self.area, self.range);
 
                     None
                 }
                 // Wait
                 Keycode::Z => {
+                    println! ("{}'s action: Wait", unit_id);
                     let _ = self.sender.send (format! ("{}'s action: Wait", unit_id));
                     self.act_wait (unit_id);
 
@@ -1059,39 +1096,6 @@ impl<R: BufRead> Game<R> {
                 }
             }
             State::Move => {
-                
-        // Action::Move => {
-        //     let mut start: Location = *self.grid.get_unit_location (&unit_id);
-        //     let mut movements: Vec<Direction> = Vec::new ();
-        //     let validator: MovementValidator = MovementValidator::new ();
-
-        //     let _ = self.sender.send (format! ("{}'s action: Move", unit_id));
-        //     println! ("Current location: {:?}", start);
-        //     self.grid.set_unit_id_passable (Some (unit_id));
-
-        //     while let Some (direction) = self.reader.read_validate (&validator) {
-        //         if let Direction::Length = direction {
-        //             // self.grid.set_unit_id_passable (None);
-        //             println! ("{:?}", movements);
-        //             self.move_unit (unit_id, &movements);
-        //             println! ("{:?}, {} MOV remaining", self.grid.get_unit_location (&unit_id), mov);
-        //             let _ = self.sender.send (format! ("Movements: {:?}", movements));
-
-        //             break
-        //         } else if let Some ((end, cost)) = self.grid.try_move (&start, direction) {
-        //             if mov >= (cost as u16) {
-        //                 movements.push (direction);
-        //                 start = end;
-        //                 mov -= cost as u16;
-        //             } else {
-        //                 println! ("Insufficient MOV");
-        //             }
-        //         } else {
-        //             println! ("Invalid movement");
-        //         }
-        //     }
-        // }
-
                 match input {
                     // Move
                     Keycode::W | Keycode::A | Keycode::S | Keycode::D => {
@@ -1123,6 +1127,7 @@ impl<R: BufRead> Game<R> {
                         self.state = State::Idle;
                         println! ("{:?}", self.movements);
                         println! ("{:?}, {} MOV remaining", self.grid.get_unit_location (&unit_id), self.mov);
+                        print! ("{}", self.grid);
                         let _ = self.sender.send (format! ("Movements: {:?}", self.movements));
                     }
                     // Cancel
@@ -1133,49 +1138,95 @@ impl<R: BufRead> Game<R> {
                 None
             }
             State::AttackTarget => {
-                let search: Search = match self.area {
-                    Area::Single => Search::Single,
-                    Area::Radial (r) => Search::Radial (r),
-                    Area::Path (w) => {
-                        let direction: Direction = match input {
-                            Keycode::W => Direction::Up,
-                            Keycode::A => Direction::Right,
-                            Keycode::S => Direction::Left,
-                            Keycode::D => Direction::Down,
+                let mut is_confirm: bool = false;
+                let search: Option<Search> = match self.area {
+                    Area::Single => {
+                        let target_idx: Option<usize> = match input {
+                            Keycode::A => Some (
+                                self.target_idx.checked_sub (1)
+                                        .unwrap_or_else (|| self.potential_ids.len ().saturating_sub (1))
+                            ),
+                            Keycode::D => Some ((self.target_idx + 1) % self.potential_ids.len ()),
+                            Keycode::Z => {
+                                is_confirm = true;
+
+                                Some (self.target_idx)
+                            }
+                            Keycode::X => None,
                             _ => {
                                 println! ("Invalid input");
 
-                                Direction::Up
+                                None
                             }
                         };
 
-                        Search::Path (w, self.range, direction)
+                        if let Some (target_idx) = target_idx {
+                            self.target_idx = target_idx;
+
+                            Some (Search::Single)
+                        } else {
+                            None
+                        }
+                    }
+                    Area::Radial (r) => {
+                        let target_idx: Option<usize> = match input {
+                            Keycode::A => Some (
+                                self.target_idx.checked_sub (1)
+                                        .unwrap_or_else (|| self.potential_ids.len ().saturating_sub (1))
+                            ),
+                            Keycode::D => Some ((self.target_idx + 1) % self.potential_ids.len ()),
+                            Keycode::Z => {
+                                is_confirm = true;
+
+                                Some (self.target_idx)
+                            }
+                            Keycode::X => None,
+                            _ => {
+                                println! ("Invalid input");
+
+                                None
+                            }
+                        };
+
+                        if let Some (target_idx) = target_idx {
+                            self.target_idx = target_idx;
+
+                            Some (Search::Radial (r))
+                        } else {
+                            None
+                        }
+                    }
+                    Area::Path (w) => {
+                        let direction: Option<Direction> = match input {
+                            Keycode::W => Some (Direction::Up),
+                            Keycode::A => Some (Direction::Right),
+                            Keycode::S => Some (Direction::Left),
+                            Keycode::D => Some (Direction::Down),
+                            Keycode::X => None,
+                            _ => {
+                                println! ("Invalid input");
+
+                                None
+                            }
+                        };
+
+                        is_confirm = true;
+                        direction.map (|d: Direction| Search::Path (w, self.range, d))
                     }
                 };
 
-                let target_idx: Option<usize> = match input {
-                    Keycode::NUM_0 => Some (0),
-                    Keycode::NUM_1 => Some (1),
-                    Keycode::NUM_2 => Some (2),
-                    Keycode::NUM_3 => Some (3),
-                    Keycode::NUM_4 => Some (4),
-                    Keycode::NUM_5 => Some (5),
-                    Keycode::NUM_6 => Some (6),
-                    Keycode::NUM_7 => Some (7),
-                    Keycode::NUM_8 => Some (8),
-                    Keycode::NUM_9 => Some (9),
-                    _ => {
-                        println! ("Invalid input");
+                if let Some (search) = search {
+                    self.target_ids = self.find_units_area_new (unit_id, self.target, search);
 
-                        None
-                    }
-                    // TODO: Obvious flaw - can't choose from more than 10 targets, which will be fixed with mouse input
-                };
+                    if !self.target_ids.is_empty () {
+                        println! ("Targets: {:?}", self.target_ids);
 
-                if let Some (target_idx) = target_idx {
-                    if let Some (target_id) = self.potential_ids.get (target_idx) {
-                        self.target_ids = self.find_units_area_new (unit_id, *target_id, self.target, search);
+                        if is_confirm {
+                            self.state = State::AttackConfirm;
+                        }
                     }
+                } else {
+                    self.state = State::Idle;
                 }
 
                 None
@@ -1184,11 +1235,12 @@ impl<R: BufRead> Game<R> {
                 match input {
                     // Confirm
                     Keycode::Z => {
+                        self.state = State::Idle;
                         self.act_attack_new (unit_id);
                         println! ("Attacking {:?}", self.target_ids);
 
                         for target_id in &self.target_ids {
-                            println! ("Defender: {}", self.units[*target_id].get_statistics ());
+                            println! ("{}: {}", target_id, self.units[*target_id].get_statistics ());
                         }
     
                         println! ("Self: {}", self.units[unit_id].get_statistics ());
@@ -1208,16 +1260,16 @@ impl<R: BufRead> Game<R> {
                     }
                 }
             }
-            State::SkillRange => {
+            State::SkillTarget => {
                 todo!();
             }
-            State::SkillArea => {
+            State::SkillConfirm => {
                 todo!();
             }
-            State::MagicRange => {
+            State::MagicTarget => {
                 todo!();
             }
-            State::MagicArea => {
+            State::MagicConfirm => {
                 todo!();
             }
         };
@@ -1245,6 +1297,10 @@ impl<R: BufRead> Game<R> {
             } else {
                 self.kill_unit (unit_id);
             }
+
+            true
+        } else {
+            false
         }
 
         // Action::Skill => {
