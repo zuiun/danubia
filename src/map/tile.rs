@@ -2,6 +2,7 @@ use super::{COST_IMPASSABLE, COST_MINIMUM};
 use crate::common::{ID, Scene, Target, Timed};
 use crate::dynamic::{Adjustment, Appliable, AppliableKind, Applier, Attribute, Dynamic, Modifier, StatisticKind, Trigger};
 use std::rc::Rc;
+use std::fmt::{self, Display, Formatter};
 
 const CLIMB_MAX: u8 = 2;
 
@@ -214,6 +215,17 @@ impl Applier for Tile {
 
     fn get_target (&self) -> Target {
         Target::Map
+    }
+}
+
+impl Display for Tile {
+    fn fmt (&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut display: String = String::from ("");
+
+        display.push_str (&format! ("(Modifier: {:?}) ", self.modifier));
+        display.push_str (&format! ("(Attribute: {:?})", self.attribute));
+
+        write! (f, "[ {} ]", display)
     }
 }
 

@@ -94,6 +94,7 @@ pub const MAGICS: &[Magic] = &[
     Magic::new (1, AppliableModifier (3), Target::This, Area::Single, 0, 21, Element::Dark), // atk_self
     Magic::new (2, AppliableModifier (6), Target::This, Area::Single, 0, 10, Element::Matter), // poison_target_others
     Magic::new (3, AppliableAttribute (2), Target::Map, Area::Radial (2), 0, 10, Element::Light), // poison_map
+    Magic::new (4, AppliableAttribute (2), Target::Map, Area::Path (1), 2, 10, Element::Dark), // poison_map
 ];
 pub const SKILLS: &[Skill] = &[
     Skill::new (0, &[AppliableModifier (6)], Target::This, Area::Single, 0, SkillKind::Timed (0, 2)),

@@ -79,11 +79,12 @@ pub struct Game<R: BufRead> {
     area: Area,
     range: u8,
     target_idx: usize,
+    target_location: Location, // Magic context
     potential_ids: Vec<ID>,
     potential_locations: Vec<Location>,
     target_ids: Vec<ID>,
     target_locations: Vec<Location>,
-    skill_magic_idx: usize, // Skill/magic/context
+    skill_magic_idx: usize, // Skill/magic context
     skill_magic_ids: Vec<ID>, // Skill/magic context
     skill_magic_id: ID, // Skill/magic context
     unit_ids_dirty: Vec<ID>, // Attack context
@@ -116,6 +117,7 @@ impl<R: BufRead> Game<R> {
         let area: Area = Area::Single;
         let range: u8 = u8::MAX;
         let target_idx: usize = 0;
+        let target_location: Location = (0, 0);
         let potential_ids: Vec<ID> = Vec::new ();
         let potential_locations: Vec<Location> = Vec::new ();
         let target_ids: Vec<ID> = Vec::new ();
@@ -128,7 +130,7 @@ impl<R: BufRead> Game<R> {
 
         let _ = sender.send (String::from ("Game creation complete"));
 
-        Self { scene, state, turn, turns, number_turns, /* handler, */ grid, units, factions, unit_location, movements, mov, target, area, range, target_idx, potential_ids, potential_locations, target_ids, target_locations, skill_magic_idx, skill_magic_ids, skill_magic_id, unit_ids_dirty, reader, sender }
+        Self { scene, state, turn, turns, number_turns, /* handler, */ grid, units, factions, unit_location, movements, mov, target, area, range, target_idx, target_location, potential_ids, potential_locations, target_ids, target_locations, skill_magic_idx, skill_magic_ids, skill_magic_id, unit_ids_dirty, reader, sender }
     }
 
     fn apply_terrain (&mut self, unit_id: ID, terrain_id: ID, location: Location) {
@@ -526,6 +528,15 @@ impl<R: BufRead> Game<R> {
         }
     }
 
+    fn find_locations_area_new (&mut self, search: Search) -> Vec<Location> {
+        assert! (!self.potential_locations.is_empty ());
+
+        match search {
+            Search::Single => vec![self.target_location],
+            Search::Radial ( .. ) | Search::Path ( .. ) => self.grid.find_locations (&self.target_location, search),
+        }
+    }
+
     fn find_locations_range (&self, unit_id: ID, area: Area, range: u8) -> Vec<Location> {
         let location: &Location = self.grid.get_unit_location (&unit_id);
 
@@ -544,6 +555,27 @@ impl<R: BufRead> Game<R> {
             neighbour_locations.into_iter ().collect ()
         } else {
             self.grid.find_locations (location, Search::Radial (range))
+        }
+    }
+
+    fn find_locations_range_new (&self, unit_id: ID) -> Vec<Location> {
+        let location: &Location = self.grid.get_unit_location (&unit_id);
+
+        if let Area::Path (w) = self.area {
+            let neighbour_locations_up: Vec<Location> = self.grid.find_locations (location, Search::Path (w, self.range, Direction::Up));
+            let neighbour_locations_right: Vec<Location> = self.grid.find_locations (location, Search::Path (w, self.range, Direction::Right));
+            let neighbour_locations_left: Vec<Location> = self.grid.find_locations (location, Search::Path (w, self.range, Direction::Left));
+            let neighbour_locations_down: Vec<Location> = self.grid.find_locations (location, Search::Path (w, self.range, Direction::Down));
+            let mut neighbour_locations: HashSet<Location> = HashSet::new ();
+
+            neighbour_locations.extend (neighbour_locations_up.iter ());
+            neighbour_locations.extend (neighbour_locations_right.iter ());
+            neighbour_locations.extend (neighbour_locations_left.iter ());
+            neighbour_locations.extend (neighbour_locations_down.iter ());
+
+            neighbour_locations.into_iter ().collect ()
+        } else {
+            self.grid.find_locations (location, Search::Radial (self.range))
         }
     }
 
@@ -687,6 +719,39 @@ impl<R: BufRead> Game<R> {
         }
 
         mov
+    }
+
+    fn act_magic_new (&mut self, user_id: ID) {
+        let appliable_magic: AppliableKind = {
+            let (_, magic): (_, &Magic) = self.units[user_id].act_magic (&self.skill_magic_id);
+            let appliable_magic: AppliableKind = magic.get_appliable ();
+
+            appliable_magic
+        };
+
+        match self.target {
+            Target::This => {
+                let mut appliable_magic: Box<dyn Appliable> = appliable_magic.appliable (Rc::clone (&self.scene));
+
+                appliable_magic.set_applier_id (user_id);
+                self.units[user_id].add_appliable (appliable_magic);
+            }
+            Target::Map => for target_location in &self.target_locations {
+                let mut appliable_magic: Box<dyn Appliable> = appliable_magic.appliable (Rc::clone (&self.scene));
+
+                appliable_magic.set_applier_id (user_id);
+                self.grid.add_appliable (target_location, appliable_magic);
+
+                if let Some (unit_id) = self.grid.get_location_unit (target_location) {
+                    let appliable_on_occupy: Option<Box<dyn Appliable>> = self.grid.try_yield_appliable (target_location);
+
+                    if let Some (appliable_on_occupy) = appliable_on_occupy {
+                        self.units[*unit_id].add_appliable (appliable_on_occupy);
+                    }
+                }
+            }
+            _ => panic! ("Invalid target {:?}", self.target),
+        }
     }
 
     fn act_wait (&mut self, unit_id: ID) -> u16 {
@@ -999,13 +1064,13 @@ impl<R: BufRead> Game<R> {
         match self.state {
             State::Idle => println! ("Actions: Move (q), switch weapon (w), attack (a), skill (s), magic (d), wait (z)"),
             State::Move => println! ("Actions: Up (w), left (a), down (s), right (d), confirm (z), cancel (x)"),
-            State::AttackTarget => println! ("Actions: Up (w), left/previous (a), down (s), right/next (d), current (z), cancel (x)"),
+            State::AttackTarget => println! ("Actions: Up (w), left/previous (a), down (s), right/next (d), confirm (z), cancel (x)"),
             State::AttackConfirm => println! ("Actions: Confirm (z), cancel (x)"),
             State::SkillChoose => println! ("Actions: Previous (a), next (d), confirm (z), cancel (x)"),
-            State::SkillTarget => println! ("Actions: Up (w), left/previous (a), down (s), right/next (d), current (z), cancel (x)"),
+            State::SkillTarget => println! ("Actions: Up (w), left/previous (a), down (s), right/next (d), confirm (z), cancel (x)"),
             State::SkillConfirm => println! ("Actions: Confirm (z), cancel (x)"),
             State::MagicChoose => println! ("Actions: Previous (a), next (d), confirm (z), cancel (x)"),
-            State::MagicTarget => println! ("Actions: Up (w), left/previous (a), down (s), right/next (d), current (z), cancel (x)"),
+            State::MagicTarget => println! ("Actions: Up (w), left (a), down (s), right (d), confirm (z), cancel (x)"),
             State::MagicConfirm => println! ("Actions: Confirm (z), cancel (x)"),
         }
     }
@@ -1082,7 +1147,7 @@ impl<R: BufRead> Game<R> {
                         self.area = weapon.get_area ();
                         self.range = weapon.get_range ();
                         self.potential_ids = self.find_units_range_new (unit_id);
-                        let _ = self.sender.send (format! ("Found potential targets: {:?}", self.potential_ids));
+                        let _ = self.sender.send (format! ("Potential targets: {:?}", self.potential_ids));
 
                         if self.potential_ids.is_empty () {
                             println! ("No available targets");
@@ -1200,20 +1265,29 @@ impl<R: BufRead> Game<R> {
             }
             State::AttackTarget => {
                 let mut is_confirm: bool = false;
+                let mut is_cancel: bool = false;
                 let search: Option<Search> = match self.area {
                     Area::Single => {
                         let target_idx: Option<usize> = match input {
+                            // Previous
                             Keycode::A => Some (
                                 self.target_idx.checked_sub (1)
                                         .unwrap_or_else (|| self.potential_ids.len ().saturating_sub (1))
                             ),
+                            // Next
                             Keycode::D => Some ((self.target_idx + 1) % self.potential_ids.len ()),
+                            // Confirm
                             Keycode::Z => {
                                 is_confirm = true;
 
                                 Some (self.target_idx)
                             }
-                            Keycode::X => None,
+                            // Cancel
+                            Keycode::X => {
+                                is_cancel = true;
+
+                                None
+                            }
                             _ => {
                                 println! ("Invalid input");
 
@@ -1231,17 +1305,25 @@ impl<R: BufRead> Game<R> {
                     }
                     Area::Radial (r) => {
                         let target_idx: Option<usize> = match input {
+                            // Previous
                             Keycode::A => Some (
                                 self.target_idx.checked_sub (1)
                                         .unwrap_or_else (|| self.potential_ids.len ().saturating_sub (1))
                             ),
+                            // Next
                             Keycode::D => Some ((self.target_idx + 1) % self.potential_ids.len ()),
+                            // Confirm
                             Keycode::Z => {
                                 is_confirm = true;
 
                                 Some (self.target_idx)
                             }
-                            Keycode::X => None,
+                            // Cancel
+                            Keycode::X => {
+                                is_cancel = true;
+
+                                None
+                            }
                             _ => {
                                 println! ("Invalid input");
 
@@ -1259,11 +1341,20 @@ impl<R: BufRead> Game<R> {
                     }
                     Area::Path (w) => {
                         let direction: Option<Direction> = match input {
+                            // Up
                             Keycode::W => Some (Direction::Up),
+                            // Right
                             Keycode::A => Some (Direction::Right),
+                            // Left
                             Keycode::S => Some (Direction::Left),
+                            // Down
                             Keycode::D => Some (Direction::Down),
-                            Keycode::X => None,
+                            // Cancel
+                            Keycode::X => {
+                                is_cancel = true;
+
+                                None
+                            }
                             _ => {
                                 println! ("Invalid input");
 
@@ -1286,7 +1377,7 @@ impl<R: BufRead> Game<R> {
                             self.state = State::AttackConfirm;
                         }
                     }
-                } else {
+                } else if is_cancel {
                     self.state = State::Idle;
                 }
 
@@ -1307,6 +1398,16 @@ impl<R: BufRead> Game<R> {
 
                         println! ("Self: {}", self.units[unit_id].get_statistics ());
 
+                        if !self.unit_ids_dirty.is_empty () {
+                            let unit_ids_attacked: Vec<ID> = self.unit_ids_dirty.drain ( .. ).collect ();
+                
+                            for unit_id in unit_ids_attacked {
+                                if !self.units[unit_id].is_alive () {
+                                    self.kill_unit (unit_id);
+                                }
+                            }
+                        }
+
                         Some (Action::Attack)
                     }
                     // Cancel
@@ -1324,19 +1425,28 @@ impl<R: BufRead> Game<R> {
             }
             State::SkillChoose => {
                 let mut is_confirm: bool = false;
+                let mut is_cancel: bool = false;
                 let skill_idx: Option<usize> = {
                     match input {
+                        // Previous
                         Keycode::A => Some (
                             self.skill_magic_idx.checked_sub (1)
                                     .unwrap_or_else (|| self.skill_magic_ids.len ().saturating_sub (1))
                         ),
+                        // Next
                         Keycode::D => Some ((self.skill_magic_idx + 1) % self.skill_magic_ids.len ()),
+                        // Confirm
                         Keycode::Z => {
                             is_confirm = true;
 
                             Some (self.skill_magic_idx)
                         }
-                        Keycode::X => None,
+                        // Cancel
+                        Keycode::X => {
+                            is_cancel = true;
+
+                            None
+                        }
                         _ => {
                             println! ("Invalid input");
 
@@ -1351,7 +1461,7 @@ impl<R: BufRead> Game<R> {
                     println! ("Skill: {}", self.skill_magic_id);
 
                     if is_confirm {
-                        let skill = self.scene.get_skill (&self.skill_magic_id);
+                        let skill: &Skill = self.scene.get_skill (&self.skill_magic_id);
 
                         self.state = State::SkillTarget;
                         self.target = skill.get_target ();
@@ -1359,8 +1469,9 @@ impl<R: BufRead> Game<R> {
                         self.range = skill.get_range ();
                         self.potential_ids = self.find_units_range_new (unit_id);
                         self.target_idx = 0;
+                        println! ("Potential targets: {:?}", self.potential_ids);
                     }
-                } else {
+                } else if is_cancel {
                     self.state = State::Idle;
                 }
 
@@ -1368,20 +1479,29 @@ impl<R: BufRead> Game<R> {
             }
             State::SkillTarget => {
                 let mut is_confirm: bool = false;
+                let mut is_cancel: bool = false;
                 let search: Option<Search> = match self.area {
                     Area::Single => {
                         let target_idx: Option<usize> = match input {
+                            // Previous
                             Keycode::A => Some (
                                 self.target_idx.checked_sub (1)
                                         .unwrap_or_else (|| self.potential_ids.len ().saturating_sub (1))
                             ),
+                            // Next
                             Keycode::D => Some ((self.target_idx + 1) % self.potential_ids.len ()),
+                            // Confirm
                             Keycode::Z => {
                                 is_confirm = true;
 
                                 Some (self.target_idx)
                             }
-                            Keycode::X => None,
+                            // Cancel
+                            Keycode::X => {
+                                is_cancel = true;
+
+                                None
+                            }
                             _ => {
                                 println! ("Invalid input");
 
@@ -1399,17 +1519,25 @@ impl<R: BufRead> Game<R> {
                     }
                     Area::Radial (r) => {
                         let target_idx: Option<usize> = match input {
+                            // Previous
                             Keycode::A => Some (
                                 self.target_idx.checked_sub (1)
                                         .unwrap_or_else (|| self.potential_ids.len ().saturating_sub (1))
                             ),
+                            // Next
                             Keycode::D => Some ((self.target_idx + 1) % self.potential_ids.len ()),
+                            // Confirm
                             Keycode::Z => {
                                 is_confirm = true;
 
                                 Some (self.target_idx)
                             }
-                            Keycode::X => None,
+                            // Cancel
+                            Keycode::X => {
+                                is_cancel = true;
+
+                                None
+                            }
                             _ => {
                                 println! ("Invalid input");
 
@@ -1427,11 +1555,20 @@ impl<R: BufRead> Game<R> {
                     }
                     Area::Path (w) => {
                         let direction: Option<Direction> = match input {
+                            // Up
                             Keycode::W => Some (Direction::Up),
+                            // Right
                             Keycode::A => Some (Direction::Right),
+                            // Left
                             Keycode::S => Some (Direction::Left),
+                            // Down
                             Keycode::D => Some (Direction::Down),
-                            Keycode::X => None,
+                            // Cancel
+                            Keycode::X => {
+                                is_cancel = true;
+
+                                None
+                            }
                             _ => {
                                 println! ("Invalid input");
 
@@ -1454,7 +1591,7 @@ impl<R: BufRead> Game<R> {
                             self.state = State::SkillConfirm;
                         }
                     }
-                } else {
+                } else if is_cancel {
                     self.state = State::SkillChoose;
                 }
 
@@ -1465,7 +1602,7 @@ impl<R: BufRead> Game<R> {
                     // Confirm
                     Keycode::Z => {
                         for target_id in &self.target_ids {
-                            println! ("{}: {}", *target_id, self.units[*target_id]);
+                            println! ("{}", self.units[*target_id]);
                         }
 
                         self.state = State::Idle;
@@ -1475,7 +1612,7 @@ impl<R: BufRead> Game<R> {
                         println! ("Using skill {} on {:?}", self.skill_magic_id, self.target_ids);
 
                         for target_id in &self.target_ids {
-                            println! ("{}: {}", *target_id, self.units[*target_id]);
+                            println! ("{}", self.units[*target_id]);
                         }
 
                         Some (Action::Skill)
@@ -1494,13 +1631,195 @@ impl<R: BufRead> Game<R> {
                 }
             }
             State::MagicChoose => {
-                todo!();
+                let mut is_confirm: bool = false;
+                let mut is_cancel: bool = false;
+                let magic_idx: Option<usize> = {
+                    match input {
+                        // Previous
+                        Keycode::A => Some (
+                            self.skill_magic_idx.checked_sub (1)
+                                    .unwrap_or_else (|| self.skill_magic_ids.len ().saturating_sub (1))
+                        ),
+                        // Next
+                        Keycode::D => Some ((self.skill_magic_idx + 1) % self.skill_magic_ids.len ()),
+                        // Confirm
+                        Keycode::Z => {
+                            is_confirm = true;
+
+                            Some (self.skill_magic_idx)
+                        }
+                        // Cancel
+                        Keycode::X => {
+                            is_cancel = true;
+
+                            None
+                        }
+                        _ => {
+                            println! ("Invalid input");
+
+                            None
+                        }
+                    }
+                };
+
+                if let Some (magic_idx) = magic_idx {
+                    self.skill_magic_idx = magic_idx;
+                    self.skill_magic_id = self.skill_magic_ids[magic_idx];
+                    println! ("Magic: {}", self.skill_magic_id);
+
+                    if is_confirm {
+                        let magic: &Magic = self.scene.get_magic (&self.skill_magic_id);
+
+                        self.state = State::MagicTarget;
+                        self.target = magic.get_target ();
+                        self.area = magic.get_area ();
+                        self.range = magic.get_range ();
+
+                        match self.target {
+                            Target::This => println! ("Potential target: Self"),
+                            Target::Map => {
+                                self.target_location = *self.grid.get_unit_location (&unit_id);
+                                self.potential_locations = self.find_locations_range_new (unit_id);
+                                println! ("Potential targets: {:?}", self.potential_locations);
+                            }
+                            _ => panic! ("Invalid target {:?}", self.target),
+                        }
+
+                        self.target_idx = 0;
+                    }
+                } else if is_cancel {
+                    self.state = State::Idle;
+                }
+
+                None
             }
             State::MagicTarget => {
-                todo!();
+                let mut is_confirm: bool = false;
+                let mut is_cancel: bool = false;
+
+                match self.target {
+                    Target::This => match input {
+                        // Confirm
+                        Keycode::Z => self.state = State::MagicConfirm,
+                        // Cancel
+                        Keycode::X => self.state = State::MagicChoose,
+                        _ => println! ("Invalid input"),
+                    }
+                    Target::Map => {
+                        let direction: Option<Direction> = match input {
+                            // Up
+                            Keycode::W => Some (Direction::Up),
+                            // Left
+                            Keycode::A => Some (Direction::Left),
+                            // Down
+                            Keycode::S => Some (Direction::Down),
+                            // Right
+                            Keycode::D => Some (Direction::Right),
+                            // Confirm
+                            Keycode::Z => {
+                                is_confirm = true;
+
+                                None
+                            }
+                            // Cancel
+                            Keycode::X => {
+                                is_cancel = true;
+
+                                None
+                            }
+                            _ => {
+                                println! ("Invalid input");
+
+                                None
+                            }
+                        };
+
+                        match self.area {
+                            Area::Single | Area::Radial ( .. ) => if let Some (direction) = direction {
+                                if let Some (end) = self.grid.try_connect (&self.target_location, direction) {
+                                    
+                                    if self.potential_locations.contains (&end) {
+                                        println! ("{:?}", direction);
+                                        self.target_location = end;
+                                    } else {
+                                        println! ("Invalid direction {:?}", direction);
+                                    }
+                                } else {
+                                    println! ("Invalid direction {:?}", direction);
+                                }
+                            }
+                            Area::Path ( .. ) => is_confirm = direction.is_some (),
+                        }
+
+                        if is_confirm {
+                            let search: Search = match self.area {
+                                Area::Single => Search::Single,
+                                Area::Radial (r) => Search::Radial (r),
+                                Area::Path (w) => {
+                                    let direction: Direction = direction.unwrap_or_else (|| panic! ("Invalid direction {:?}", direction));
+
+                                    Search::Path (w, self.range, direction)
+                                }
+                            };
+
+                            self.target_locations = self.find_locations_area_new (search);
+        
+                            if !self.target_locations.is_empty () {
+                                println! ("Targets: {:?}", self.target_locations);
+                                self.state = State::MagicConfirm;
+                            }
+                        } else if is_cancel {
+                            self.state = State::MagicChoose;
+                        }
+                    }
+                    _ => panic! ("Invalid target {:?}", self.target),
+                }
+
+                None
             }
             State::MagicConfirm => {
-                todo!();
+                match input {
+                    // Confirm
+                    Keycode::Z => {
+                        for target_id in &self.target_ids {
+                            println! ("{}", self.units[*target_id]);
+                        }
+
+                        self.state = State::Idle;
+                        self.target_idx = 0;
+                        self.act_magic_new (unit_id);
+
+                        match self.target {
+                            Target::This => {
+                                println! ("Using magic {} on {}", self.skill_magic_id, unit_id);
+                                println! ("{}", self.units[unit_id]);
+                            }
+                            Target::Map => {
+                                println! ("Using magic {} on {:?}", self.skill_magic_id, self.target_locations);
+
+                                for target_location in &self.target_locations {
+                                    println! ("{:?}: {}", target_location, self.grid.get_tile (target_location));
+                                }
+                            }
+                            _ => panic! ("Invalid target {:?}", self.target),
+                        }
+
+
+
+                        Some (Action::Magic)
+                    }
+                    // Cancel
+                    Keycode::X => {
+                        self.state = State::MagicTarget;
+
+                        None
+                    }
+                    _ => {
+                        println! ("Invalid input");
+
+                        None
+                    }
+                }
             }
         };
 

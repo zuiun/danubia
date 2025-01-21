@@ -692,6 +692,10 @@ impl Grid {
         self.scene.get_unit_builder (unit_id).get_faction_id ()
     }
 
+    pub fn get_tile (&self, location: &Location) -> &Tile {
+        &self.tiles[location.0][location.1]
+    }
+
     pub fn set_unit_id_passable (&mut self, unit_id_passable: Option<ID>) {
         self.unit_id_passable = unit_id_passable;
     }
