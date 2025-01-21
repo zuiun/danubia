@@ -2,7 +2,7 @@ use crate::character::{FactionBuilder, Magic, Skill, UnitBuilder, Weapon};
 use crate::common::ID;
 use crate::dynamic::{Attribute, Effect, Modifier};
 use crate::map::{City, Location, Terrain, TileBuilder};
-use super::lists::debug;
+use super::debug;
 
 #[derive (Debug)]
 pub struct Scene {

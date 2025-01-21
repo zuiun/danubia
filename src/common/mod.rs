@@ -1,6 +1,6 @@
+mod debug;
 mod information;
 pub use self::information::Information;
-mod lists;
 mod save;
 pub use self::save::Save;
 mod scene;

@@ -12,15 +12,19 @@ pub struct Logger {
 
 impl Logger {
     pub fn new (file: &str, receiver: Receiver<String>) -> Self {
-        let file: File = OpenOptions::new ().write (true).create (true).truncate (true).open (file)
-                .unwrap ();
+        let file: File = OpenOptions::new ()
+                .write (true)
+                .create (true)
+                .truncate (true)
+                .open (file)
+                .expect ("Log creation failed");
         let stream: BufWriter<File> = BufWriter::new (file);
         let start: Instant = Instant::now ();
 
         Self { stream, receiver, start }
     }
 
-    pub fn do_log (&mut self) {
+    pub fn run (&mut self) {
         while let Ok (message) = self.receiver.recv () {
             let elapsed: f32 = self.start.elapsed ().as_secs_f32 ();
             let message: String = format! ("[{:.2}]: {}\n", elapsed, message);
@@ -30,9 +34,5 @@ impl Logger {
         }
 
         self.stream.flush ().unwrap_or_else (|e| println! ("{}", e));
-    }
-
-    pub fn get_receiver_mut (&mut self) -> &mut Receiver<String> {
-        &mut self.receiver
     }
 }

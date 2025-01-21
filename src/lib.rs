@@ -8,7 +8,7 @@ use sdl2::pixels::Color;
 use sdl2::render::Canvas;
 use sdl2::ttf::{self as sdl2_ttf, Sdl2TtfContext};
 use sdl2::video::Window;
-use sdl2::{EventPump, Sdl};
+use sdl2::EventPump;
 use std::error::Error;
 use std::io::BufRead;
 use std::sync::mpsc;
@@ -29,7 +29,6 @@ const NANOS_PER_FRAME: u128 = 1_000_000_000 / FRAMES_PER_SECOND;
 
 pub struct Danubia<R: BufRead> {
     game: Game<R>,
-    sdl: Sdl,
     image: Sdl2ImageContext,
     mixer: Sdl2MixerContext,
     ttf: Sdl2TtfContext,
@@ -59,10 +58,10 @@ impl<R: BufRead> Danubia<R> {
         let (sender, receiver) = mpsc::channel::<String> ();
         let mut game = Game::new (scene, reader, sender);
     
-        thread::spawn (move || Logger::new ("log.txt", receiver).do_log ());
-        game.init ();
+        thread::spawn (move || Logger::new ("log.txt", receiver).run ());
+        game.init ()?;
 
-        Ok (Danubia { game, sdl, image, mixer, ttf, canvas, event_pump })
+        Ok (Danubia { game, image, mixer, ttf, canvas, event_pump })
     }
 
     pub fn run (&mut self) -> Result<(), Box<dyn Error>> {
@@ -134,59 +133,8 @@ impl<R: BufRead> Danubia<R> {
 
                             input = Some (Keycode::E);
                         }
-                        Keycode::NUM_0 => {
-                            println! ("0");
-
-                            input = Some (Keycode::NUM_0);
-                        }
-                        Keycode::NUM_1 => {
-                            println! ("1");
-
-                            input = Some (Keycode::NUM_1);
-                        }
-                        Keycode::NUM_2 => {
-                            println! ("2");
-
-                            input = Some (Keycode::NUM_2);
-                        }
-
-                        Keycode::NUM_3 => {
-                            println! ("3");
-
-                            input = Some (Keycode::NUM_3);
-                        }
-                        Keycode::NUM_4 => {
-                            println! ("4");
-
-                            input = Some (Keycode::NUM_4);
-                        }
-                        Keycode::NUM_5 => {
-                            println! ("5");
-
-                            input = Some (Keycode::NUM_5);
-                        }
-                        Keycode::NUM_6 => {
-                            println! ("6");
-
-                            input = Some (Keycode::NUM_6);
-                        }
-                        Keycode::NUM_7 => {
-                            println! ("7");
-
-                            input = Some (Keycode::NUM_7);
-                        }
-                        Keycode::NUM_8 => {
-                            println! ("8");
-
-                            input = Some (Keycode::NUM_8);
-                        }
-                        Keycode::NUM_9 => {
-                            println! ("9");
-
-                            input = Some (Keycode::NUM_9);
-                        }
                         Keycode::Escape => break 'running,
-                        _ => (),
+                        _ => println! ("Unexpected input"),
                         }
                     }
                     _ => (),

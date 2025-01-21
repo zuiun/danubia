@@ -79,32 +79,10 @@ pub const TERRAINS: &[Terrain] = &[
 
 ];
 pub const CITIES: &[City] = &[
-    // DEBUG
     City::new (10, 1, 1, Some (1)),
     City::new (10, 2, 1, None),
     City::new (10, 1, 2, Some (3)),
     City::new (10, 2, 2, None),
-
-    // Jassica
-    City::new (524, 108, 24, None), // Ilyvó
-    City::new (41, 2, 14, None), // Kismarton
-    City::new (23, 3, 5, None), // Újvidék
-    City::new (65, 13, 6, None), // Temesvár
-    City::new (88, 4, 21, None), // Telsze
-    City::new (156, 27, 18, None), // Kluż-Arad
-    City::new (32, 5, 2, None), // Stanisławów
-    City::new (124, 18, 22, None), // Jawaryn
-    // Dainava
-    City::new (109, 20, 9, None), // Alytus
-    City::new (37, 2, 8, None), // Rėzeknė
-    City::new (136, 26, 11, None), // Debrecenas
-    City::new (18, 1, 3, None), // Pėčas
-    City::new (53, 3, 16, None), // Cešynas
-    // Powiessern
-    City::new (203, 35, 14, None), // Memel
-    City::new (115, 19, 12, None), // Stolp
-    City::new (60, 3, 21, None), // Carlstadt
-    City::new (83,14, 11, None), // Gnesen
 ];
 pub const WEAPONS: &[Weapon] = &[
     Weapon::new (0, [20, 1, 1, 0], Area::Single, 1), // single
