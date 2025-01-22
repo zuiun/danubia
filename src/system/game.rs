@@ -107,6 +107,7 @@ pub enum Context {
         magic_ids: Vec<ID>,
     },
     MagicTarget {
+        target: Target,
         area: Area,
         range: u8,
         magic_id: ID,
@@ -1097,8 +1098,9 @@ impl Game {
                 self.skill_magic_idx = 0;
                 self.skill_magic_ids = magic_ids;
             }
-            Context::MagicTarget { area, range, magic_id, potential_locations, target_location } => {
+            Context::MagicTarget { target, area, range, magic_id, potential_locations, target_location } => {
                 self.state = State::MagicTarget;
+                self.target = target; // not strictly necessary, but may be used in the future
                 self.area = area;
                 self.range = range;
                 self.skill_magic_id = magic_id;
@@ -1481,269 +1483,237 @@ impl Game {
                 }
             }
             State::SkillChoose => {
-                // match input {
-                //     // Previous
-                //     Keycode::A => *skill_idx = skill_idx.checked_sub (1)
-                //             .unwrap_or_else (|| skill_ids.len ().saturating_sub (1)),
-                //     // Next
-                //     Keycode::D => *skill_idx = (*skill_idx + 1) % skill_ids.len (),
-                //     // Confirm
-                //     Keycode::Z => {
-                //         let skill_id: ID = skill_ids[*skill_idx];
-                //         let skill: &Skill = self.scene.get_skill (&skill_id);
-                //         let target: Target = skill.get_target ();
-                //         let area: Area = skill.get_area ();
-                //         let range: u8 = skill.get_range ();
-                //         let potential_ids: Vec<ID> = self.find_units_range (unit_id, target, area, range);
+                match input {
+                    // Previous
+                    Keycode::A => self.skill_magic_idx = self.skill_magic_idx.checked_sub (1)
+                            .unwrap_or_else (|| self.skill_magic_ids.len ().saturating_sub (1)),
+                    // Next
+                    Keycode::D => self.skill_magic_idx = (self.skill_magic_idx + 1) % self.skill_magic_ids.len (),
+                    // Confirm
+                    Keycode::Z => {
+                        let (skill_id, target, area, range): (ID, Target, Area, u8) = {
+                            let skill_id: ID = self.skill_magic_ids[self.skill_magic_idx];
+                            let skill: &Skill = self.scene.get_skill (&skill_id);
 
-                //         let _ = self.sender.send (format! ("Potential targets: {:?}", potential_ids));
+                            (skill_id, skill.get_target (), skill.get_area (), skill.get_range ())
+                        };
+                        let potential_ids: Vec<ID> = self.find_units_range (unit_id, target, area, range);
 
-                //         if potential_ids.is_empty () {
-                //             println! ("No available targets");
-                //         } else {
-                //             let weapon: &Weapon = self.units[unit_id].get_weapon ();
+                        println! ("Potential targets: {:?}", potential_ids);
+                        let _ = self.sender.send (format! ("Potential targets: {:?}", potential_ids));
 
-                //             self.state_context = StateContext::SkillTarget {
-                //                 target,
-                //                 area,
-                //                 range,
-                //                 skill_id,
-                //                 target_idx: 0,
-                //                 potential_ids,
-                //                 skill_ids,
-                //             };
-                //             println! ("Potential targets: {:?}", self.potential_ids);
-                //             println! ("Chosen skill: {:?}", skill);
-                //         }
-                //     }
-                //     // Cancel
-                //     Keycode::X => self.state_context = StateContext::Idle,
-                //     _ => println! ("Invalid input"),
-                // }
-                todo!();
+                        if potential_ids.is_empty () {
+                            println! ("No available targets");
+                        } else {
+                            self.change_state (Context::SkillTarget {
+                                target,
+                                area,
+                                range,
+                                skill_id,
+                                potential_ids,
+                            });
+                            println! ("Potential targets: {:?}", self.potential_ids);
+                            println! ("Chosen skill: {:?}", self.scene.get_skill (&skill_id));
+                        }
+                    }
+                    // Cancel
+                    Keycode::X => self.revert_state (),
+                    _ => println! ("Invalid input"),
+                }
+
+                println! ("Skill: {}", self.skill_magic_ids[self.skill_magic_idx]);
 
                 None
             }
             State::SkillTarget => {
-                // let mut is_confirm: bool = false;
-                // let mut is_cancel: bool = false;
-                // let search: Option<Search> = match self.area {
-                //     Area::Single => {
-                //         match input {
-                //             // Previous
-                //             Keycode::A => {
-                //                 *target_idx = target_idx.checked_sub (1)
-                //                         .unwrap_or_else (|| potential_ids.len ().saturating_sub (1));
+                let mut is_confirm: bool = false;
+                let mut is_cancel: bool = false;
+                let search: Option<Search> = match self.area {
+                    Area::Single => {
+                        match input {
+                            // Previous
+                            Keycode::A => {
+                                self.target_idx = self.target_idx.checked_sub (1)
+                                        .unwrap_or_else (|| self.potential_ids.len ().saturating_sub (1));
 
-                //                 None
-                //             }
-                //             // Next
-                //             Keycode::D => {
-                //                 *target_idx = (*target_idx + 1) % potential_ids.len ();
+                                Some (Search::Single)
+                            }
+                            // Next
+                            Keycode::D => {
+                                self.target_idx = (self.target_idx + 1) % self.potential_ids.len ();
 
-                //                 None
-                //             }
-                //             // Confirm
-                //             Keycode::Z => {
-                //                 is_confirm = true;
+                                Some (Search::Single)
+                            }
+                            // Confirm
+                            Keycode::Z => {
+                                is_confirm = true;
 
-                //                 Some (Search::Single)
-                //             }
-                //             // Cancel
-                //             Keycode::X => {
-                //                 is_cancel = true;
+                                Some (Search::Single)
+                            }
+                            // Cancel
+                            Keycode::X => {
+                                is_cancel = true;
 
-                //                 None
-                //             }
-                //             _ => {
-                //                 println! ("Invalid input");
+                                None
+                            }
+                            _ => {
+                                println! ("Invalid input");
 
-                //                 None
-                //             }
-                //         }
-                //     }
-                //     Area::Radial (r) => {
-                //         let target_idx: Option<usize> = match input {
-                //             // Previous
-                //             Keycode::A => {
-                //                 *target_idx = target_idx.checked_sub (1)
-                //                         .unwrap_or_else (|| potential_ids.len ().saturating_sub (1));
+                                None
+                            }
+                        }
+                    }
+                    Area::Radial (r) => {
+                        match input {
+                            // Previous
+                            Keycode::A => {
+                                self.target_idx = self.target_idx.checked_sub (1)
+                                        .unwrap_or_else (|| self.potential_ids.len ().saturating_sub (1));
 
-                //                 None
-                //             }
-                //             // Next
-                //             Keycode::D => {
-                //                 *target_idx = (*target_idx + 1) % potential_ids.len ();
+                                Some (Search::Radial (r))
+                            }
+                            // Next
+                            Keycode::D => {
+                                self.target_idx = (self.target_idx + 1) % self.potential_ids.len ();
 
-                //                 None
-                //             }
-                //             // Confirm
-                //             Keycode::Z => {
-                //                 is_confirm = true;
+                                Some (Search::Radial (r))
+                            }
+                            // Confirm
+                            Keycode::Z => {
+                                is_confirm = true;
 
-                //                 Some (self.target_idx)
-                //             }
-                //             // Cancel
-                //             Keycode::X => {
-                //                 is_cancel = true;
+                                Some (Search::Radial (r))
+                            }
+                            // Cancel
+                            Keycode::X => {
+                                is_cancel = true;
 
-                //                 None
-                //             }
-                //             _ => {
-                //                 println! ("Invalid input");
+                                None
+                            }
+                            _ => {
+                                println! ("Invalid input");
 
-                //                 None
-                //             }
-                //         };
+                                None
+                            }
+                        }
+                    }
+                    Area::Path (w) => {
+                        let direction: Option<Direction> = match input {
+                            // Up
+                            Keycode::W => Some (Direction::Up),
+                            // Right
+                            Keycode::A => Some (Direction::Right),
+                            // Left
+                            Keycode::S => Some (Direction::Left),
+                            // Down
+                            Keycode::D => Some (Direction::Down),
+                            // Cancel
+                            Keycode::X => {
+                                is_cancel = true;
 
-                //         if let Some (target_idx) = target_idx {
-                //             self.target_idx = target_idx;
+                                None
+                            }
+                            _ => {
+                                println! ("Invalid input");
 
-                //             Some (Search::Radial (r))
-                //         } else {
-                //             None
-                //         }
-                //     }
-                //     Area::Path (w) => {
-                //         let direction: Option<Direction> = match input {
-                //             // Up
-                //             Keycode::W => Some (Direction::Up),
-                //             // Right
-                //             Keycode::A => Some (Direction::Right),
-                //             // Left
-                //             Keycode::S => Some (Direction::Left),
-                //             // Down
-                //             Keycode::D => Some (Direction::Down),
-                //             // Cancel
-                //             Keycode::X => {
-                //                 is_cancel = true;
+                                None
+                            }
+                        };
 
-                //                 None
-                //             }
-                //             _ => {
-                //                 println! ("Invalid input");
+                        is_confirm = true;
+                        direction.map (|d: Direction| Search::Path (w, self.range, d))
+                    }
+                };
 
-                //                 None
-                //             }
-                //         };
+                if let Some (search) = search {
+                    let target_ids: Vec<ID> = self.find_units_area_new (unit_id, search);
 
-                //         is_confirm = true;
-                //         direction.map (|d: Direction| Search::Path (w, range, d))
-                //     }
-                // };
+                    if !target_ids.is_empty () {
+                        println! ("Targets: {:?}", target_ids);
 
-                // if let Some (search) = search {
-                //     let target_ids: Vec<ID> = self.find_units_area (unit_id, target, search);
-
-                //     if !target_ids.is_empty () {
-                //         println! ("Targets: {:?}", target_ids);
-
-                //         if is_confirm {
-                //             self.state_context = StateContext::SkillConfirm {
-                //                 target_ids,
-                //                 target,
-                //                 area,
-                //                 range,
-                //                 skill_id,
-                //                 potential_ids,
-                //                 skill_ids,
-                //             };
-                //         }
-                //     }
-                // } else if is_cancel {
-                //     self.state_context = StateContext::SkillChoose {
-                //         skill_idx: 0,
-                //         skill_ids,
-                //     };
-                // }
-                todo!();
+                        if is_confirm {
+                            self.change_state (Context::SkillConfirm { target_ids });
+                        }
+                    }
+                } else if is_cancel {
+                    self.revert_state ();
+                }
 
                 None
             }
             State::SkillConfirm => {
-                // match input {
-                //     // Confirm
-                //     Keycode::Z => {
-                //         for target_id in target_ids {
-                //             println! ("{}", self.units[*target_id]);
-                //         }
+                match input {
+                    // Confirm
+                    Keycode::Z => {
+                        for target_id in &self.target_ids {
+                            println! ("{}", self.units[*target_id]);
+                        }
 
-                //         self.state_context = StateContext::Idle;
-                //         self.act_skill_new (unit_id);
+                        self.change_state (Context::Idle);
+                        self.act_skill_new (unit_id);
 
-                //         println! ("Using skill {} on {:?}", skill_id, target_ids);
+                        println! ("Using skill {} on {:?}", self.skill_magic_id, self.target_ids);
 
-                //         for target_id in target_ids {
-                //             println! ("{}", self.units[*target_id]);
-                //         }
+                        for target_id in &self.target_ids {
+                            println! ("{}", self.units[*target_id]);
+                        }
 
-                //         Some (Action::Skill)
-                //     }
-                //     // Cancel
-                //     Keycode::X => {
-                //         self.state_context = StateContext::SkillTarget {
-                //             target,
-                //             area,
-                //             range,
-                //             skill_id,
-                //             target_idx: 0,
-                //             potential_ids,
-                //             skill_ids,
-                //         };
+                        Some (Action::Skill)
+                    }
+                    // Cancel
+                    Keycode::X => {
+                        self.revert_state ();
 
-                //         None
-                //     }
-                //     _ => {
-                //         println! ("Invalid input");
+                        None
+                    }
+                    _ => {
+                        println! ("Invalid input");
 
-                //         None
-                //     }
-                // }
-todo!();
-
+                        None
+                    }
+                }
             }
             State::MagicChoose => {
-                // let mut is_confirm: bool = false;
-                // let mut is_cancel: bool = false;
+                match input {
+                    // Previous
+                    Keycode::A => self.skill_magic_idx = self.skill_magic_idx.checked_sub (1)
+                            .unwrap_or_else (|| self.skill_magic_ids.len ().saturating_sub (1)),
+                    // Next
+                    Keycode::D => self.skill_magic_idx = (self.skill_magic_idx + 1) % self.skill_magic_ids.len (),
+                    // Confirm
+                    Keycode::Z => {
+                        let (magic_id, target, area, range): (ID, Target, Area, u8) = {
+                            let magic_id: ID = self.skill_magic_ids[self.skill_magic_idx];
+                            let magic: &Magic = self.scene.get_magic (&magic_id);
 
-                // match input {
-                //     // Previous
-                //     Keycode::A => *magic_idx = magic_idx.checked_sub (1)
-                //             .unwrap_or_else (|| magic_ids.len ().saturating_sub (1)),
-                //     // Next
-                //     Keycode::D => *magic_idx = (*magic_idx + 1) % magic_ids.len (),
-                //     // Confirm
-                //     Keycode::Z => {
-                //         let magic_id: ID = magic_ids[*magic_idx];
-                //         println! ("Magic: {}", magic_id);
-    
-                //         if is_confirm {
-                //             let magic: &Magic = self.scene.get_magic (&magic_id);
-                //             let target: Target = magic.get_target ();
-                //             let range: u8 = magic.get_range ();
-                //             let potential_locations: Vec<Location> = match target {
-                //                 Target::This => Vec::new (),
-                //                 Target::Map => self.find_locations_range_old (unit_id, range),
-                //                 _ => panic! ("Invalid target {:?}", target),
-                //             };
+                            (magic_id, magic.get_target (), magic.get_area (), magic.get_range ())
+                        };
+                        let potential_locations: Vec<Location> = match target {
+                            Target::This => Vec::new (),
+                            Target::Map => self.find_locations_range_old (unit_id, range),
+                            _ => panic! ("Invalid target {:?}", target),
+                        };
 
-                //             println! ("Potential targets: {:?}", potential_locations);
+                        println! ("Potential targets: {:?}", potential_locations);
+                        let _ = self.sender.send (format! ("Potential targets: {:?}", potential_locations));
 
-                //             self.state_context = StateContext::MagicTarget {
-                //                 area: magic.get_area (),
-                //                 range,
-                //                 magic_id,
-                //                 potential_locations,
-                //                 target_location: *self.grid.get_unit_location (&unit_id),
-                //                 magic_ids,
-                //             };
-                //         }
-                //     }
-                //     // Cancel
-                //     Keycode::X => self.state_context = StateContext::Idle,
-                //     _ => println! ("Invalid input"),
-                // }
-                todo!();
+                        self.change_state (Context::MagicTarget {
+                            target,
+                            area,
+                            range,
+                            magic_id,
+                            potential_locations,
+                            target_location: *self.grid.get_unit_location (&unit_id),
+                        });
+                        println! ("Potential targets: {:?}", self.potential_ids);
+                        println! ("Chosen magic: {:?}", self.scene.get_magic (&magic_id));
+                    }
+                    // Cancel
+                    Keycode::X => self.revert_state (),
+                    _ => println! ("Invalid input"),
+                }
+
+                println! ("Magic: {}", self.skill_magic_ids[self.skill_magic_idx]);
 
                 None
             }

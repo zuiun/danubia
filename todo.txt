@@ -8,9 +8,9 @@ rework event system into game events (weather, spawning reinforcements, etc)
 what needs to be saved? unit location, occupations, unit stats, unit modifiers/attributes, location modifiers/attributes, weapon attributes,
 
 Code:
-Make something other than update () handle key input < repurpose Validator and Reader
 Split apart update ()
-More standardised state transitions (presumably using Transformer)
+Standardise *Choose/Target/Confirm states
+Most println! () should be dbg! ()
 generate_scene clutters crate visibility; lists should honestly not be part of lib
 start documenting functions...
 Go through and remove as many pubs as possible
