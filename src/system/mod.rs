@@ -1,5 +1,6 @@
 mod game;
 pub use self::game::Action;
+pub use self::game::Context;
 pub use self::game::Game;
 mod logger;
 pub use self::logger::Logger;
