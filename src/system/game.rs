@@ -1028,9 +1028,9 @@ impl Game {
             State::SkillConfirm => ConfirmationValidator::get_prompt (),
             State::MagicChoose => IndexValidator::get_prompt (),
             State::MagicTarget => if self.potential_locations.is_empty () {
-                MovementValidator::get_prompt ()
-            } else {
                 ConfirmationValidator::get_prompt ()
+            } else {
+                MovementValidator::get_prompt ()
             }
             State::MagicConfirm => ConfirmationValidator::get_prompt (),
         };
@@ -1499,7 +1499,6 @@ impl Game {
                         };
                         let potential_ids: Vec<ID> = self.find_units_range (unit_id, target, area, range);
 
-                        println! ("Potential targets: {:?}", potential_ids);
                         let _ = self.sender.send (format! ("Potential targets: {:?}", potential_ids));
 
                         if potential_ids.is_empty () {
@@ -1694,9 +1693,6 @@ impl Game {
                             _ => panic! ("Invalid target {:?}", target),
                         };
 
-                        println! ("Potential targets: {:?}", potential_locations);
-                        let _ = self.sender.send (format! ("Potential targets: {:?}", potential_locations));
-
                         self.change_state (Context::MagicTarget {
                             target,
                             area,
@@ -1705,8 +1701,15 @@ impl Game {
                             potential_locations,
                             target_location: *self.grid.get_unit_location (&unit_id),
                         });
-                        println! ("Potential targets: {:?}", self.potential_ids);
+
+                        if self.potential_locations.is_empty () {
+                            println! ("Potential target: Self");
+                        } else {
+                            println! ("Potential targets: {:?}", self.potential_locations);
+                        }
+
                         println! ("Chosen magic: {:?}", self.scene.get_magic (&magic_id));
+                        let _ = self.sender.send (format! ("Potential targets: {:?}", self.potential_locations));
                     }
                     // Cancel
                     Keycode::X => self.revert_state (),
@@ -1718,150 +1721,120 @@ impl Game {
                 None
             }
             State::MagicTarget => {
-                // if potential_locations.is_empty () {
-                //     match input {
-                //         // Confirm
-                //         Keycode::Z => self.state_context = StateContext::MagicConfirm {
-                //             target_locations: Vec::new (),
-                //             area,
-                //             range,
-                //             magic_id,
-                //             potential_locations,
-                //             magic_ids,
-                //         },
-                //         // Cancel
-                //         Keycode::X => self.state_context = StateContext::MagicChoose {
-                //             magic_idx: 0,
-                //             magic_ids,
-                //         },
-                //         _ => println! ("Invalid input"),
-                //     }
-                // } else {
-                //     let mut is_confirm: bool = false;
-                //     let mut is_cancel: bool = false;    
-                //     let direction: Option<Direction> = match input {
-                //         // Up
-                //         Keycode::W => Some (Direction::Up),
-                //         // Left
-                //         Keycode::A => Some (Direction::Left),
-                //         // Down
-                //         Keycode::S => Some (Direction::Down),
-                //         // Right
-                //         Keycode::D => Some (Direction::Right),
-                //         // Confirm
-                //         Keycode::Z => {
-                //             is_confirm = true;
+                if self.potential_locations.is_empty () {
+                    match input {
+                        // Confirm
+                        Keycode::Z => self.change_state (Context::MagicConfirm { target_locations: Vec::new () }),
+                        // Cancel
+                        Keycode::X => self.revert_state (),
+                        _ => println! ("Invalid input"),
+                    }
+                } else {
+                    let mut is_confirm: bool = false;
+                    let mut is_cancel: bool = false;    
+                    let direction: Option<Direction> = match input {
+                        // Up
+                        Keycode::W => Some (Direction::Up),
+                        // Left
+                        Keycode::A => Some (Direction::Left),
+                        // Down
+                        Keycode::S => Some (Direction::Down),
+                        // Right
+                        Keycode::D => Some (Direction::Right),
+                        // Confirm
+                        Keycode::Z => {
+                            is_confirm = true;
 
-                //             None
-                //         }
-                //         // Cancel
-                //         Keycode::X => {
-                //             is_cancel = true;
+                            None
+                        }
+                        // Cancel
+                        Keycode::X => {
+                            is_cancel = true;
 
-                //             None
-                //         }
-                //         _ => {
-                //             println! ("Invalid input");
+                            None
+                        }
+                        _ => {
+                            println! ("Invalid input");
 
-                //             None
-                //         }
-                //     };
+                            None
+                        }
+                    };
 
-                //     match self.area {
-                //         Area::Single | Area::Radial ( .. ) => if let Some (direction) = direction {
-                //             if let Some (end) = self.grid.try_connect (&target_location, direction) {                                
-                //                 if potential_locations.contains (&end) {
-                //                     println! ("{:?}", direction);
-                //                     self.target_location = end;
-                //                 } else {
-                //                     println! ("Invalid direction {:?}", direction);
-                //                 }
-                //             } else {
-                //                 println! ("Invalid direction {:?}", direction);
-                //             }
-                //         }
-                //         Area::Path ( .. ) => is_confirm = direction.is_some (),
-                //     }
+                    match self.area {
+                        Area::Single | Area::Radial ( .. ) => if let Some (direction) = direction {
+                            if let Some (end) = self.grid.try_connect (&self.target_location, direction) {                                
+                                if self.potential_locations.contains (&end) {
+                                    println! ("{:?}", direction);
+                                    self.target_location = end;
+                                } else {
+                                    println! ("Invalid direction {:?}", direction);
+                                }
+                            } else {
+                                println! ("Invalid direction {:?}", direction);
+                            }
+                        }
+                        Area::Path ( .. ) => is_confirm = direction.is_some (),
+                    }
 
-                //     if is_confirm {
-                //         let search: Search = match self.area {
-                //             Area::Single => Search::Single,
-                //             Area::Radial (r) => Search::Radial (r),
-                //             Area::Path (w) => {
-                //                 let direction: Direction = direction.unwrap_or_else (|| panic! ("Invalid direction {:?}", direction));
+                    if is_confirm {
+                        let search: Search = match self.area {
+                            Area::Single => Search::Single,
+                            Area::Radial (r) => Search::Radial (r),
+                            Area::Path (w) => {
+                                let direction: Direction = direction.unwrap_or_else (|| panic! ("Invalid direction {:?}", direction));
 
-                //                 Search::Path (w, self.range, direction)
-                //             }
-                //         };
-                //         let target_locations: Vec<Location> = self.find_locations_area (search);
+                                Search::Path (w, self.range, direction)
+                            }
+                        };
+                        let target_locations: Vec<Location> = self.find_locations_area (search);
     
-                //         if !target_locations.is_empty () {
-                //             println! ("Targets: {:?}", self.target_locations);
-                //             self.state_context = StateContext::MagicConfirm {
-                //                 target_locations,
-                //                 area,
-                //                 range,
-                //                 magic_id,
-                //                 potential_locations,
-                //                 magic_ids,
-                //             };
-                //         }
-                //     } else if is_cancel {
-                //         self.state_context = StateContext::MagicChoose {
-                //             magic_idx: 0,
-                //             magic_ids,
-                //         };
-                //     }
-                // }
-                todo!();
+                        if !target_locations.is_empty () {
+                            self.change_state (Context::MagicConfirm { target_locations });
+                            println! ("Targets: {:?}", self.target_locations);
+                        }
+                    } else if is_cancel {
+                        self.revert_state ();
+                    }
+                }
 
                 None
             }
             State::MagicConfirm => {
-                // match input {
-                //     // Confirm
-                //     Keycode::Z => {
-                //         if target_locations.is_empty () {
-                //             println! ("{}", self.units[unit_id]);
-                //         }
+                match input {
+                    // Confirm
+                    Keycode::Z => {
+                        if self.target_locations.is_empty () {
+                            println! ("{}", self.units[unit_id]);
+                        }
 
-                //         self.state_context = StateContext::Idle;
-                //         self.act_magic_new (unit_id);
+                        self.change_state (Context::Idle);
+                        self.act_magic_new (unit_id);
 
-                //         if target_locations.is_empty () {
-                //             println! ("Using magic {} on {}", magic_id, unit_id);
-                //             println! ("{}", self.units[unit_id]);
-                //         } else {
-                //             println! ("Using magic {} on {:?}", magic_id, target_locations);
+                        if self.target_locations.is_empty () {
+                            println! ("Using magic {} on {}", self.skill_magic_id, unit_id);
+                            println! ("{}", self.units[unit_id]);
+                        } else {
+                            println! ("Using magic {} on {:?}", self.skill_magic_id, self.target_locations);
 
-                //             for target_location in target_locations {
-                //                 println! ("{:?}: {}", target_location, self.grid.get_tile (target_location));
-                //             }
-                //         }
+                            for target_location in &self.target_locations {
+                                println! ("{:?}: {}", target_location, self.grid.get_tile (target_location));
+                            }
+                        }
 
-                //         Some (Action::Magic)
-                //     }
-                //     // Cancel
-                //     Keycode::X => {
-                //         self.state_context = StateContext::MagicTarget {
-                //             area,
-                //             range,
-                //             magic_id,
-                //             potential_locations,
-                //             target_location: *self.grid.get_unit_location (&unit_id),
-                //             magic_ids,
-                //         };
+                        Some (Action::Magic)
+                    }
+                    // Cancel
+                    Keycode::X => {
+                        self.revert_state ();
 
-                //         None
-                //     }
-                //     _ => {
-                //         println! ("Invalid input");
+                        None
+                    }
+                    _ => {
+                        println! ("Invalid input");
 
-                //         None
-                //     }
-                // }
-todo!();
-
+                        None
+                    }
+                }
             }
         };
 
