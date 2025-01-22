@@ -1,5 +1,5 @@
 use crate::common::Scene;
-use crate::system::{Game, Logger, Reader};
+use crate::system::{Game, Logger};
 use sdl2::event::Event;
 use sdl2::image::{self as sdl2_image, Sdl2ImageContext};
 use sdl2::keyboard::Keycode;
@@ -10,7 +10,6 @@ use sdl2::ttf::{self as sdl2_ttf, Sdl2TtfContext};
 use sdl2::video::Window;
 use sdl2::EventPump;
 use std::error::Error;
-use std::io::BufRead;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -27,8 +26,8 @@ pub mod system;
 const FRAMES_PER_SECOND: u128 = 30;
 const NANOS_PER_FRAME: u128 = 1_000_000_000 / FRAMES_PER_SECOND;
 
-pub struct Danubia<R: BufRead> {
-    game: Game<R>,
+pub struct Danubia {
+    game: Game,
     image: Sdl2ImageContext,
     mixer: Sdl2MixerContext,
     ttf: Sdl2TtfContext,
@@ -36,8 +35,8 @@ pub struct Danubia<R: BufRead> {
     event_pump: EventPump,
 }
 
-impl<R: BufRead> Danubia<R> {
-    pub fn new (reader: Reader<R>) -> Result<Self, Box<dyn Error>> {
+impl Danubia {
+    pub fn new () -> Result<Self, Box<dyn Error>> {
         // SDL2 boilerplate
         let sdl = sdl2::init ()?;
         let image = sdl2_image::init (sdl2_image::InitFlag::all ())?;
@@ -45,8 +44,8 @@ impl<R: BufRead> Danubia<R> {
         let ttf = sdl2_ttf::init ()?;
         let video = sdl.video ()?;
         let window = video.window ("Danubia", 640, 480)
-            .position_centered ()
-            .build ()?;
+                .position_centered ()
+                .build ()?;
         let mut canvas = window.into_canvas ().build ()?;
         let event_pump = sdl.event_pump ()?;
 
@@ -56,7 +55,7 @@ impl<R: BufRead> Danubia<R> {
     
         let scene = Scene::default ();
         let (sender, receiver) = mpsc::channel::<String> ();
-        let mut game = Game::new (scene, reader, sender);
+        let mut game = Game::new (scene, sender);
     
         thread::spawn (move || Logger::new ("log.txt", receiver).run ());
         game.init ()?;
@@ -65,11 +64,11 @@ impl<R: BufRead> Danubia<R> {
     }
 
     pub fn run (&mut self) -> Result<(), Box<dyn Error>> {
-        let mut is_display_turn = true;
-        let mut is_display_prompt = true;
+        let mut is_display_turn: bool = true;
+        let mut is_display_prompt: bool = true;
 
         'running: loop {
-            let frame_start = Instant::now ();
+            let frame_start: Instant = Instant::now ();
             let mut input: Option<Keycode> = None;
 
             if is_display_turn {
@@ -85,7 +84,8 @@ impl<R: BufRead> Danubia<R> {
             for event in self.event_pump.poll_iter () {
                 match event {
                     Event::Quit { .. } => break 'running,
-                    Event::KeyUp { keycode: Some (keycode), repeat: false, .. } => {
+                    // TODO: KeyDown or KeyUp?
+                    Event::KeyDown { keycode: Some (keycode), repeat: false, .. } => {
                         match keycode {
                         // TODO: others
                         Keycode::Z => {
@@ -141,7 +141,6 @@ impl<R: BufRead> Danubia<R> {
                 }
             }
 
-            // game.do_turn ();
             if let Some (input) = input {
                 is_display_prompt = true;
 

@@ -8,7 +8,7 @@ rework event system into game events (weather, spawning reinforcements, etc)
 what needs to be saved? unit location, occupations, unit stats, unit modifiers/attributes, location modifiers/attributes, weapon attributes,
 
 Code:
-Make something other than update () handle key input
+Make something other than update () handle key input < repurpose Validator and Reader
 Split apart update ()
 More standardised state transitions (presumably using Transformer)
 generate_scene clutters crate visibility; lists should honestly not be part of lib
@@ -20,7 +20,6 @@ consider renaming single letter variables (used for deconstruction)
 some panics should be marked unreachable
 find_locations_* and find_units_* has a lot of duplicated logic, but they may be too different to forcibly marry? it would be bad OOP probably
 extract_if recently got stabilised, whenever 1.85 gets released I should use it to replace this awful next_id and such filtering
-starting to get really annoyed with explicit type annotation (does this mean I am finally cool)
 
 Balancing:
 When in combat, morale/manpower/equipment drain should always be greater than recovery

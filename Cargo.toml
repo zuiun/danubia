@@ -3,6 +3,14 @@ name = "danubia"
 version = "0.1.0"
 edition = "2021"
 
+# [[bin]]
+# name = "danubia"
+# path = "src/bin.rs"
+
+# [lib]
+# name = "danubia"
+# path = "src/lib/lib.rs"
+
 [dependencies.sdl2]
 git = "https://github.com/rust-sdl2/rust-sdl2"
 default-features = false

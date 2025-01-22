@@ -1,255 +1,156 @@
+use self::Decision::*;
 use super::Action;
-use crate::common::ID;
-use crate::map::{Direction, Location};
+use crate::map::Direction;
+use sdl2::keyboard::Keycode;
 use std::error::Error;
 
 pub trait Validator<T> {
-    fn validate (&self, input: &str) -> Result<Option<T>, Box<dyn Error>>;
-    fn get_prompt (&self) -> &str;
+    fn validate (&mut self, input: Keycode) -> Result<Decision<T>, Box<dyn Error>>;
+    fn get_prompt () -> &'static str;
 }
 
 #[derive (Debug)]
-pub struct ActionValidator {
-    prompt: &'static str,
+pub enum Decision<T> {
+    Continue,
+    Confirm (T),
+    Cancel,
 }
 
-impl ActionValidator {
-    #[allow (clippy::new_without_default)]
-    pub fn new () -> Self {
-        let prompt: &str = "Enter move (z), switch weapon (q), wait (w), attack (a), skill (s), magic (d), or quit (x)";
+impl<T> Decision<T> {
+    pub fn unwrap (self) -> T {
+        match self {
+            Continue => panic! ("Unwrap failed"),
+            Confirm (val) => val,
+            Cancel => panic! ("Unwrap failed"),
+        }
+    }
 
-        Self { prompt }
+    pub fn is_continue (&self) -> bool {
+        matches! (self, Continue)
+    }
+
+    pub fn is_confirm (&self) -> bool {
+        matches! (self, Confirm ( .. ))
+    }
+
+    pub fn is_cancel (&self) -> bool {
+        matches! (self, Cancel)
     }
 }
+
+#[derive (Debug)]
+pub struct ActionValidator;
 
 impl Validator<Action> for ActionValidator {
-    fn validate (&self, input: &str) -> Result<Option<Action>, Box<dyn Error>> {
-        let action: char = match input.chars ().next () {
-            Some (a) => a,
-            None => return Err (Box::from (String::from ("No input"))),
-        };
-
-        match action {
-            'a' => Ok (Some (Action::Attack)),
-            'q' => Ok (Some (Action::Weapon)),
-            's' => Ok (Some (Action::Skill)),
-            'd' => Ok (Some (Action::Magic)),
-            'z' => Ok (Some (Action::Move)),
-            'w' => Ok (Some (Action::Wait)),
-            'x' => Ok (None),
+    fn validate (&mut self, input: Keycode) -> Result<Decision<Action>, Box<dyn Error>> {
+        match input {
+            Keycode::Q => Ok (Confirm (Action::Move)),
+            Keycode::W => Ok (Confirm (Action::Weapon)),
+            Keycode::A => Ok (Confirm (Action::Attack)),
+            Keycode::S => Ok (Confirm (Action::Skill)),
+            Keycode::D => Ok (Confirm (Action::Magic)),
+            Keycode::Z => Ok (Confirm (Action::Wait)),
+            Keycode::X => Ok (Cancel),
             _ => Err (Box::from (String::from ("Invalid input"))),
         }
     }
 
-    fn get_prompt (&self) -> &str {
-        self.prompt
+    fn get_prompt () -> &'static str {
+        "move (q), switch weapon (w), attack (a), skill (s), magic (d), wait (z), quit (x)"
     }
 }
 
-// impl Default for ActionValidator {
-//     fn default () -> Self {
-//         Self::new ()
-//     }
-// }
-
-pub struct IDValidator<'a> {
-    prompt: &'static str,
-    ids: &'a [ID],
+pub struct IndexValidator {
+    index: usize,
+    length: usize,
 }
 
-impl<'a> IDValidator<'a> {
-    pub fn new (ids: &'a [ID]) -> Self {
-        let prompt: &str = "Enter ID (#) or cancel (x)";
+impl IndexValidator {
+    pub fn new (length: usize) -> Self {
+        let index: usize = 0;
 
-        Self { prompt, ids }
+        Self { index, length }
     }
 }
 
-impl Validator<ID> for IDValidator<'_> {
-    fn validate (&self, input: &str) -> Result<Option<ID>, Box<dyn Error>> {
-        let cancel: char = input.chars ().next ().unwrap_or_else (|| panic! ("Invalid input {}", input));
+impl Validator<usize> for IndexValidator {
+    fn validate (&mut self, input: Keycode) -> Result<Decision<usize>, Box<dyn Error>> {
+        match input {
+            Keycode::A => {
+                self.index = (self.index + 1) % self.length;
 
-        if cancel == 'x' {
-            Ok (None)
-        } else {
-            let id: ID = input.parse ()?;
-
-            if self.ids.contains (&id) {
-                Ok (Some (id))
-            } else {
-                Err (Box::from (String::from ("Invalid ID")))
+                Ok (Continue)
             }
+            Keycode::D => {
+                self.index = self.index.checked_sub (1).unwrap_or_else (|| self.length - 1);
+
+                Ok (Continue)
+            }
+            Keycode::Z => Ok (Confirm (self.index)),
+            Keycode::X => Ok (Cancel),
+            _ => Err (Box::from (String::from ("Invalid input"))),
         }
     }
 
-    fn get_prompt (&self) -> &str {
-        self.prompt
+    fn get_prompt () -> &'static str {
+        "previous (a), next (d), confirm (z), cancel (x)"
     }
 }
 
-pub struct LocationValidator<'a> {
-    prompt: &'static str,
-    locations: &'a [Location],
-}
-
-impl<'a> LocationValidator<'a> {
-    pub fn new (locations: &'a [Location]) -> Self {
-        let prompt: &str = "Enter comma-separated location (row, column: #, #) or cancel (x)";
-
-        Self { prompt, locations }
-    }
-}
-
-impl Validator<Location> for LocationValidator<'_> {
-    fn validate (&self, input: &str) -> Result<Option<Location>, Box<dyn Error>> {
-        let cancel: char = input.chars ().next ().unwrap_or_else (|| panic! ("Invalid input {}", input));
-
-        if cancel == 'x' {
-            Ok (None)
-        } else {
-            let mut input = input.split (",");
-            let i: usize = match input.next () {
-                Some (i) => i.trim ().parse ()?,
-                None => return Err (Box::from (String::from ("No input"))),
-            };
-            let j: usize = match input.next () {
-                Some (j) => j.trim ().parse ()?,
-                None => return Err (Box::from (String::from ("No input"))),
-            };
-
-            if self.locations.contains (&(i, j)) {
-                Ok (Some ((i, j)))
-            } else {
-                Err (Box::from (String::from ("Invalid location")))
-            }
-        }
-    }
-
-    fn get_prompt (&self) -> &str {
-        self.prompt
-    }
-}
-
-pub struct DirectionValidator {
-    prompt: &'static str,
-}
-
-impl DirectionValidator {
-    #[allow (clippy::new_without_default)]
-    pub fn new () -> Self {
-        let prompt: &str = "Enter direction (w/a/s/d) or cancel (x)";
-
-        Self { prompt }
-    }
-}
+pub struct DirectionValidator;
 
 impl Validator<Direction> for DirectionValidator {
-    fn validate (&self, input: &str) -> Result<Option<Direction>, Box<dyn Error>> {
-        let direction: char = match input.chars ().next () {
-            Some (d) => d,
-            None => return Err (Box::from (String::from ("No input")))
-        };
-
-        match direction {
-            'w' => Ok (Some (Direction::Up)),
-            'd' => Ok (Some (Direction::Right)),
-            'a' => Ok (Some (Direction::Left)),
-            's' => Ok (Some (Direction::Down)),
-            'x' => Ok (None),
+    fn validate (&mut self, input: Keycode) -> Result<Decision<Direction>, Box<dyn Error>> {
+        match input {
+            Keycode::W => Ok (Confirm (Direction::Up)),
+            Keycode::A => Ok (Confirm (Direction::Left)),
+            Keycode::S => Ok (Confirm (Direction::Down)),
+            Keycode::D => Ok (Confirm (Direction::Right)),
+            Keycode::X => Ok (Cancel),
             _ => Err (Box::from (String::from ("Invalid input"))),
         }
     }
 
-    fn get_prompt (&self) -> &str {
-        self.prompt
+    fn get_prompt () -> &'static str {
+        "up (w), left (a), down (s), right (d), cancel (x)"
     }
 }
 
-// impl Default for DirectionValidator {
-//     fn default () -> Self {
-//         Self::new ()
-//     }
-// }
-
-pub struct ConfirmationValidator {
-    prompt: &'static str,
-}
-
-pub struct MovementValidator {
-    prompt: &'static str,
-}
-
-impl MovementValidator {
-    #[allow (clippy::new_without_default)]
-    pub fn new () -> Self {
-        let prompt: &str = "Enter direction (w/a/s/d), confirm (z), or cancel (x)";
-
-        Self { prompt }
-    }
-}
+pub struct MovementValidator;
 
 impl Validator<Direction> for MovementValidator {
-    fn validate (&self, input: &str) -> Result<Option<Direction>, Box<dyn Error>> {
-        let movement: char = match input.chars ().next () {
-            Some (m) => m,
-            None => return Err (Box::from (String::from ("No input")))
-        };
-
-        match movement {
-            'w' => Ok (Some (Direction::Up)),
-            'd' => Ok (Some (Direction::Right)),
-            'a' => Ok (Some (Direction::Left)),
-            's' => Ok (Some (Direction::Down)),
-            'z' => Ok (Some (Direction::Length)),
-            'x' => Ok (None),
+    fn validate (&mut self, input: Keycode) -> Result<Decision<Direction>, Box<dyn Error>> {
+        match input {
+            Keycode::W => Ok (Confirm (Direction::Up)),
+            Keycode::A => Ok (Confirm (Direction::Left)),
+            Keycode::S => Ok (Confirm (Direction::Down)),
+            Keycode::D => Ok (Confirm (Direction::Right)),
+            Keycode::Z => Ok (Confirm (Direction::Length)), // Placeholder direction
+            Keycode::X => Ok (Cancel),
             _ => Err (Box::from (String::from ("Invalid input"))),
         }
     }
 
-    fn get_prompt (&self) -> &str {
-        self.prompt
+    fn get_prompt () -> &'static str {
+        "up (w), left (a), down (s), right (d), confirm (z), cancel (x)"
     }
 }
 
-// impl Default for MovementValidator {
-//     fn default () -> Self {
-//         Self::new ()
-//     }
-// }
+pub struct ConfirmationValidator;
 
-impl ConfirmationValidator {
-    #[allow (clippy::new_without_default)]
-    pub fn new () -> Self {
-        let prompt: &str = "Enter confirm (z) or cancel (x)";
-
-        Self { prompt }
-    }
-}
-
-impl Validator<bool> for ConfirmationValidator {
-    fn validate (&self, input: &str) -> Result<Option<bool>, Box<dyn Error>> {
-        let confirmation: char = match input.chars ().next () {
-            Some (c) => c,
-            None => return Err (Box::from (String::from ("No input")))
-        };
-
-        match confirmation {
-            'z' => Ok (Some (true)),
-            'x' => Ok (Some (false)),
+impl Validator<()> for ConfirmationValidator {
+    fn validate (&mut self, input: Keycode) -> Result<Decision<()>, Box<dyn Error>> {
+        match input {
+            Keycode::Z => Ok (Confirm (())),
+            Keycode::X => Ok (Cancel),
             _ => Err (Box::from (String::from ("Invalid input"))),
         }
     }
 
-    fn get_prompt (&self) -> &str {
-        self.prompt
+    fn get_prompt () -> &'static str {
+        "confirm (z), cancel (x)"
     }
 }
-
-// impl Default for ConfirmationValidator {
-//     fn default () -> Self {
-//         Self::new ()
-//     }
-// }
 
 #[cfg (test)]
 mod tests {
@@ -257,76 +158,59 @@ mod tests {
 
     #[test]
     fn action_validator_validate () {
-        let validator = ActionValidator::new ();
+        let mut validator = ActionValidator;
 
-        assert! (matches! (validator.validate ("a").unwrap ().unwrap (), Action::Attack));
-        assert! (matches! (validator.validate ("q").unwrap ().unwrap (), Action::Weapon));
-        assert! (matches! (validator.validate ("s").unwrap ().unwrap (), Action::Skill));
-        assert! (matches! (validator.validate ("d").unwrap ().unwrap (), Action::Magic));
-        assert! (matches! (validator.validate ("z").unwrap ().unwrap (), Action::Move));
-        assert! (matches! (validator.validate ("w").unwrap ().unwrap (), Action::Wait));
-        assert! (validator.validate ("x").unwrap ().is_none ());
+        assert! (matches! (validator.validate (Keycode::Q).unwrap ().unwrap (), Action::Move));
+        assert! (matches! (validator.validate (Keycode::W).unwrap ().unwrap (), Action::Weapon));
+        assert! (matches! (validator.validate (Keycode::A).unwrap ().unwrap (), Action::Attack));
+        assert! (matches! (validator.validate (Keycode::S).unwrap ().unwrap (), Action::Skill));
+        assert! (matches! (validator.validate (Keycode::D).unwrap ().unwrap (), Action::Magic));
+        assert! (matches! (validator.validate (Keycode::Z).unwrap ().unwrap (), Action::Wait));
+        assert! (validator.validate (Keycode::X).unwrap ().is_cancel ());
     }
 
     #[test]
-    fn id_validator_validate () {
-        let validator = IDValidator::new (&[0, 1]);
+    fn index_validator_validate () {
+        let mut validator = IndexValidator::new (2);
 
-        // Test cancel validate
-        // assert! (validator.validate ("x").unwrap ().is_none ());
-        // Test empty validate
-        assert! (validator.validate ("3").is_err ());
-        // Test non-empty validate
-        assert! (matches! (validator.validate ("0").unwrap ().unwrap (), 0));
-        assert! (matches! (validator.validate ("1").unwrap ().unwrap (), 1));
-    }
-
-    #[test]
-    fn location_validator_validate () {
-        let validator = LocationValidator::new (&[(0, 0), (0, 1)]);
-
-        // Test cancel validate
-        // assert! (validator.validate ("x").unwrap ().is_none ());
-        // Test empty validate
-        assert! (validator.validate ("1, 0").is_err ());
-        // Test non-empty validate
-        assert! (matches! (validator.validate ("0, 0").unwrap ().unwrap (), (0, 0)));
-        assert! (matches! (validator.validate ("0, 1").unwrap ().unwrap (), (0, 1)));
+        assert! (validator.validate (Keycode::A).unwrap ().is_continue ()); // 1
+        assert! (validator.validate (Keycode::D).unwrap ().is_continue ()); // 0
+        validator.validate (Keycode::A).unwrap (); // 1
+        assert_eq! (validator.validate (Keycode::Z).unwrap ().unwrap (), 1);
+        assert! (validator.validate (Keycode::X).unwrap ().is_cancel ());
     }
 
     #[test]
     fn direction_validator_validate () {
-        let validator = DirectionValidator::new ();
+        let mut validator = DirectionValidator;
 
         // Test cancel validate
         // assert! (validator.validate ("x").unwrap ().is_none ());
         // Test normal validate
-        assert! (matches! (validator.validate ("w").unwrap ().unwrap (), Direction::Up));
-        assert! (matches! (validator.validate ("d").unwrap ().unwrap (), Direction::Right));
-        assert! (matches! (validator.validate ("a").unwrap ().unwrap (), Direction::Left));
-        assert! (matches! (validator.validate ("s").unwrap ().unwrap (), Direction::Down));
+        assert! (matches! (validator.validate (Keycode::W).unwrap ().unwrap (), Direction::Up));
+        assert! (matches! (validator.validate (Keycode::A).unwrap ().unwrap (), Direction::Left));
+        assert! (matches! (validator.validate (Keycode::S).unwrap ().unwrap (), Direction::Down));
+        assert! (matches! (validator.validate (Keycode::D).unwrap ().unwrap (), Direction::Right));
+        assert! (validator.validate (Keycode::X).unwrap ().is_cancel ());
     }
 
     #[test]
     fn movement_validator_validate () {
-        let validator = MovementValidator::new ();
+        let mut validator = MovementValidator;
 
-        // Test cancel validate
-        assert! (validator.validate ("x").unwrap ().is_none ());
-        // Test confirm validate
-        assert! (matches! (validator.validate ("z").unwrap ().unwrap (), Direction::Length));
-        // Test normal validate
-        assert! (matches! (validator.validate ("w").unwrap ().unwrap (), Direction::Up));
-        assert! (matches! (validator.validate ("d").unwrap ().unwrap (), Direction::Right));
-        assert! (matches! (validator.validate ("a").unwrap ().unwrap (), Direction::Left));
-        assert! (matches! (validator.validate ("s").unwrap ().unwrap (), Direction::Down));
+        assert! (matches! (validator.validate (Keycode::W).unwrap ().unwrap (), Direction::Up));
+        assert! (matches! (validator.validate (Keycode::A).unwrap ().unwrap (), Direction::Left));
+        assert! (matches! (validator.validate (Keycode::S).unwrap ().unwrap (), Direction::Down));
+        assert! (matches! (validator.validate (Keycode::D).unwrap ().unwrap (), Direction::Right));
+        assert! (matches! (validator.validate (Keycode::Z).unwrap ().unwrap (), Direction::Length));
+        assert! (validator.validate (Keycode::X).unwrap ().is_cancel ());
     }
 
     #[test]
     fn confirmation_validator_validate () {
-        let validator = ConfirmationValidator::new ();
+        let mut validator = ConfirmationValidator;
 
-        assert! (validator.validate ("z").unwrap ().unwrap ());
-        assert! (!validator.validate ("x").unwrap ().unwrap ());
+        assert! (validator.validate (Keycode::Z).unwrap ().is_confirm ());
+        assert! (validator.validate (Keycode::X).unwrap ().is_cancel ());
     }
 }
