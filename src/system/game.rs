@@ -1208,19 +1208,18 @@ impl Game {
                     if is_retreat {
                         println! ("Unit cannot attack (is retreating)")
                     } else {
-                        let potential_ids: Vec<ID> = self.find_units_range_new (unit_id);
+                        let (target, area, range): (Target, Area, u8) = {
+                            let weapon: &Weapon = self.units[unit_id].get_weapon ();
+
+                            (weapon.get_target (), weapon.get_area (), weapon.get_range ())
+                        };
+                        let potential_ids: Vec<ID> = self.find_units_range (unit_id, target, area, range);
 
                         let _ = self.sender.send (format! ("Potential targets: {:?}", potential_ids));
 
                         if potential_ids.is_empty () {
                             println! ("No available targets");
                         } else {
-                            let (target, area, range): (Target, Area, u8) = {
-                                let weapon: &Weapon = self.units[unit_id].get_weapon ();
-
-                                (weapon.get_target (), weapon.get_area (), weapon.get_range ())
-                            };
-
                             self.change_state (Context::AttackTarget { target, area, range, potential_ids });
                             println! ("Potential targets: {:?}", self.potential_ids);
                             println! ("Equipped weapon: {:?}", self.units[unit_id].get_weapon ());
@@ -1337,13 +1336,13 @@ impl Game {
                                 self.target_idx = self.target_idx.checked_sub (1)
                                         .unwrap_or_else (|| self.potential_ids.len ().saturating_sub (1));
 
-                                None
+                                Some (Search::Single)
                             }
                             // Next
                             Keycode::D => {
                                 self.target_idx = (self.target_idx + 1) % self.potential_ids.len ();
 
-                                None
+                                Some (Search::Single)
                             }
                             // Confirm
                             Keycode::Z => {
@@ -1371,13 +1370,13 @@ impl Game {
                                 self.target_idx = self.target_idx.checked_sub (1)
                                         .unwrap_or_else (|| self.potential_ids.len ().saturating_sub (1));
 
-                                None
+                                Some (Search::Radial (r))
                             }
                             // Next
                             Keycode::D => {
                                 self.target_idx = (self.target_idx + 1) % self.potential_ids.len ();
 
-                                None
+                                Some (Search::Radial (r))
                             }
                             // Confirm
                             Keycode::Z => {
