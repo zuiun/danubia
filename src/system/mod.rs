@@ -8,7 +8,6 @@ mod turn;
 pub use self::turn::Turn;
 mod validator;
 pub use self::validator::Validator;
-pub use self::validator::Decision;
 pub use self::validator::ActionValidator;
 pub use self::validator::IndexValidator;
 pub use self::validator::DirectionValidator;
