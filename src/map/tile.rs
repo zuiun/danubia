@@ -244,6 +244,10 @@ impl TileBuilder {
     pub fn build (&self, scene: Rc<Scene>) -> Tile {
         Tile::new (Rc::clone (&scene), self.terrain_id, self.height, self.city_id)
     }
+
+    pub fn get_terrain_id (&self) -> ID {
+        self.terrain_id
+    }
 }
 
 #[cfg (test)]

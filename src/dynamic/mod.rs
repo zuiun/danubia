@@ -3,13 +3,13 @@ use crate::common::{ID, Scene, Target};
 use std::rc::Rc;
 
 mod appliable_kind;
-pub use self::appliable_kind::AppliableKind;
+pub use self::appliable_kind::*;
 mod attribute;
-pub use self::attribute::Attribute;
+pub use self::attribute::*;
 mod effect;
-pub use self::effect::Effect;
+pub use self::effect::*;
 mod modifier;
-pub use self::modifier::Modifier;
+pub use self::modifier::*;
 
 pub type Adjustment = (StatisticKind, u16, bool); // statistic, change (value depends on context), is add
 

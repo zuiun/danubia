@@ -8,6 +8,7 @@ rework event system into game events (weather, spawning reinforcements, etc)
 what needs to be saved? unit location, occupations, unit stats, unit modifiers/attributes, location modifiers/attributes, weapon attributes,
 
 Code:
+Maybe just pass Game into Renderer and avoid all this RenderContext nonsense
 Most println! should be dbg!
 generate_scene clutters crate visibility
 start documenting functions...

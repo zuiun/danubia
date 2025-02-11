@@ -2,22 +2,15 @@ use crate::dynamic::Applier;
 use crate::map::Area;
 
 mod faction;
-pub use self::faction::Faction;
-pub use self::faction::FactionBuilder;
+pub use self::faction::*;
 mod magic;
-pub use self::magic::Element;
-pub use self::magic::Magic;
+pub use self::magic::*;
 mod skill;
-pub use self::skill::SkillKind;
-pub use self::skill::Skill;
+pub use self::skill::*;
 mod unit;
-pub use self::unit::UnitStatistic;
-pub use self::unit::UnitStatistics;
-pub use self::unit::Unit;
-pub use self::unit::UnitBuilder;
+pub use self::unit::*;
 mod weapon;
-pub use self::weapon::WeaponStatistic;
-pub use self::weapon::Weapon;
+pub use self::weapon::*;
 
 pub trait Tool: Applier {
     fn get_area (&self) -> Area;

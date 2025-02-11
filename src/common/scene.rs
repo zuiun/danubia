@@ -6,6 +6,7 @@ use super::debug;
 
 #[derive (Debug)]
 pub struct Scene {
+    // Objects
     modifiers: &'static [Modifier],
     effects: &'static [Effect],
     attributes: &'static [Attribute],
@@ -18,12 +19,36 @@ pub struct Scene {
     unit_builders: &'static [UnitBuilder],
     tile_builders: &'static [&'static [TileBuilder]],
     unit_locations: &'static [Option<Location>],
+    // Textures
+    textures_terrain: &'static [&'static str],
+    textures_unit: &'static [&'static str],
 }
 
 impl Scene {
     #[allow (clippy::too_many_arguments)]
-    pub fn new (modifiers: &'static [Modifier], effects: &'static [Effect], attributes: &'static [Attribute], terrains: &'static [Terrain], cities: &'static [City], weapons: &'static [Weapon], magics: &'static [Magic], skills: &'static [Skill], faction_builders: &'static [FactionBuilder], unit_builders: &'static [UnitBuilder], tile_builders: &'static [&'static [TileBuilder]], unit_locations: &'static [Option<Location>]) -> Self {
-        Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders, unit_locations }
+    pub fn new (modifiers: &'static [Modifier], effects: &'static [Effect], attributes: &'static [Attribute], terrains: &'static [Terrain], cities: &'static [City], weapons: &'static [Weapon], magics: &'static [Magic], skills: &'static [Skill], faction_builders: &'static [FactionBuilder], unit_builders: &'static [UnitBuilder], tile_builders: &'static [&'static [TileBuilder]], unit_locations: &'static [Option<Location>], textures_terrain: &'static [&'static str], textures_unit: &'static [&'static str]) -> Self {
+        Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders, unit_locations, textures_terrain, textures_unit }
+    }
+
+    #[allow (clippy::too_many_arguments)]
+    pub fn debug () -> Self {
+        let modifiers: &[Modifier] = debug::objects::MODIFIERS;
+        let effects: &[Effect] = debug::objects::EFFECTS;
+        let attributes: &[Attribute] = debug::objects::ATTRIBUTES;
+        let terrains: &[Terrain] = debug::objects::TERRAINS;
+        let cities: &[City] = debug::objects::CITIES;
+        let weapons: &[Weapon] = debug::objects::WEAPONS;
+        let magics: &[Magic] = debug::objects::MAGICS;
+        let skills: &[Skill] = debug::objects::SKILLS;
+        let faction_builders: &[FactionBuilder] = debug::objects::FACTION_BUILDERS;
+        let unit_builders: &[UnitBuilder] = debug::objects::UNIT_BUILDERS;
+        let tile_builders: &[&[TileBuilder]] = debug::objects::TILE_BUILDERS;
+        let unit_locations: &[Option<Location>] = debug::objects::UNIT_LOCATIONS;
+
+        let textures_terrain: &[&str] = debug::textures::TERRAINS;
+        let textures_unit: &[&str] = debug::textures::UNITS;
+
+        Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders, unit_locations, textures_terrain, textures_unit }
     }
 
     pub fn get_modifier (&self, id: &ID) -> &Modifier {
@@ -115,23 +140,34 @@ impl Scene {
     pub fn unit_locations_iter (&self) -> impl Iterator<Item = &Option<Location>> {
         self.unit_locations.iter ()
     }
+
+    pub fn textures_terrain_iter (&self) -> impl Iterator<Item = &&str> {
+        self.textures_terrain.iter ()
+    }
+
+    pub fn textures_unit_iter (&self) -> impl Iterator<Item = &&str> {
+        self.textures_unit.iter ()
+    }
 }
 
 impl Default for Scene {
-    fn default() -> Self {
-        let modifiers: &[Modifier] = debug::MODIFIERS;
-        let effects: &[Effect] = debug::EFFECTS;
-        let attributes: &[Attribute] = debug::ATTRIBUTES;
-        let terrains: &[Terrain] = debug::TERRAINS;
-        let cities: &[City] = debug::CITIES;
-        let weapons: &[Weapon] = debug::WEAPONS;
-        let magics: &[Magic] = debug::MAGICS;
-        let skills: &[Skill] = debug::SKILLS;
-        let faction_builders: &[FactionBuilder] = debug::FACTION_BUILDERS;
-        let unit_builders: &[UnitBuilder] = debug::UNIT_BUILDERS;
-        let tile_builders: &[&[TileBuilder]] = debug::TILE_BUILDERS;
-        let unit_locations: &[Option<Location>] = debug::UNIT_LOCATIONS;
+    fn default () -> Self {
+        let modifiers: &[Modifier] = debug::objects::MODIFIERS;
+        let effects: &[Effect] = debug::objects::EFFECTS;
+        let attributes: &[Attribute] = debug::objects::ATTRIBUTES;
+        let terrains: &[Terrain] = debug::objects::TERRAINS;
+        let cities: &[City] = debug::objects::CITIES;
+        let weapons: &[Weapon] = debug::objects::WEAPONS;
+        let magics: &[Magic] = debug::objects::MAGICS;
+        let skills: &[Skill] = debug::objects::SKILLS;
+        let faction_builders: &[FactionBuilder] = debug::objects::FACTION_BUILDERS;
+        let unit_builders: &[UnitBuilder] = debug::objects::UNIT_BUILDERS;
+        let tile_builders: &[&[TileBuilder]] = debug::objects::TILE_BUILDERS;
+        let unit_locations: &[Option<Location>] = debug::objects::UNIT_LOCATIONS;
 
-        Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders, unit_locations }
+        let textures_terrain: &[&str] = debug::textures::TERRAINS;
+        let textures_unit: &[&str] = debug::textures::UNITS;
+
+        Self { modifiers, effects, attributes, terrains, cities, weapons, magics, skills, faction_builders, unit_builders, tile_builders, unit_locations, textures_terrain, textures_unit }
     }
 }

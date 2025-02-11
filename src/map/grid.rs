@@ -188,8 +188,10 @@ impl Grid {
     }
 
     pub fn find_distance_between (&self, unit_id_first: &ID, unit_id_second: &ID) -> usize {
-        let location_first: &Location = self.get_unit_location (unit_id_first);
-        let location_second: &Location = self.get_unit_location (unit_id_second);
+        let location_first: &Location = self.get_unit_location (unit_id_first)
+                .unwrap_or_else (|| panic! ("Location not found for unit {}", unit_id_first));
+        let location_second: &Location = self.get_unit_location (unit_id_second)
+                .unwrap_or_else (|| panic! ("Location not found for unit {}", unit_id_second));
 
         location_first.0.abs_diff (location_second.0) + location_first.1.abs_diff (location_second.1)
     }
@@ -287,7 +289,8 @@ impl Grid {
     pub fn move_unit (&mut self, unit_id: ID, movements: &[Direction]) -> Option<(Location, ID)> {
         let mut locations: Vec<Location> = Vec::new ();
         let faction_id: ID = self.get_unit_faction (&unit_id);
-        let start: Location = *self.get_unit_location (&unit_id);
+        let start: Location = *self.get_unit_location (&unit_id)
+                .unwrap_or_else (|| panic! ("Location not found for unit {}", unit_id));
         let mut end: Location = start;
 
         // Temporarily remove unit
@@ -335,7 +338,8 @@ impl Grid {
     }
 
     pub fn find_unit_movable (&self, unit_id: &ID, mov: u16) -> Vec<Location> {
-        let location: Location = *self.get_unit_location (unit_id);
+        let location: Location = *self.get_unit_location (unit_id)
+                .unwrap_or_else (|| panic! ("Location not found for unit {}", unit_id));
         let mut is_visited: Rectangle<bool> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
         let mut locations: Vec<Location> = Vec::new ();
 
@@ -360,7 +364,8 @@ impl Grid {
     pub fn find_unit_cities (&self, unit_id: &ID) -> Vec<ID> {
         assert! (is_rectangular (&self.tiles));
 
-        let location: Location = *self.get_unit_location (unit_id);
+        let location: Location = *self.get_unit_location (unit_id)
+                .unwrap_or_else (|| panic! ("Location not found for unit {}", unit_id));
         let faction_id: ID = self.get_unit_faction (unit_id);
         let mut locations: VecDeque<Location> = VecDeque::new ();
         let mut is_visited: Rectangle<bool> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
@@ -547,7 +552,8 @@ impl Grid {
         assert! (is_rectangular (&self.tiles));
 
         // Find all locations connected to a city controlled by faction_id
-        let location: Location = *self.get_unit_location (unit_id);
+        let location: Location = *self.get_unit_location (unit_id)
+                .unwrap_or_else (|| panic! ("Location not found for unit {}", unit_id));
         let faction_id: ID = self.get_unit_faction (unit_id);
         let mut locations: VecDeque<Location> = VecDeque::new ();
         let mut is_visited: Rectangle<bool> = vec![vec![false; self.tiles[0].len ()]; self.tiles.len ()];
@@ -666,9 +672,8 @@ impl Grid {
         self.tiles[location.0][location.1].is_recruited ()
     }
 
-    pub fn get_unit_location (&self, unit_id: &ID) -> &Location {
+    pub fn get_unit_location (&self, unit_id: &ID) -> Option<&Location> {
         self.unit_locations.get_first (unit_id)
-                .unwrap_or_else (|| panic! ("Location not found for unit {}", unit_id))
     }
 
     pub fn get_location_unit (&self, location: &Location) -> Option<&ID> {
@@ -949,7 +954,7 @@ mod tests {
         let response = grid.move_unit (0, &[Direction::Right]).unwrap ();
         assert_eq! (response.0, (0, 1));
         assert_eq! (response.1, 0);
-        assert_eq! (grid.get_unit_location (&0), &(0, 1));
+        assert_eq! (grid.get_unit_location (&0).unwrap (), &(0, 1));
         assert_eq! (grid.get_location_faction (&(0, 0)), &0);
         assert_eq! (grid.get_location_faction (&(0, 1)), &0);
         // Test sequential move
@@ -958,13 +963,13 @@ mod tests {
         let response = grid.move_unit (0, &[Direction::Right, Direction::Left, Direction::Down]).unwrap (); // Test overlapping move
         assert_eq! (response.0, (1, 1));
         assert_eq! (response.1, 1);
-        assert_eq! (grid.get_unit_location (&0), &(1, 1));
+        assert_eq! (grid.get_unit_location (&0).unwrap (), &(1, 1));
         assert_eq! (grid.get_location_faction (&(0, 1)), &0);
         assert_eq! (grid.get_location_faction (&(0, 2)), &0);
         assert_eq! (grid.get_location_faction (&(1, 1)), &0);
         // Test atomic move
         assert! (grid.move_unit (0, &[Direction::Left, Direction::Right, Direction::Right]).is_none ()); // Test impassable move
-        assert_eq! (grid.get_unit_location (&0), &(1, 1));
+        assert_eq! (grid.get_unit_location (&0).unwrap (), &(1, 1));
     }
 
     #[test]
@@ -1188,7 +1193,7 @@ mod tests {
         assert! (grid.try_spawn_recruit ((0, 1), &0).is_none ());
         // Test normal spawn
         assert_eq! (grid.try_spawn_recruit ((0, 0), &0).unwrap (), (1, 0));
-        assert_eq! (grid.get_unit_location (&1), &(0, 0));
+        assert_eq! (grid.get_unit_location (&1).unwrap (), &(0, 0));
         // Test repeated spawn
         assert! (grid.try_spawn_recruit ((0, 0), &0).is_none ());
     }

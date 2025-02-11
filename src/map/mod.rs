@@ -1,14 +1,11 @@
 mod city;
-pub use self::city::City;
+pub use self::city::*;
 mod grid;
-pub use self::grid::Location;
-pub use self::grid::Direction;
-pub use self::grid::Grid;
+pub use self::grid::*;
 mod terrain;
-pub use self::terrain::Terrain;
+pub use self::terrain::*;
 mod tile;
-pub use self::tile::Tile;
-pub use self::tile::TileBuilder;
+pub use self::tile::*;
 
 pub const COST_IMPASSABLE: u8 = 0;
 pub const COST_MINIMUM: u8 = 1;

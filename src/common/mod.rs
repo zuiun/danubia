@@ -1,10 +1,8 @@
 mod debug;
 mod information;
-pub use self::information::Information;
-mod save;
-pub use self::save::Save;
+pub use self::information::*;
 mod scene;
-pub use self::scene::Scene;
+pub use self::scene::*;
 
 pub type ID = usize;
 

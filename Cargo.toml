@@ -14,7 +14,7 @@ edition = "2021"
 [dependencies.sdl2]
 version = "0.37.*"
 default-features = false
-features = ["ttf", "image", "mixer"]
+features = ["image", "mixer", "ttf", "unsafe_textures"]
 
 [dependencies.serde]
 version = "1.0.*"
